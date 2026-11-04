@@ -196,7 +196,8 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, `usage: acd-ctx <command>
 
 commands:
-  serve     run the compaction proxy (--listen, --upstream, --db, --allow, --config, --markers)
+  serve     run the compaction proxy (--listen, --upstream, --db, --allow, --allow-non-loopback, --allowed-hosts,
+            --config, --markers, --plugin-token-file)
   version   print the version
 
 Other commands:`)

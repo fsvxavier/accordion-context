@@ -139,7 +139,7 @@ project move <old> <new>              re-point a moved project's root path
 project migrate --to local|global     copy the project's sessions between databases
 project purge <id> [--yes]            delete all data of a project
 clean --project <id|path|.> | --session <id> | --older-than <dur> | --all
-                                      delete conversation data: [--dry-run] [--yes] [--backup f.db] [--vacuum] [--exports] [--docker c]
+                                      delete conversation data: [--dry-run] [--yes] [--backup f.db] [--vacuum] [--exports] [--keep-config] [--include-local] [--docker c]
 config show --effective               effective configuration with the source of each key
 claude|codex|gemini|opencode [args]   launch a client through the proxy
 run -- <cmd> [args]                   launch any client whose profile is known
@@ -148,9 +148,10 @@ doctor [--json] [client]              check the installation and, optionally, on
 replay [--check] <trace.jsonl>           re-run a session trace through the kernel and print the window and events
 backup [--project p] [-o f.db] [--stdout] [--force] [--docker c]
                                       write a verified backup of the database or one project
-restore <f.db|--stdin> [--project p] [--mode merge|replace] [--yes] [--to local|global] [--dry-run] [--docker c]
+restore <f.db|--stdin> [--project p] [--mode merge|replace] [--yes] [--to local|global] [--dry-run] [--max-size n] [--docker c]
                                       import a backup in one transaction
 mcp                                   serve the companion MCP server on stdio
+healthcheck [--port N]                probe /__acd-ctx/health on loopback (exit 0 when healthy)
 help                                  show this help
 
 Environment: ACD_CTX_DB overrides the global database path.

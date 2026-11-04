@@ -165,6 +165,7 @@ As chaves reais, com seus padrões (`config show --effective` mostra a mesma lis
 | `ccr.threshold_tokens`, `ccr.crush` | sim | `4000`, `true` |
 | `recall.assist`, `recall.min_accept_rate` | sim | `true`, `0.05` |
 | `storage` | sim | `global` |
+| `window.context_limit`, `window.models` | sim | `0` (derivado do modelo), mapa vazio |
 
 As chaves com os prefixos `upstream.`, `credentials.`, `listen.` e `tools.external_summary.` são reservadas. Elas são ignoradas com um aviso, tanto no arquivo global quanto no local.
 
@@ -302,6 +303,7 @@ Validado por testes automatizados, sem acesso à rede além de loopback:
 - Testes de propriedade (`pgregory.net/rapid`) que verificam as invariantes após passos aleatórios de compactação.
 - Alvos de fuzzing para os parsers de argumentos de ferramenta de cada codec, o handler de `compress` e os frames JSON-RPC do plugin.
 - Testes do proxy contra upstreams falsos (`httptest` em loopback) para os quatro dialetos, incluindo streaming.
+- Testes ponta a ponta (`e2e/`) executam o binário real contra um upstream falso para Anthropic Messages e OpenAI Chat Completions: 80 turnos além de duas vezes uma janela de 128K, dobras e um ciclo de descompressão, invariantes verificados após a execução, e um reinício do proxy no meio da execução.
 - Vetores de conformidade do plugin, reproduzidos por Go, Python e Node.
 - Launchers, `attach` e MITM com binários de cliente substitutos.
 

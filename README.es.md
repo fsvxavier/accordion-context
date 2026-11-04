@@ -165,6 +165,7 @@ Las claves reales, con sus valores por defecto (`config show --effective` muestr
 | `ccr.threshold_tokens`, `ccr.crush` | sí | `4000`, `true` |
 | `recall.assist`, `recall.min_accept_rate` | sí | `true`, `0.05` |
 | `storage` | sí | `global` |
+| `window.context_limit`, `window.models` | sí | `0` (derivado del modelo), mapa vacío |
 
 Las claves con los prefijos `upstream.`, `credentials.`, `listen.` y `tools.external_summary.` están reservadas. Se ignoran con un aviso, tanto en el archivo global como en el local.
 
@@ -302,6 +303,7 @@ Validado con pruebas automáticas, sin acceso a la red más allá de loopback:
 - Pruebas de propiedades (`pgregory.net/rapid`) que comprueban las invariantes tras pasos aleatorios de compactación.
 - Objetivos de fuzzing para los analizadores de argumentos de herramientas de cada códec, el manejador de `compress` y las tramas JSON-RPC del plugin.
 - Pruebas del proxy contra upstreams simulados (`httptest` en loopback) para los cuatro dialectos, incluido el streaming.
+- Pruebas de extremo a extremo (`e2e/`) ejecutan el binario real contra un upstream simulado para Anthropic Messages y OpenAI Chat Completions: 80 turnos más allá del doble de una ventana de 128K, pliegues y un ciclo de descompresión, invariantes verificados tras la ejecución, y un reinicio del proxy a mitad de la ejecución.
 - Vectores de conformidad del plugin, reproducidos por Go, Python y Node.
 - Lanzadores, `attach` y MITM con binarios de cliente sustitutos.
 

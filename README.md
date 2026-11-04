@@ -165,6 +165,7 @@ The real keys, with their defaults (`config show --effective` prints the same li
 | `ccr.threshold_tokens`, `ccr.crush` | yes | `4000`, `true` |
 | `recall.assist`, `recall.min_accept_rate` | yes | `true`, `0.05` |
 | `storage` | yes | `global` |
+| `window.context_limit`, `window.models` | yes | `0` (derived from the model), empty map |
 
 Keys with the prefixes `upstream.`, `credentials.`, `listen.` and `tools.external_summary.` are reserved. They are ignored with a warning, in the global and the local file.
 
@@ -302,6 +303,7 @@ Validated by automated tests, with no network access beyond loopback:
 - Property tests (`pgregory.net/rapid`) that check the invariants after random compression steps.
 - Fuzz targets for the tool-argument parsers of each wire codec, the `compress` handler and the plugin JSON-RPC frames.
 - Proxy tests against fake upstreams (`httptest` on loopback) for the four dialects, including streaming.
+- End-to-end tests (`e2e/`) run the real binary against a fake upstream for Anthropic Messages and OpenAI Chat Completions: 80 turns past twice a 128K window, folds and a decompress round trip, invariants checked after the run, and a proxy restart mid-run.
 - Plugin conformance vectors, replayed by Go, Python and Node.
 - Launchers, `attach` and MITM with stand-in client binaries.
 

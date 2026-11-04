@@ -3,11 +3,13 @@ package attach
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -33,6 +35,10 @@ func TestHelperProcess(t *testing.T) {
 		target = os.Getenv(os.Getenv("ATTACH_TEST_VAR")) + "/v1/messages"
 	case "https":
 		target = "https://api.acd-ctx.invalid/v1/messages"
+	case "file":
+		target = helperConfigBase(os.Getenv("ATTACH_TEST_CFG")) + "/v1/messages"
+	case "flag":
+		target = helperFlagValue("--api-base") + "/v1/messages"
 	default:
 		os.Exit(4)
 	}
@@ -43,7 +49,39 @@ func TestHelperProcess(t *testing.T) {
 		os.Exit(3)
 	}
 	_ = resp.Body.Close()
+	if code := os.Getenv("ATTACH_TEST_EXIT"); code != "" {
+		n, _ := strconv.Atoi(code)
+		os.Exit(n)
+	}
 	os.Exit(0)
+}
+
+// helperConfigBase reads the "base_url" key of the JSON config at path.
+func helperConfigBase(path string) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		os.Stderr.WriteString("helper: " + err.Error() + "\n")
+		os.Exit(6)
+	}
+	var doc struct {
+		BaseURL string `json:"base_url"`
+	}
+	if err := json.Unmarshal(b, &doc); err != nil || doc.BaseURL == "" {
+		os.Stderr.WriteString("helper: config has no base_url\n")
+		os.Exit(6)
+	}
+	return doc.BaseURL
+}
+
+// helperFlagValue returns the argument that follows flag in os.Args.
+func helperFlagValue(flag string) string {
+	for i, a := range os.Args {
+		if a == flag && i+1 < len(os.Args) {
+			return os.Args[i+1]
+		}
+	}
+	os.Exit(7)
+	return ""
 }
 
 // clientProfile is a declarative profile whose command is the test binary.

@@ -53,6 +53,10 @@ type plan struct {
 	probes   []probe
 	all      bool
 	usesMITM bool
+	// flags are argv tokens for the client, placed before its own arguments
+	// unless flagsAfter is set.
+	flags      []string
+	flagsAfter bool
 }
 
 // runProbes runs p's probes. It returns "verified" and true on success, or the

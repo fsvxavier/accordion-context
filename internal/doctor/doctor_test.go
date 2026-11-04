@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fsvxavier/accordion-context/internal/launcher"
 	"github.com/fsvxavier/accordion-context/internal/mitm"
 	"github.com/fsvxavier/accordion-context/internal/store"
 )
@@ -253,6 +254,27 @@ func TestIntegrationForClient(t *testing.T) {
 	r, _ = Run(context.Background(), o)
 	if c := find(t, r, "integration"); c.Status != Warn || !strings.Contains(c.Detail, "console") {
 		t.Fatalf("unknown = %+v", c)
+	}
+}
+
+func TestIntegrationDescribesFlagAndTempConfigDegrees(t *testing.T) {
+	o := base(t)
+	o.Client = "flagged-cli"
+	o.Profiles = []launcher.Profile{{
+		Name:        "flagged",
+		Match:       []string{"flagged-cli"},
+		Upstream:    "https://api.example.com/v1",
+		BaseURLFlag: "--api-base {url}",
+		TempConfig:  &launcher.TempConfig{PathFlag: "--config {path}", Format: "json", Template: `{"base_url": "{url}"}`},
+	}}
+	r, _ := Run(context.Background(), o)
+	if c := find(t, r, "integration"); c.Status != Pass || !strings.Contains(c.Detail, "base-url-flag") || !strings.Contains(c.Detail, "temp-config") {
+		t.Fatalf("flag+temp profile = %+v", c)
+	}
+	o.Profiles[0].Quirks = map[string]any{"ignores_base_url": true}
+	r, _ = Run(context.Background(), o)
+	if c := find(t, r, "integration"); c.Status != Pass || !strings.Contains(c.Detail, "ignores base URLs") {
+		t.Fatalf("ignores_base_url profile = %+v", c)
 	}
 }
 

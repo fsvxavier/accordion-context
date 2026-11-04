@@ -2,25 +2,32 @@
 // through the Accordion Context proxy, without touching the client's own
 // configuration (spec §19.9, "Escada automática de integração").
 //
-// The ladder has two working degrees, tried in order:
+// The ladder tries these degrees in order and uses the first one that is
+// verified:
 //
-//  1. base-url-env: the client's base URL variable points at the proxy. For a
+//  1. base-url-env: the profile's base URL variable points at the proxy. For a
 //     command without a known profile (console mode), every known base URL
 //     variable is set at once, together with the MITM variables.
-//  2. mitm: HTTPS_PROXY points at the in-process MITM listener and the CA
+//  2. base-url-flag and temp-config: the profile's command-line flag, or a
+//     temporary config file in a per-run 0700 directory, carries the base URL.
+//     Only a matched profile that declares them is tried. A profile with
+//     quirks.ignores_base_url skips degrees 1 and 2.
+//  3. mitm: HTTPS_PROXY points at the in-process MITM listener and the CA
 //     bundle variables trust the per-install CA, for this process only.
 //
 // Each degree is verified before the client starts. acd-ctx sends probe
-// requests along the path the client's environment would use (the base URL,
-// or HTTPS_PROXY plus the CA bundle). The listener answers a probe itself,
-// without contacting any upstream, and a degree counts as working only when
-// its probes arrive. The client then runs once with the winning environment.
-// Requests the client sends are counted in Result.Hits. A client's own use of
-// the integration cannot be probed before it runs, so Hits reports it after.
+// requests along the path the client's environment or arguments would use (the
+// base URL, or HTTPS_PROXY plus the CA bundle). The listener answers a probe
+// itself, without contacting any upstream, and a degree counts as working only
+// when its probes arrive. The client then runs once with the winning
+// environment and arguments. Requests the client sends are counted in
+// Result.Hits. A client's own use of the integration cannot be probed before it
+// runs, so Hits reports it after.
 //
 // The proxy runs in-process on a loopback port that lives as long as the
-// command, so the hit counter sits on the real handler. The --system-proxy and
-// --transparent degrees are not implemented in this build.
+// command, so the hit counter sits on the real handler. An interrupt during the
+// checks ends the run, and the temp files are removed on every exit path. The
+// --system-proxy and --transparent degrees are not implemented in this build.
 package attach
 
 import (
@@ -44,9 +51,11 @@ import (
 
 // Degree names, as reported in Result.Degree and Attempt.Degree.
 const (
-	DegreeBaseURL = "base-url-env"
-	DegreeConsole = "console"
-	DegreeMITM    = "mitm"
+	DegreeBaseURL    = "base-url-env"
+	DegreeFlag       = "base-url-flag"
+	DegreeTempConfig = "temp-config"
+	DegreeConsole    = "console"
+	DegreeMITM       = "mitm"
 )
 
 // ErrNotImplemented is wrapped by the degrees this build does not provide.
@@ -93,6 +102,14 @@ type Options struct {
 	Logger *slog.Logger
 
 	skip map[string]bool // degrees to skip; set by tests
+	// signals replaces the process signal subscription; tests send on it.
+	signals <-chan os.Signal
+	// tmpRoot is the parent of the run's temp dir. Empty means the system
+	// temp dir; tests set it to check that nothing is left behind.
+	tmpRoot string
+	// beforeProbe runs before each degree's probes. Tests use it to interrupt
+	// a run during the checks.
+	beforeProbe func(ctx context.Context, degree string)
 }
 
 // Attempt records one degree of the ladder.
@@ -113,8 +130,9 @@ type Result struct {
 }
 
 // Run verifies the ladder, starts the client once with the first working
-// degree, and returns the client's exit code. An error means that setup failed
-// or no degree could be verified, and then the client is not started.
+// degree, and returns the client's exit code. An error means that setup failed,
+// no degree could be verified, or the run was interrupted, and then the client
+// is not started (or was ended by the interrupt).
 func Run(ctx context.Context, o Options) (Result, error) {
 	if o.SystemProxy {
 		return Result{}, fmt.Errorf("attach: --system-proxy %w", ErrNotImplemented)
@@ -131,6 +149,15 @@ func Run(ctx context.Context, o Options) (Result, error) {
 	if o.ProbeTimeout <= 0 {
 		o.ProbeTimeout = defaultProbeTimeout
 	}
+
+	// The checks run under pctx, which an interrupt cancels. The relay is
+	// subscribed before any file is created, so a signal cannot kill the
+	// process before the deferred cleanup below is registered.
+	pctx, cancelProbes := context.WithCancel(ctx)
+	defer cancelProbes()
+	rl := newRelay(o.signals, cancelProbes)
+	defer rl.close()
+
 	extra, err := normalizeDomains(o.MITMDomains)
 	if err != nil {
 		return Result{}, err
@@ -156,7 +183,7 @@ func Run(ctx context.Context, o Options) (Result, error) {
 		return Result{}, fmt.Errorf("attach: no host to intercept for %q; pass --mitm-domain", o.Args[0])
 	}
 
-	tmp, err := os.MkdirTemp("", "acd-ctx-attach-")
+	tmp, err := os.MkdirTemp(o.tmpRoot, "acd-ctx-attach-")
 	if err != nil {
 		return Result{}, fmt.Errorf("attach: temp dir: %w", err)
 	}
@@ -183,8 +210,11 @@ func Run(ctx context.Context, o Options) (Result, error) {
 	defer rt.close()
 	sc.rt = rt
 
-	chosen, attempts, ok := sc.climb(ctx)
+	chosen, attempts, ok := sc.climb(pctx)
 	out := Result{Attempts: attempts}
+	if sig := rl.interrupted(); sig != nil {
+		return out, fmt.Errorf("attach: interrupted (%v) during the integration check", sig)
+	}
 	if !ok {
 		return out, fmt.Errorf("attach: no integration degree could be verified for %q: %s", o.Args[0], summarize(attempts))
 	}
@@ -193,7 +223,8 @@ func Run(ctx context.Context, o Options) (Result, error) {
 		out.Notes = append(out.Notes, sc.mitm.notes...)
 	}
 
-	code, err := runChild(ctx, o, cwd, buildEnv(o.Environ, chosen.env))
+	argv := launcher.ArgvWith(o.Args, chosen.flags, chosen.flagsAfter)
+	code, err := runChild(ctx, o, rl, argv, cwd, buildEnv(o.Environ, chosen.env))
 	out.ExitCode = code
 	out.Hits = rt.gate.hits.Load()
 	if err != nil {
@@ -219,6 +250,7 @@ type scope struct {
 	tmp      string
 	dir      string // project directory handed to the proxy as a header
 	rt       *runtime
+	token    string // per-run value of the {token} placeholder
 
 	mitmDone bool
 	mitm     *mitmState
@@ -266,33 +298,53 @@ func newScope(o Options, extra []string) (*scope, error) {
 	return sc, nil
 }
 
-// climb tries the degrees in order and returns the first verified plan.
+// climb tries the degrees in order and returns the first verified plan. Once
+// ctx is canceled no further degree is probed.
 func (sc *scope) climb(ctx context.Context) (plan, []Attempt, bool) {
 	var attempts []Attempt
 	try := func(p plan) bool {
 		att := Attempt{Degree: p.degree}
-		if sc.o.skip[p.degree] {
+		switch {
+		case sc.o.skip[p.degree]:
 			att.Reason = "skipped"
-		} else {
+		case ctx.Err() != nil:
+			att.Reason = "interrupted"
+		default:
+			if sc.o.beforeProbe != nil {
+				sc.o.beforeProbe(ctx, p.degree)
+			}
 			att.Reason, att.OK = runProbes(ctx, p)
 		}
 		attempts = append(attempts, att)
 		return att.OK
 	}
 
-	if len(sc.targets) > 0 {
-		if sc.matched {
-			if p := sc.baseURLPlan(); try(p) {
-				return p, attempts, true
+	switch {
+	case sc.matched && sc.prof.IgnoresBaseURL():
+		for _, d := range sc.declaredDegrees() {
+			attempts = append(attempts, Attempt{Degree: d, Reason: "skipped: quirks.ignores_base_url"})
+		}
+	case sc.matched:
+		for _, d := range sc.baseOrder() {
+			p, err := sc.basePlan(d)
+			if err != nil {
+				attempts = append(attempts, Attempt{Degree: d, Reason: err.Error()})
+				continue
 			}
-		} else {
-			p := sc.consolePlan()
 			if try(p) {
 				return p, attempts, true
 			}
 		}
+	case len(sc.targets) > 0:
+		if p := sc.consolePlan(); try(p) {
+			return p, attempts, true
+		}
 	}
 
+	if err := ctx.Err(); err != nil {
+		attempts = append(attempts, Attempt{Degree: DegreeMITM, Reason: "interrupted"})
+		return plan{}, attempts, false
+	}
 	m, err := sc.getMITM()
 	if err != nil {
 		attempts = append(attempts, Attempt{Degree: DegreeMITM, Reason: err.Error()})

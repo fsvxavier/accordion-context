@@ -480,10 +480,23 @@ func checkIntegration(client string, profiles []launcher.Profile) Check {
 	if !ok {
 		return Check{name, Warn, fmt.Sprintf("no profile for %q: attach uses console mode (every known base URL variable plus MITM)", client)}
 	}
-	if p.BaseURLEnv != "" {
-		return Check{name, Pass, fmt.Sprintf("profile %q: base-url-env degree via %s, mitm degree as fallback", p.Name, p.BaseURLEnv)}
+	if p.IgnoresBaseURL() {
+		return Check{name, Pass, fmt.Sprintf("profile %q ignores base URLs (quirks.ignores_base_url): the mitm degree applies", p.Name)}
 	}
-	return Check{name, Pass, fmt.Sprintf("profile %q has no base URL variable: the mitm degree applies", p.Name)}
+	var degrees []string
+	if p.BaseURLEnv != "" {
+		degrees = append(degrees, "base-url-env via "+p.BaseURLEnv)
+	}
+	if p.BaseURLFlag != "" {
+		degrees = append(degrees, "base-url-flag")
+	}
+	if p.TempConfig != nil {
+		degrees = append(degrees, "temp-config")
+	}
+	if len(degrees) == 0 {
+		return Check{name, Pass, fmt.Sprintf("profile %q has no base URL setting: the mitm degree applies", p.Name)}
+	}
+	return Check{name, Pass, fmt.Sprintf("profile %q: %s, mitm degree as fallback", p.Name, strings.Join(degrees, ", "))}
 }
 
 func isBaseURLVar(k string) bool {

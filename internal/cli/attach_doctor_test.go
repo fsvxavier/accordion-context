@@ -48,7 +48,7 @@ func TestLoadClientProfilesFromConfigDirAndFlag(t *testing.T) {
 	}
 
 	bad := filepath.Join(t.TempDir(), "bad.yaml")
-	if err := os.WriteFile(bad, []byte("profiles:\n  - name: x\n    detect: {}\n"), 0o600); err != nil {
+	if err := os.WriteFile(bad, []byte("profiles:\n  - name: x\n    bogus_key: {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := loadClientProfiles(s, bad); err == nil {

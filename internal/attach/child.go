@@ -4,41 +4,34 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
-	"os/signal"
 	"syscall"
 )
 
-// runChild starts the client with env and returns its exit status: its own
-// code, or 128+signal when a signal ended it. Signals received here are
-// forwarded to the client, and ctx cancellation kills it.
-func runChild(ctx context.Context, o Options, dir string, env []string) (int, error) {
-	cmd := exec.Command(o.Args[0], o.Args[1:]...)
+// runChild starts the client with argv (argv[0] is the command) and env, and
+// returns its exit status: its own code, or 128+signal when a signal ended it.
+// Signals reach the client through rl, and ctx cancellation kills it.
+func runChild(ctx context.Context, o Options, rl *relay, argv []string, dir string, env []string) (int, error) {
+	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = dir
 	cmd.Env = env
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = o.Stdin, o.Stdout, o.Stderr
-	if err := cmd.Start(); err != nil {
+	started, err := rl.start(cmd)
+	if err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
-			return 127, fmt.Errorf("attach: start %s: %w", o.Args[0], err)
+			return 127, fmt.Errorf("attach: start %s: %w", argv[0], err)
 		}
-		return 1, fmt.Errorf("attach: start %s: %w", o.Args[0], err)
+		return 1, fmt.Errorf("attach: start %s: %w", argv[0], err)
 	}
-	sigc := make(chan os.Signal, 1)
-	signal.Notify(sigc, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
-	defer signal.Stop(sigc)
+	if !started {
+		return 130, fmt.Errorf("attach: interrupted (%v) before the client started", rl.interrupted())
+	}
 	done := make(chan struct{})
 	go func() {
-		for {
-			select {
-			case s := <-sigc:
-				_ = cmd.Process.Signal(s)
-			case <-ctx.Done():
-				_ = cmd.Process.Kill()
-				return
-			case <-done:
-				return
-			}
+		select {
+		case <-ctx.Done():
+			_ = cmd.Process.Kill()
+		case <-done:
 		}
 	}()
 	waitErr := cmd.Wait()

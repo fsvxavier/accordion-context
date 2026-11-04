@@ -303,8 +303,20 @@ func (s *Server) compactTurn(w http.ResponseWriter, r *http.Request, rt routed, 
 		s.failOpen(w, r, rt, body, "inject", err)
 		return
 	}
+	held := s.takeHeld(sid)
 	if plan.Decision.Nudge {
-		spans := nudgeSpans(snap, sess.Settings())
+		all := nudgeSpans(snap, sess.Settings())
+		spans := dropHeld(all, held)
+		if len(all) > 0 && len(spans) == 0 {
+			// Everything on offer was just expanded by decompress: undo the nudge count.
+			if err := sess.DeferNudge(ctx, plan); err != nil {
+				s.cfg.Logger.Warn("anti-flap: trigger undo failed", "session", sid, "err", err)
+			}
+			plan.Decision.Nudge = false
+		}
+	}
+	if plan.Decision.Nudge {
+		spans := dropHeld(nudgeSpans(snap, sess.Settings()), held)
 		send := s.gateNudge(ctx, sid, gateIn{
 			sess: sess, plan: plan, spans: spans, visible: window,
 			tokens: tokenCount, limit: snap.ContextLimit, cfg: cfg,
@@ -559,6 +571,7 @@ func (s *Server) decompress(t *turn, args toolArgs) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		s.holdSpan(t.sid, blk.StartSeq, blk.EndSeq)
 		return fmt.Sprintf("Expanded %s into %s; reactivated: %s. Their messages are visible again.",
 			args.block, res.Target, strings.Join(res.Reactivated, ", ")), nil
 	}
@@ -645,6 +658,10 @@ func (s *Server) upstreamCall(r *http.Request, up *url.URL, path string, body []
 	u := *up
 	u.Path = strings.TrimRight(up.Path, "/") + path
 	u.RawPath = ""
+	if esc := escapedTail(r.URL, path); esc != "" {
+		// Keep %2F and friends as the client sent them.
+		u.RawPath = strings.TrimRight(up.EscapedPath(), "/") + esc
+	}
 	u.RawQuery = r.URL.RawQuery
 	req, err := http.NewRequestWithContext(r.Context(), r.Method, u.String(), bytes.NewReader(body))
 	if err != nil {
@@ -876,4 +893,27 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// escapedTail returns the part of u's escaped path that decodes to path, when
+// path is a suffix of the decoded path (routing only strips prefixes). It is ""
+// when the request had no escapes or the suffix cannot be located.
+func escapedTail(u *url.URL, path string) string {
+	if u.RawPath == "" || !strings.HasSuffix(u.Path, path) {
+		return ""
+	}
+	esc := u.EscapedPath()
+	skip := len(u.Path) - len(path) // decoded bytes to drop
+	i := 0
+	for ; skip > 0 && i < len(esc); skip-- {
+		if esc[i] == '%' {
+			i += 3
+		} else {
+			i++
+		}
+	}
+	if skip != 0 || i > len(esc) {
+		return ""
+	}
+	return esc[i:]
 }

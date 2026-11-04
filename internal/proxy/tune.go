@@ -31,10 +31,63 @@ var unitFactor = *apd.New(1, 0)
 // turns. It is lost on restart: calibration then starts again at 1.0 (§15).
 type tune struct {
 	calib     kernel.Calib
-	lastCall  time.Time // last upstream call; zero until the first one
-	deferred  bool      // the last nudge was deferred by the cache gate (§9.3)
-	sinceFold int       // upstream calls since the last fold
-	gaps      []int     // upstream calls between folds, oldest first
+	lastCall  time.Time  // last upstream call; zero until the first one
+	deferred  bool       // the last nudge was deferred by the cache gate (§9.3)
+	sinceFold int        // upstream calls since the last fold
+	gaps      []int      // upstream calls between folds, oldest first
+	held      []heldSpan // ranges a decompress expanded; not re-nudged for a few turns
+}
+
+// heldTurns is how many requests a decompressed range is kept out of the
+// nudge's span list, so expanding a block is not immediately undone by a nudge
+// that offers the same messages again (anti-flap).
+const heldTurns = 3
+
+type heldSpan struct {
+	lo, hi int64
+	left   int
+}
+
+// holdSpan keeps [lo,hi] of sid out of the nudge for the next heldTurns requests.
+func (s *Server) holdSpan(sid string, lo, hi int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t := s.tuneLocked(sid)
+	t.held = append(t.held, heldSpan{lo, hi, heldTurns})
+}
+
+// takeHeld returns the ranges to hold back on this request and ages them by one.
+func (s *Server) takeHeld(sid string) []heldSpan {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t := s.tuneLocked(sid)
+	cur := append([]heldSpan(nil), t.held...)
+	keep := t.held[:0]
+	for _, h := range t.held {
+		if h.left--; h.left > 0 {
+			keep = append(keep, h)
+		}
+	}
+	t.held = keep
+	return cur
+}
+
+// dropHeld removes the spans that overlap a held range.
+func dropHeld(spans []kernel.Span, held []heldSpan) []kernel.Span {
+	if len(held) == 0 {
+		return spans
+	}
+	var out []kernel.Span
+next:
+	for _, sp := range spans {
+		for _, h := range held {
+			if sp.StartSeq <= h.hi && h.lo <= sp.EndSeq {
+				continue next
+			}
+		}
+		out = append(out, sp)
+	}
+	return out
 }
 
 // tuneLocked returns the state of sid, creating it. s.mu must be held.

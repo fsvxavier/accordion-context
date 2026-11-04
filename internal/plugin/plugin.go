@@ -66,7 +66,10 @@ type Config struct {
 	Version    string
 	// ContextLimit is used when runtime-info names no window. Default 200000.
 	ContextLimit int
-	Logger       *slog.Logger // default: discard
+	// ExportDir receives the files of decompress mode file. Default: the
+	// project's exports directory (see exportsDir).
+	ExportDir string
+	Logger    *slog.Logger // default: discard
 }
 
 // runtimeInfo is what runtime-info reports. It applies when a session is created.
@@ -102,6 +105,11 @@ func New(cfg Config) (*Handler, error) {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
+	if cfg.ExportDir == "" {
+		if dir, err := exportsDir(cfg.Project); err == nil {
+			cfg.ExportDir = dir
+		}
+	}
 	if err := cfg.Store.EnsureProject(context.Background(), cfg.Project.ID, cfg.Project.Root,
 		cfg.Project.Storage, nowUnix()); err != nil {
 		return nil, fmt.Errorf("plugin: project row: %w", err)
@@ -112,7 +120,7 @@ func New(cfg Config) (*Handler, error) {
 	}
 	return &Handler{
 		cfg: cfg, hosts: hosts,
-		tools:    tools{st: cfg.Store},
+		tools:    tools{st: cfg.Store, exports: cfg.ExportDir},
 		sessions: map[string]*session.Session{},
 	}, nil
 }
@@ -149,10 +157,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case pathStatus:
 		h.onlyMethod(w, r, http.MethodGet, h.handleStatus)
 	case pathCompact:
-		// Forced compaction has no session API yet (spec §19.4). Fail explicitly.
-		h.onlyMethod(w, r, http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
-			writeErr(w, http.StatusNotImplemented, "compact is not implemented yet")
-		})
+		h.onlyMethod(w, r, http.MethodPost, h.handleCompact)
 	default:
 		http.NotFound(w, r)
 	}
@@ -343,6 +348,40 @@ func (h *Handler) handleTurn(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+type compactReq struct {
+	ConversationID string `json:"conversationId"`
+}
+
+// handleCompact is POST compact: a user-requested compaction (spec §19.4). It
+// offers the compressible spans of the conversation and arms a nudge for the
+// next turn. An unknown conversation is 404.
+func (h *Handler) handleCompact(w http.ResponseWriter, r *http.Request) {
+	var req compactReq
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	if !validID(req.ConversationID) {
+		writeErr(w, http.StatusBadRequest, "conversationId is required (max 256 characters)")
+		return
+	}
+	ctx := r.Context()
+	sess, sid, _, err := h.get(ctx, req.ConversationID, nil)
+	if err != nil {
+		writeStoreErr(w, h.cfg.Logger, err)
+		return
+	}
+	res, err := sess.Compact(ctx, session.CompactOptions{})
+	if err != nil {
+		writeStoreErr(w, h.cfg.Logger, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"sessionId":    sid,
+		"nudgePending": res.NudgePending,
+		"spans":        session.SpanPayload(res.Spans),
+	})
+}
+
 type toolReq struct {
 	ConversationID string          `json:"conversationId"`
 	Name           string          `json:"name"`
@@ -524,8 +563,6 @@ func writeToolErr(w http.ResponseWriter, log *slog.Logger, err error) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, errBadArgs):
 		writeErr(w, http.StatusBadRequest, err.Error())
-	case errors.Is(err, errSearchUnavailable):
-		writeErr(w, http.StatusNotImplemented, err.Error())
 	default:
 		log.Info("plugin: tool refused", "err", err)
 		writeErr(w, http.StatusUnprocessableEntity, err.Error())

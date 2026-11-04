@@ -102,9 +102,18 @@ describe("PluginClient", () => {
     assert.deepEqual(await c.status(), { messages: 2 });
   });
 
-  it("compact reports 501 until forced compaction exists", async () => {
-    const c = await serve({ "POST /compact": () => [501, { error: "compact is not implemented yet" }] });
-    await assert.rejects(() => c.compact(), (err) => err.status === 501);
+  it("compact returns the spans and the nudge flag", async () => {
+    const c = await serve({
+      "POST /compact": () => [200, { sessionId: "s", nudgePending: true, spans: [{ start: "m00002", end: "m00004", tokens: 6000 }] }],
+    });
+    const out = await c.compact();
+    assert.equal(out.nudgePending, true);
+    assert.equal(out.spans[0].start, "m00002");
+  });
+
+  it("compact of an unknown conversation is a 404", async () => {
+    const c = await serve({ "POST /compact": () => [404, { error: "unknown conversation" }] });
+    await assert.rejects(() => c.compact(), (err) => err.status === 404);
   });
 
   it("requires a conversation id", async () => {

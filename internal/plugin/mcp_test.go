@@ -125,10 +125,10 @@ func TestMCPToolCallsReadTheLatestSession(t *testing.T) {
 	if !strings.HasPrefix(retrieved["text"].(string), "message 2 ") {
 		t.Fatalf("retrieve text = %v", retrieved["text"])
 	}
-	// search_context is not available yet: an isError result, not a protocol error.
-	res := parseOne(t, out[2])["result"].(map[string]any)
-	if res["isError"] != true || !strings.Contains(res["content"].([]any)[0].(map[string]any)["text"].(string), "not available") {
-		t.Fatalf("search_context result = %v", res)
+	// No summary says "matcher" in this session, so the search finds nothing.
+	hits := toolText(t, out[2])["hits"].([]any)
+	if len(hits) != 0 {
+		t.Fatalf("search_context hits = %v, want none", hits)
 	}
 }
 

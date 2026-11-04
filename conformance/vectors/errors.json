@@ -1,6 +1,6 @@
 {
   "suite": "errors",
-  "description": "Malformed requests, unknown conversations and endpoints that are not implemented yet.",
+  "description": "Malformed requests, unknown conversations and unknown endpoints.",
   "vectors": [
     {
       "name": "turn_invalid_json",
@@ -82,11 +82,11 @@
       ]
     },
     {
-      "name": "compact_not_implemented",
-      "description": "Forced compaction has no session API yet, so it fails explicitly with 501.",
+      "name": "compact_unknown_conversation",
+      "description": "Forced compaction of a conversation that was never seen is 404.",
       "steps": [
         {"request": {"method": "POST", "path": "compact", "body": {"conversationId": "{conv}"}},
-         "expect": {"status": 501, "json": {"error": "$any"}}}
+         "expect": {"status": 404, "json": {"error": "$any"}}}
       ]
     }
   ]

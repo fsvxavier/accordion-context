@@ -164,7 +164,7 @@ export class PluginClient {
     return this.#call("GET", `/status?${query}`);
   }
 
-  /** POST compact. The server answers 501 until forced compaction exists. */
+  /** POST compact: offer the compressible spans and nudge the next turn. */
   async compact(conversationId) {
     return this.#call("POST", "/compact", { conversationId: this.#cid(conversationId) });
   }

@@ -88,7 +88,11 @@ func NewMCP(cfg MCPConfig) (*MCP, error) {
 		return nil, err
 	}
 	m := &MCP{cfg: cfg, reader: rd, projectID: res.ID}
-	t := tools{st: cfg.Store}
+	exports, err := exportsDir(res)
+	if err != nil {
+		exports = ""
+	}
+	t := tools{st: cfg.Store, exports: exports}
 	m.backend = func(ctx context.Context, name string, args json.RawMessage) (any, error) {
 		sid, err := rd.latestSession(ctx, m.projectID)
 		if errors.Is(err, sql.ErrNoRows) {

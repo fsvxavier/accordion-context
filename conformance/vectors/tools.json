@@ -265,43 +265,160 @@
         }
       ]
     },
-    {
-      "name": "tool_search_context_not_available",
-      "description": "search_context stays in the manifest but reports 501 until the store has a search API.",
-      "steps": [
-        {
-          "request": {
-            "method": "POST",
-            "path": "runtime-info",
-            "body": {
-              "conversationId": "{conv}"
+      {
+        "name": "tool_search_context_hits",
+        "description": "search_context finds the messages whose words all match, ranked, with the ref as key. Words are matched whole: timeout does not match a longer word.",
+        "steps": [
+          {
+            "request": {
+              "method": "POST",
+              "path": "runtime-info",
+              "body": {
+                "conversationId": "{conv}"
+              }
+            },
+            "expect": {
+              "status": 200
             }
           },
-          "expect": {
-            "status": 200
-          }
-        },
-        {
-          "request": {
-            "method": "POST",
-            "path": "tool",
-            "body": {
-              "conversationId": "{conv}",
-              "name": "search_context",
-              "arguments": {
-                "query": "port"
+          {
+            "request": {
+              "method": "POST",
+              "path": "turn",
+              "body": {
+                "conversationId": "{conv}",
+                "messages": [
+                  {
+                    "role": "user",
+                    "kind": "text",
+                    "text": "Investigate the timeout in the upstream client.",
+                    "tokens": 10
+                  },
+                  {
+                    "role": "assistant",
+                    "kind": "text",
+                    "text": "Lowered the retry budget in client.go.",
+                    "tokens": 10
+                  },
+                  {
+                    "role": "user",
+                    "kind": "text",
+                    "text": "Labels use the tier name.",
+                    "tokens": 10
+                  }
+                ]
+              }
+            },
+            "expect": {
+              "status": 200
+            }
+          },
+          {
+            "request": {
+              "method": "POST",
+              "path": "tool",
+              "body": {
+                "conversationId": "{conv}",
+                "name": "search_context",
+                "arguments": {
+                  "query": "timeout"
+                }
+              }
+            },
+            "expect": {
+              "status": 200,
+              "json": {
+                "result": {
+                  "query": "timeout",
+                  "hits": [
+                    {
+                      "kind": "message",
+                      "key": "m00001",
+                      "snippet": "$any",
+                      "score": "$any"
+                    }
+                  ]
+                }
               }
             }
+          }
+        ]
+      },
+      {
+        "name": "tool_search_context_no_terms",
+        "description": "A query with no letters or digits has nothing to match and is a bad argument, not an FTS syntax error.",
+        "steps": [
+          {
+            "request": {
+              "method": "POST",
+              "path": "runtime-info",
+              "body": {
+                "conversationId": "{conv}"
+              }
+            },
+            "expect": {
+              "status": 200
+            }
           },
-          "expect": {
-            "status": 501,
-            "json": {
-              "error": "$any"
+          {
+            "request": {
+              "method": "POST",
+              "path": "tool",
+              "body": {
+                "conversationId": "{conv}",
+                "name": "search_context",
+                "arguments": {
+                  "query": "*  \""
+                }
+              }
+            },
+            "expect": {
+              "status": 400,
+              "json": {
+                "error": "$any"
+              }
             }
           }
-        }
-      ]
-    },
+        ]
+      },
+      {
+        "name": "tool_search_context_limit_out_of_range",
+        "description": "search_context limit above 50 is a bad argument.",
+        "steps": [
+          {
+            "request": {
+              "method": "POST",
+              "path": "runtime-info",
+              "body": {
+                "conversationId": "{conv}"
+              }
+            },
+            "expect": {
+              "status": 200
+            }
+          },
+          {
+            "request": {
+              "method": "POST",
+              "path": "tool",
+              "body": {
+                "conversationId": "{conv}",
+                "name": "search_context",
+                "arguments": {
+                  "query": "timeout",
+                  "limit": 51
+                }
+              }
+            },
+            "expect": {
+              "status": 400,
+              "json": {
+                "error": "$any"
+              }
+            }
+          }
+        ]
+      },
     {
       "name": "tool_bad_arguments_json",
       "description": "Arguments that are not an object for the tool are 400.",

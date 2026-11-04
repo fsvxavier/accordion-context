@@ -88,7 +88,7 @@ func newHandler(t *testing.T) *plugin.Handler {
 		t.Fatal(err)
 	}
 	h, err := plugin.New(plugin.Config{Store: st, Project: proj, Token: testToken,
-		ListenHost: "127.0.0.1", Version: "conformance"})
+		ListenHost: "127.0.0.1", Version: "conformance", ExportDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}

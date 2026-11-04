@@ -22,6 +22,7 @@ type testEnv struct {
 	st      *store.Store
 	dbPath  string
 	dir     string
+	exports string
 	proj    project.Resolved
 	handler *Handler
 }
@@ -39,11 +40,12 @@ func newEnv(t *testing.T) *testEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := New(Config{Store: st, Project: proj, Token: testToken, Version: "test"})
+	exports := t.TempDir()
+	h, err := New(Config{Store: st, Project: proj, Token: testToken, Version: "test", ExportDir: exports})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &testEnv{st: st, dbPath: dbPath, dir: dir, proj: proj, handler: h}
+	return &testEnv{st: st, dbPath: dbPath, dir: dir, exports: exports, proj: proj, handler: h}
 }
 
 // do sends one request through the guards and the router.
@@ -257,11 +259,44 @@ func TestBodyLimitAnd413(t *testing.T) {
 	}
 }
 
-func TestCompactIsExplicitlyNotImplemented(t *testing.T) {
+func TestCompactUnknownConversationIs404(t *testing.T) {
 	e := newEnv(t)
 	rec := e.do(t, "POST", pathCompact, map[string]any{"conversationId": "c"}, nil)
-	if rec.Code != http.StatusNotImplemented {
-		t.Fatalf("compact status = %d, want 501", rec.Code)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("compact status = %d, want 404", rec.Code)
+	}
+}
+
+// TestCompactArmsNextNudge: compact offers the spans and the next turn nudges
+// with tier 1 even though the window is far from the usage bands.
+func TestCompactArmsNextNudge(t *testing.T) {
+	e := newEnv(t)
+	conv := "conv-compact"
+	msgs := transcript(30)
+	if rec := e.do(t, "POST", pathTurn, map[string]any{"conversationId": conv, "messages": msgs}, nil); rec.Code != http.StatusOK {
+		t.Fatalf("turn status = %d: %s", rec.Code, rec.Body.String())
+	}
+	rec := e.do(t, "POST", pathCompact, map[string]any{"conversationId": conv}, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("compact status = %d: %s", rec.Code, rec.Body.String())
+	}
+	body := decodeMap(t, rec)
+	if body["nudgePending"] != true {
+		t.Fatalf("nudgePending = %v, want true", body["nudgePending"])
+	}
+	spans := body["spans"].([]any)
+	if len(spans) != 1 || spans[0].(map[string]any)["start"] != "m00002" {
+		t.Fatalf("spans = %v, want one span from m00002", spans)
+	}
+
+	next := append(msgs, transcript(31)[30])
+	rec = e.do(t, "POST", pathTurn, map[string]any{"conversationId": conv, "messages": next}, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("next turn status = %d: %s", rec.Code, rec.Body.String())
+	}
+	dec := decodeMap(t, rec)["decision"].(map[string]any)
+	if dec["nudge"] != true || dec["tier"] != float64(1) || dec["row"] != "forced" {
+		t.Fatalf("decision after compact = %v, want forced tier-1 nudge", dec)
 	}
 }
 
@@ -312,13 +347,23 @@ func TestToolFlowCompressRetrieveSearchStatus(t *testing.T) {
 		t.Fatalf("retrieve text = %q", text)
 	}
 
-	// search_context has no store API to run on yet: 501, not a silent empty result.
+	// search_context finds the block summary; the messages do not say "matcher".
 	rec = e.do(t, "POST", pathTool, map[string]any{
 		"conversationId": conv, "name": "search_context",
 		"arguments": map[string]any{"query": "matcher kernel", "limit": 5},
 	}, nil)
-	if rec.Code != http.StatusNotImplemented {
-		t.Fatalf("search_context status = %d, want 501: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("search_context status = %d: %s", rec.Code, rec.Body.String())
+	}
+	hits := decodeMap(t, rec)["result"].(map[string]any)["hits"].([]any)
+	if len(hits) != 1 || hits[0].(map[string]any)["key"] != blockID || hits[0].(map[string]any)["kind"] != "block" {
+		t.Fatalf("search hits = %v, want the block %s", hits, blockID)
+	}
+	rec = e.do(t, "POST", pathTool, map[string]any{
+		"conversationId": conv, "name": "search_context", "arguments": map[string]any{"query": "*"},
+	}, nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("search without terms status = %d, want 400", rec.Code)
 	}
 
 	rec = e.do(t, "GET", pathStatus+"?conversationId="+conv, nil, nil)
@@ -355,12 +400,39 @@ func TestToolFlowCompressRetrieveSearchStatus(t *testing.T) {
 		t.Fatalf("peek text = %q", text)
 	}
 
+	// mode file writes the block's original messages owner-only and returns the path.
 	rec = e.do(t, "POST", pathTool, map[string]any{
 		"conversationId": conv, "name": "decompress",
 		"arguments": map[string]any{"blockId": blockID, "mode": "file"},
 	}, nil)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("mode file status = %d, want 400", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("mode file status = %d: %s", rec.Code, rec.Body.String())
+	}
+	exported := decodeMap(t, rec)["result"].(map[string]any)
+	path := exported["path"].(string)
+	if filepath.Dir(path) != e.exports || exported["messages"] != float64(6) {
+		t.Fatalf("export result = %v, want a file in %s holding 6 messages", exported, e.exports)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("export mode = %v, want 0600", info.Mode().Perm())
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "== m00002 ") || !strings.Contains(string(raw), "== m00007 ") {
+		t.Fatalf("export text lacks the block's messages: %q", raw[:min(len(raw), 120)])
+	}
+	rec = e.do(t, "POST", pathTool, map[string]any{
+		"conversationId": conv, "name": "decompress",
+		"arguments": map[string]any{"blockId": "../../etc", "mode": "file"},
+	}, nil)
+	if rec.Code == http.StatusOK {
+		t.Fatalf("traversal block id was accepted: %s", rec.Body.String())
 	}
 }
 

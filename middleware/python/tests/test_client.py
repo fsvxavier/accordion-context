@@ -113,11 +113,24 @@ class ClientTest(unittest.TestCase):
         client = self.serve({"GET /status": lambda h, b: (200, {"messages": 2})})
         self.assertEqual(client.status(), {"messages": 2})
 
-    def test_compact_is_not_implemented_yet(self):
-        client = self.serve({"POST /compact": lambda h, b: (501, {"error": "compact is not implemented yet"})})
+    def test_compact_returns_spans_and_nudge_flag(self):
+        seen = {}
+
+        def handler(h, b):
+            seen["body"] = b
+            return 200, {"sessionId": "s", "nudgePending": True, "spans": [{"start": "m00002", "end": "m00004", "tokens": 6000}]}
+
+        client = self.serve({"POST /compact": handler})
+        out = client.compact()
+        self.assertEqual(seen["body"], {"conversationId": "conv-1"})
+        self.assertTrue(out["nudgePending"])
+        self.assertEqual(out["spans"][0]["start"], "m00002")
+
+    def test_compact_unknown_conversation_is_404(self):
+        client = self.serve({"POST /compact": lambda h, b: (404, {"error": "unknown conversation"})})
         with self.assertRaises(PluginError) as ctx:
             client.compact()
-        self.assertEqual(ctx.exception.status, 501)
+        self.assertEqual(ctx.exception.status, 404)
 
     def test_conversation_id_is_required(self):
         client = PluginClient("http://127.0.0.1:1", TOKEN)

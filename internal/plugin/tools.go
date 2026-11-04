@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/fsvxavier/accordion-context/internal/kernel"
+	"github.com/fsvxavier/accordion-context/internal/project"
 	"github.com/fsvxavier/accordion-context/internal/session"
 	"github.com/fsvxavier/accordion-context/internal/store"
 )
@@ -19,9 +21,6 @@ var (
 	errUnknownTool = errors.New("unknown tool")
 	errUnknownConv = errors.New("unknown conversation")
 	errBadArgs     = errors.New("bad arguments")
-	// errSearchUnavailable: the store exports no search API yet, so search_context
-	// cannot run. The tool stays in the manifest and in tools/list.
-	errSearchUnavailable = errors.New("search_context is not available: the store exposes no search API yet")
 )
 
 const (
@@ -67,10 +66,10 @@ var toolSpecs = []toolSpec{
 	},
 	{
 		Name:        "decompress",
-		Description: "Expand a block one level (mode context), or return the original lines of a block that match query (mode peek).",
+		Description: "Expand a block one level (mode context), return the original lines of a block that match query (mode peek), or write the original text of a block to a file and return its path (mode file).",
 		InputSchema: object(map[string]any{
 			"blockId": str("block id, e.g. b17"),
-			"mode":    map[string]any{"type": "string", "enum": []string{"context", "peek"}},
+			"mode":    map[string]any{"type": "string", "enum": []string{"context", "peek", "file"}},
 			"query":   str("case-insensitive substring; required for peek"),
 		}, "blockId"),
 	},
@@ -81,7 +80,7 @@ var toolSpecs = []toolSpec{
 	},
 	{
 		Name:        "search_context",
-		Description: "Full-text search over block summaries of this session. Currently unavailable: the store has no search API yet.",
+		Description: "Full-text search over the messages and block summaries of this session. All words must match; hits are ranked, best first.",
 		InputSchema: object(map[string]any{
 			"query": str("words to search for; all must match"),
 			"limit": map[string]any{"type": "integer", "minimum": 1, "maximum": maxSearchN},
@@ -96,7 +95,8 @@ var toolSpecs = []toolSpec{
 
 // tools runs tool calls against one session. It is shared by HTTP and MCP.
 type tools struct {
-	st *store.Store
+	st      *store.Store
+	exports string // directory of decompress mode file; empty when unknown
 }
 
 // call runs one tool. Errors wrap errUnknownTool, errBadArgs, or come from the
@@ -123,7 +123,7 @@ func (t tools) call(ctx context.Context, sess *session.Session, sid, name string
 		}
 		return map[string]any{"ref": a.Ref, "text": text}, nil
 	case "search_context":
-		return nil, errSearchUnavailable
+		return t.search(ctx, sid, args)
 	case ctxStatusToolName:
 		return t.status(ctx, sid)
 	default:
@@ -184,6 +184,18 @@ func (t tools) decompress(ctx context.Context, sess *session.Session, sid string
 		return map[string]any{
 			"target": res.Target, "reactivated": res.Reactivated, "redirected": res.Redirected,
 		}, nil
+	case "file":
+		if t.exports == "" {
+			return nil, errors.New("decompress: no export directory is configured")
+		}
+		res, err := sess.ExportBlock(ctx, a.BlockID, t.exports)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{
+			"blockId": res.BlockID, "mode": "file", "path": res.Path,
+			"messages": res.Messages, "bytes": res.Bytes, "truncated": res.Truncated,
+		}, nil
 	case "peek":
 		if a.Query == "" {
 			return nil, fmt.Errorf("%w: query is required for peek", errBadArgs)
@@ -196,6 +208,56 @@ func (t tools) decompress(ctx context.Context, sess *session.Session, sid string
 	default:
 		return nil, fmt.Errorf("%w: mode %q is not available over this protocol", errBadArgs, a.Mode)
 	}
+}
+
+// search runs search_context: every word must match, hits best first. Messages
+// report their ref as key, blocks their block id.
+func (t tools) search(ctx context.Context, sid string, args json.RawMessage) (any, error) {
+	var a struct {
+		Query string `json:"query"`
+		Limit int    `json:"limit"`
+	}
+	if err := decodeArgs(args, &a); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(a.Query) == "" {
+		return nil, fmt.Errorf("%w: query is required", errBadArgs)
+	}
+	if a.Limit < 0 || a.Limit > maxSearchN {
+		return nil, fmt.Errorf("%w: limit must be between 1 and %d", errBadArgs, maxSearchN)
+	}
+	hits, err := t.st.Search(ctx, sid, a.Query, a.Limit)
+	if errors.Is(err, store.ErrEmptyQuery) {
+		return nil, fmt.Errorf("%w: %v", errBadArgs, err)
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := make([]map[string]any, 0, len(hits))
+	for _, h := range hits {
+		out = append(out, map[string]any{
+			"kind": h.Kind, "key": h.Key, "snippet": h.Snippet, "score": h.Score,
+		})
+	}
+	return map[string]any{"query": a.Query, "hits": out}, nil
+}
+
+// exportsDir is where decompress mode file writes. A local project keeps its
+// exports in .acd-ctx/exports (ignored by git, see spec §18.1). A global project
+// keeps them under the data home, in acd-ctx/exports/<project id>.
+func exportsDir(p project.Resolved) (string, error) {
+	if p.Storage == "local" {
+		return filepath.Join(p.Root, ".acd-ctx", "exports"), nil
+	}
+	base := os.Getenv("XDG_DATA_HOME")
+	if base == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		base = filepath.Join(home, ".local", "share")
+	}
+	return filepath.Join(base, "acd-ctx", "exports", p.ID), nil
 }
 
 // peek returns the original lines of a block's messages that contain q.

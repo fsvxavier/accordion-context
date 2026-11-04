@@ -204,7 +204,10 @@ class PluginClient:
         return self._call("GET", "/status?" + query)
 
     def compact(self, conversation_id: Optional[str] = None) -> Dict[str, Any]:
-        """POST compact. The server answers 501 until forced compaction exists."""
+        """POST compact: offer the compressible spans and nudge the next turn.
+
+        Returns {"sessionId", "nudgePending", "spans": [{"start", "end", "tokens"}]}.
+        An unknown conversation is a 404 PluginError."""
         return self._call("POST", "/compact", {"conversationId": self._cid(conversation_id)})
 
 

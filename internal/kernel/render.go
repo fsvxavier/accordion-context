@@ -11,7 +11,8 @@ import (
 // user message, history envelopes, intents (as of the last fold), then the raw
 // zone in natural order. The last user message keeps its natural position, so it
 // never lands after a tool round it started (§11.4).
-// shortcut: no emergencyTruncate (I8) and no recent-zone protection, arrive with §10.
+// Render does not apply the limit: use RenderWithLimit for the I8 bound
+// (emergency truncation, truncate.go).
 func Render(s Snapshot) []Message {
 	byseq := make(map[int64]Message, len(s.Messages))
 	for _, m := range s.Messages {

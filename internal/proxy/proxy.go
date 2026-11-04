@@ -256,10 +256,14 @@ func (s *Server) compactTurn(w http.ResponseWriter, r *http.Request, rt routed, 
 	base := sessionID(proj.ID, r.Header.Get(headerConv), msgs)
 	// The walk never returns a session whose ledger differs from the transcript:
 	// an edited or colliding transcript gets its own fork (see fork.go).
-	sid, sess, fk, err := s.resolveLedger(ctx, proj, base, msgs, model, s.contextWindow(model))
+	sid, sess, fk, err := s.resolveLedger(ctx, proj, base, msgs, model, s.contextWindow(model, cfg))
 	if err != nil {
 		s.failOpen(w, r, rt, body, "session", err)
 		return
+	}
+	// An existing session follows the configured window (spec §8.1, §18.8).
+	if err := s.applyContextLimit(ctx, sid, cfg); err != nil {
+		s.cfg.Logger.Warn("context limit not applied; session keeps its stored window", "session", sid, "err", err)
 	}
 	// The session takes the settings of the project's configuration (spec §18.5).
 	sess.SetOptions(sessionOptions(cfg))

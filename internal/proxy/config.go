@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,20 +47,53 @@ func mergedWindows(extra map[string]int) map[string]int {
 	return out
 }
 
-// contextWindow returns the context window of model. Without a matching prefix
-// it falls back to Config.ContextLimit.
-func (s *Server) contextWindow(model string) int {
+// contextWindow returns the context window of model under cfg. The first rule
+// that applies wins: window.models (longest prefix), window.context_limit when
+// set, the built-in table (builtinWindows plus Config.ContextWindows), and
+// finally Config.ContextLimit.
+func (s *Server) contextWindow(model string, cfg config.Config) int {
 	m := strings.ToLower(model)
-	best := ""
-	for k := range s.windows {
-		if strings.HasPrefix(m, k) && len(k) > len(best) {
-			best = k
+	if n, ok := longestPrefix(m, cfg.WindowModels); ok {
+		return n
+	}
+	if cfg.WindowLimit > 0 {
+		return cfg.WindowLimit
+	}
+	if n, ok := longestPrefix(m, s.windows); ok {
+		return n
+	}
+	return s.cfg.ContextLimit
+}
+
+// longestPrefix returns the value of the longest key that model starts with.
+// ok is false when no key matches.
+func longestPrefix(model string, table map[string]int) (n int, ok bool) {
+	best, found := "", false
+	for k := range table {
+		if strings.HasPrefix(model, k) && (!found || len(k) > len(best)) {
+			best, found = k, true
 		}
 	}
-	if best == "" {
-		return s.cfg.ContextLimit
+	if !found {
+		return 0, false
 	}
-	return s.windows[best]
+	return table[best], true
+}
+
+// applyContextLimit makes an existing session use the window that cfg gives the
+// model it was created for. The window comes from the stored model, not from the
+// request, so a conversation that switches models keeps one window. A row is
+// written only when the value differs, and only context_limit changes.
+func (s *Server) applyContextLimit(ctx context.Context, sid string, cfg config.Config) error {
+	model, stored, err := s.cfg.Store.SessionWindow(ctx, sid)
+	if err != nil {
+		return err
+	}
+	want := s.contextWindow(model, cfg)
+	if want == stored {
+		return nil
+	}
+	return s.cfg.Store.SetContextLimit(ctx, sid, want)
 }
 
 // configFor returns the effective configuration of a project root (spec §18.5).

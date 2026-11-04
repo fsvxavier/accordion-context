@@ -1,23 +1,63 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/fsvxavier/accordion-context/internal/sysproxy"
 )
 
-func TestAttachUsageAndNotImplementedDegrees(t *testing.T) {
+func TestAttachUsageAndSystemDegreeConsent(t *testing.T) {
 	f := newFixture(t)
 	if r := f.run("", "attach"); r.code != ExitUsage || !strings.Contains(r.stderr, "usage: attach") {
 		t.Fatalf("no command: code %d stderr %q", r.code, r.stderr)
 	}
+	// The system degrees need --yes, and they refuse before any command runs:
+	// the runner fails the test if it is called.
+	defer swapSysRunner(t, failingRunner{t})()
 	for _, flag := range []string{"--system-proxy", "--transparent"} {
 		r := f.run("", "attach", flag, "--", "true")
-		if r.code != ExitFail || !strings.Contains(r.stderr, "not implemented in this build") {
-			t.Fatalf("%s: code %d stderr %q", flag, r.code, r.stderr)
+		if r.code != ExitFail || !strings.Contains(r.stderr, "--yes") {
+			t.Fatalf("%s without --yes: code %d stderr %q", flag, r.code, r.stderr)
 		}
+	}
+	if r := f.run("", "attach", "--system-proxy", "--transparent", "--yes", "--", "true"); r.code != ExitUsage {
+		t.Fatalf("both degrees: code %d stderr %q", r.code, r.stderr)
+	}
+	if r := f.run("", "attach", "--transparent", "--apply", "--dry-run", "--yes"); r.code != ExitUsage {
+		t.Fatalf("apply with dry-run: code %d stderr %q", r.code, r.stderr)
+	}
+	if r := f.run("", "attach", "--transparent", "--yes", "--", "true"); r.code != ExitFail || !strings.Contains(r.stderr, "does not run a command") {
+		t.Fatalf("transparent with a command: code %d stderr %q", r.code, r.stderr)
+	}
+}
+
+// failingRunner fails the test on any command.
+type failingRunner struct{ t *testing.T }
+
+func (f failingRunner) Run(_ context.Context, c sysproxy.Command) (string, error) {
+	f.t.Fatalf("unexpected command: %s", c)
+	return "", nil
+}
+
+// swapSysRunner replaces the system runner for one test.
+func swapSysRunner(t *testing.T, r sysproxy.Runner) func() {
+	old := sysRunner
+	sysRunner = r
+	return func() { sysRunner = old }
+}
+
+// TestAttachRestoreWithoutLeftovers: --restore with no state files changes
+// nothing and succeeds.
+func TestAttachRestoreWithoutLeftovers(t *testing.T) {
+	f := newFixture(t)
+	defer swapSysRunner(t, failingRunner{t})()
+	if r := f.run("", "attach", "--restore"); r.code != ExitOK || !strings.Contains(r.stderr, "no leftover") {
+		t.Fatalf("restore: code %d stderr %q", r.code, r.stderr)
 	}
 }
 

@@ -176,18 +176,6 @@ func TestConsoleModeExportsEveryBaseURLAndVerifies(t *testing.T) {
 	}
 }
 
-func TestSystemProxyAndTransparentAreNotImplemented(t *testing.T) {
-	for name, o := range map[string]Options{
-		"system-proxy": {Args: []string{"x"}, DBPath: "unused", SystemProxy: true},
-		"transparent":  {Args: []string{"x"}, DBPath: "unused", Transparent: true},
-	} {
-		_, err := Run(context.Background(), o)
-		if !errors.Is(err, ErrNotImplemented) {
-			t.Fatalf("%s: err = %v, want ErrNotImplemented", name, err)
-		}
-	}
-}
-
 func TestNoVerifiedDegreeDoesNotStartClient(t *testing.T) {
 	o, _ := baseOptions(t, "base", "ATTACH_TEST_BASE")
 	o.Args = []string{filepath.Join(t.TempDir(), "must-not-run")}

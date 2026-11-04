@@ -118,9 +118,33 @@ type runtime struct {
 	mitm atomic.Pointer[mitm.Server]
 	srv  *http.Server
 	ln   net.Listener
+	// system marks a listener reached through a system proxy or a redirect.
+	// Such clients cannot carry the per-run token, so the listener checks the
+	// peer instead (see sysproxy.PeerListener) and adds the token itself.
+	system bool
 }
 
 func startRuntime(o Options, st *store.Store, logger *slog.Logger, sc *scope) (*runtime, error) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, fmt.Errorf("attach: listen: %w", err)
+	}
+	return startRuntimeOn(o, st, logger, sc, ln, false)
+}
+
+// startRuntimeOn serves the runtime on ln. It closes ln when it fails.
+func startRuntimeOn(o Options, st *store.Store, logger *slog.Logger, sc *scope, ln net.Listener, system bool) (*runtime, error) {
+	rt, err := newRuntime(o, st, logger, sc, ln, system)
+	if err != nil {
+		_ = ln.Close()
+		return nil, err
+	}
+	rt.srv = &http.Server{Handler: rt, ReadHeaderTimeout: 10 * time.Second}
+	go func() { _ = rt.srv.Serve(ln) }()
+	return rt, nil
+}
+
+func newRuntime(o Options, st *store.Store, logger *slog.Logger, sc *scope, ln net.Listener, system bool) (*runtime, error) {
 	nonce, err := randomToken()
 	if err != nil {
 		return nil, err
@@ -154,22 +178,20 @@ func startRuntime(o Options, st *store.Store, logger *slog.Logger, sc *scope) (*
 	if err != nil {
 		return nil, fmt.Errorf("attach: configure proxy: %w", err)
 	}
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return nil, fmt.Errorf("attach: listen: %w", err)
-	}
-	rt := &runtime{
-		addr: ln.Addr().String(),
-		gate: &gate{nonce: nonce, next: h},
-		ln:   ln,
-	}
-	rt.srv = &http.Server{Handler: rt, ReadHeaderTimeout: 10 * time.Second}
-	go func() { _ = rt.srv.Serve(ln) }()
-	return rt, nil
+	return &runtime{
+		addr:   ln.Addr().String(),
+		gate:   &gate{nonce: nonce, next: h},
+		ln:     ln,
+		system: system,
+	}, nil
 }
 
 // ServeHTTP routes CONNECT to the MITM server and everything else to the gate.
 func (rt *runtime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if rt.system {
+		rt.serveSystem(w, r)
+		return
+	}
 	if r.Method == http.MethodConnect {
 		m := rt.mitm.Load()
 		if m == nil {
@@ -180,6 +202,20 @@ func (rt *runtime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rt.gate.ServeHTTP(w, r)
+}
+
+// serveSystem accepts only CONNECT, the way a system proxy sends HTTPS. Every
+// request is admitted by the peer check on the listener, so the token is added
+// here, replacing whatever the client sent.
+func (rt *runtime) serveSystem(w http.ResponseWriter, r *http.Request) {
+	m := rt.mitm.Load()
+	if r.Method != http.MethodConnect || m == nil {
+		w.Header().Set("Allow", http.MethodConnect)
+		http.Error(w, "only CONNECT is accepted", http.StatusMethodNotAllowed)
+		return
+	}
+	r.Header.Set("Proxy-Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(proxyUser+":"+m.Token())))
+	m.ServeHTTP(w, r)
 }
 
 func (rt *runtime) close() {

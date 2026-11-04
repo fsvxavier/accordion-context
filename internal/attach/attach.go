@@ -26,8 +26,11 @@
 //
 // The proxy runs in-process on a loopback port that lives as long as the
 // command, so the hit counter sits on the real handler. An interrupt during the
-// checks ends the run, and the temp files are removed on every exit path. The
-// --system-proxy and --transparent degrees are not implemented in this build.
+// checks ends the run, and the temp files are removed on every exit path.
+//
+// The --system-proxy and --transparent degrees (spec §19.9, degrees 6 and 7)
+// change machine-wide settings. They are off by default and need --yes, see
+// system.go.
 package attach
 
 import (
@@ -51,15 +54,14 @@ import (
 
 // Degree names, as reported in Result.Degree and Attempt.Degree.
 const (
-	DegreeBaseURL    = "base-url-env"
-	DegreeFlag       = "base-url-flag"
-	DegreeTempConfig = "temp-config"
-	DegreeConsole    = "console"
-	DegreeMITM       = "mitm"
+	DegreeBaseURL     = "base-url-env"
+	DegreeFlag        = "base-url-flag"
+	DegreeTempConfig  = "temp-config"
+	DegreeConsole     = "console"
+	DegreeMITM        = "mitm"
+	DegreeSystemProxy = "system-proxy"
+	DegreeTransparent = "transparent"
 )
-
-// ErrNotImplemented is wrapped by the degrees this build does not provide.
-var ErrNotImplemented = errors.New("not implemented in this build")
 
 const defaultProbeTimeout = 5 * time.Second
 
@@ -84,9 +86,11 @@ type Options struct {
 	// MITMDomains are extra exact host names to intercept. The upstream hosts
 	// of every profile are always included.
 	MITMDomains []string
-	// SystemProxy and Transparent request degrees this build does not have.
+	// SystemProxy and Transparent select the machine-wide degrees (degree 6
+	// and degree 7). System holds their options and consent. See system.go.
 	SystemProxy bool
 	Transparent bool
+	System      *SystemOptions
 	// Environ is the base environment. Nil means os.Environ().
 	Environ []string
 	// Stdin, Stdout and Stderr are the client's streams. Nil uses the
@@ -134,11 +138,8 @@ type Result struct {
 // no degree could be verified, or the run was interrupted, and then the client
 // is not started (or was ended by the interrupt).
 func Run(ctx context.Context, o Options) (Result, error) {
-	if o.SystemProxy {
-		return Result{}, fmt.Errorf("attach: --system-proxy %w", ErrNotImplemented)
-	}
-	if o.Transparent {
-		return Result{}, fmt.Errorf("attach: --transparent %w", ErrNotImplemented)
+	if o.SystemProxy || o.Transparent {
+		return runSystem(ctx, o)
 	}
 	if len(o.Args) == 0 {
 		return Result{}, errors.New("attach: no client command")

@@ -1,0 +1,462 @@
+package attach
+
+import (
+	"bufio"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net"
+	"net/http"
+	"net/netip"
+	"os"
+	"os/signal"
+	"path/filepath"
+	goruntime "runtime"
+	"slices"
+	"strconv"
+	"syscall"
+	"time"
+
+	"github.com/fsvxavier/accordion-context/internal/store"
+	"github.com/fsvxavier/accordion-context/internal/sysproxy"
+)
+
+// SystemOptions configures the machine-wide degrees (spec §19.9, degrees 6 and
+// 7). Both are off by default. They change settings that other programs use,
+// so both refuse without Yes, and the state they change is saved and restored.
+type SystemOptions struct {
+	// Yes is the explicit consent (--yes). Required for both degrees.
+	Yes bool
+	// Apply installs the transparent rules. Without it they are only printed.
+	Apply bool
+	// UID is the user whose TCP 443 traffic is redirected. A negative value
+	// means SUDO_UID from the environment.
+	UID int
+	// AllDestinations redirects all TCP 443 traffic of UID, not only the
+	// connections to the MITM domains (--all-443).
+	AllDestinations bool
+	// NoPeerAuth is --i-understand-no-peer-auth. It is needed on platforms
+	// without a peer-uid check, where any local process can use the listener.
+	NoPeerAuth bool
+	// StateDir holds the state files. Empty means "sysproxy" beside the database.
+	StateDir string
+	// Env gives access to commands and to the machine. It is required, and
+	// the CLI sets the real runner in it.
+	Env *sysproxy.Env
+}
+
+// runSystem runs the system-proxy or transparent degree. Without a command it
+// holds the change until an interrupt. With a command (system-proxy only) it
+// runs the command while the change is in place.
+func runSystem(ctx context.Context, o Options) (res Result, err error) {
+	flag := "--system-proxy"
+	degree := DegreeSystemProxy
+	if o.SystemProxy && o.Transparent {
+		return res, errors.New("attach: choose one of --system-proxy and --transparent")
+	}
+	if o.Transparent {
+		flag, degree = "--transparent", DegreeTransparent
+	}
+	res.Degree = degree
+	sys := o.System
+	if sys == nil || !sys.Yes {
+		return res, fmt.Errorf("attach: %s needs --yes: it changes machine-wide network settings until this run ends", flag)
+	}
+	if sys.Env == nil || sys.Env.Runner == nil {
+		return res, errors.New("attach: no command runner configured for the system degrees")
+	}
+	env := *sys.Env
+	if o.Transparent && len(o.Args) > 0 {
+		return res, errors.New("attach: --transparent does not run a command; run the client yourself as the target uid")
+	}
+	if o.DBPath == "" {
+		return res, errors.New("attach: database path is required")
+	}
+	cwd := o.Cwd
+	if cwd == "" {
+		if cwd, err = os.Getwd(); err != nil {
+			return res, fmt.Errorf("attach: working directory: %w", err)
+		}
+	}
+	dir := sys.StateDir
+	if dir == "" {
+		dir = sysproxy.StateDir(o.DBPath)
+	}
+
+	// With no client command every known host is in scope, as in console mode.
+	oo := o
+	if len(oo.Args) == 0 {
+		oo.Args = []string{""}
+	}
+	extra, err := normalizeDomains(o.MITMDomains)
+	if err != nil {
+		return res, err
+	}
+	sc, err := newScope(oo, extra)
+	if err != nil {
+		return res, err
+	}
+	sc.dir = cwd
+	if len(sc.runHosts) == 0 {
+		return res, errors.New("attach: no host to intercept; pass --mitm-domain")
+	}
+	tmp, err := os.MkdirTemp(o.tmpRoot, "acd-ctx-system-")
+	if err != nil {
+		return res, fmt.Errorf("attach: temp dir: %w", err)
+	}
+	defer os.RemoveAll(tmp)
+	sc.tmp = tmp
+
+	if err := os.MkdirAll(filepath.Dir(o.DBPath), 0o700); err != nil {
+		return res, fmt.Errorf("attach: database directory: %w", err)
+	}
+	st, err := store.Open(o.DBPath)
+	if err != nil {
+		return res, fmt.Errorf("attach: open database: %w", err)
+	}
+	defer st.Close()
+
+	logger := o.Logger
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
+	if o.Transparent {
+		return runTransparent(ctx, o, env, sc, st, logger, dir)
+	}
+	return runSystemProxy(ctx, o, env, sc, st, logger, dir)
+}
+
+// systemListener opens the loopback listener of a system degree. On Linux the
+// peer uid is checked; elsewhere the user must accept that no check happens.
+// The returned runtime is in system mode and sets up the MITM server.
+func systemListener(o Options, env sysproxy.Env, sc *scope, st *store.Store, logger *slog.Logger) (*runtime, *mitmState, error) {
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		return nil, nil, fmt.Errorf("attach: listen: %w", err)
+	}
+	ap, ok := netAddrPortOf(ln.Addr())
+	if !ok {
+		_ = ln.Close()
+		return nil, nil, errors.New("attach: listener is not IPv4")
+	}
+	var check func(netip.AddrPort) error
+	switch {
+	case envGOOS(env) == "linux":
+		check = sysproxy.LinuxPeerCheck(env.ProcRoot, ap, os.Getuid())
+	case o.System.NoPeerAuth:
+		check = nil
+	default:
+		_ = ln.Close()
+		return nil, nil, errors.New("attach: peer-uid authentication is not available on this platform; " +
+			"pass --i-understand-no-peer-auth to accept any local process that can reach 127.0.0.1")
+	}
+	rt, err := startRuntimeOn(o, st, logger, sc, sysproxy.PeerListener{Listener: ln, Check: check}, true)
+	if err != nil {
+		return nil, nil, err
+	}
+	m, err := rt.setupMITM(sc)
+	if err != nil {
+		rt.close()
+		return nil, nil, err
+	}
+	if err := rt.probeMITM(context.Background(), m, sc.runHosts[0], defaultProbeTimeout); err != nil {
+		rt.close()
+		return nil, nil, fmt.Errorf("attach: the listener failed its own probe: %w", err)
+	}
+	return rt, m, nil
+}
+
+// runSystemProxy points the system HTTPS proxy at the listener for the length
+// of the run and restores it on every exit path.
+func runSystemProxy(ctx context.Context, o Options, env sysproxy.Env, sc *scope, st *store.Store, logger *slog.Logger, dir string) (res Result, err error) {
+	res.Degree = DegreeSystemProxy
+	rt, _, err := systemListener(o, env, sc, st, logger)
+	if err != nil {
+		return res, err
+	}
+	defer rt.close()
+	port := rt.port()
+
+	ep := sysproxy.Endpoint{Host: "127.0.0.1", Port: port, Bypass: sysproxy.DefaultBypass}
+	actx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	act, err := sysproxy.StartSystemProxy(actx, env, dir, ep)
+	cancel()
+	if err != nil {
+		return res, fmt.Errorf("attach: system proxy: %w", err)
+	}
+	defer func() {
+		rctx, rcancel := sysproxy.RestoreContext()
+		defer rcancel()
+		notes, serr := act.Stop(rctx)
+		res.Notes = append(res.Notes, notes...)
+		if serr != nil {
+			err = errors.Join(err, fmt.Errorf("attach: restore system proxy: %w (state kept; run acd-ctx attach --restore)", serr))
+		}
+	}()
+	res.Notes = append(res.Notes,
+		"the acd-ctx CA is not installed in the system trust store: apps that do not trust it fail on the MITM domains (acd-ctx doctor reports this)",
+		"only the HTTPS proxy is set; other traffic and the listed domains are tunnelled without inspection, except the MITM domains")
+	fmt.Fprintf(o.stderr(), "acd-ctx: system HTTPS proxy set to 127.0.0.1:%d (restored when this run ends)\n", port)
+
+	if len(o.Args) == 0 {
+		hctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+		defer stop()
+		fmt.Fprintln(o.stderr(), "acd-ctx: the system proxy stays set until you interrupt this run (Ctrl-C restores it)")
+		<-hctx.Done()
+		res.Hits = rt.gate.hits.Load()
+		return res, nil
+	}
+	cctx, cancelChild := context.WithCancel(ctx)
+	defer cancelChild()
+	rl := newRelay(o.signals, cancelChild)
+	defer rl.close()
+	cwd := o.Cwd
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
+	code, err := runChild(cctx, o, rl, o.Args, cwd, buildEnv(o.Environ, nil))
+	res.ExitCode = code
+	res.Hits = rt.gate.hits.Load()
+	return res, err
+}
+
+// runTransparent redirects TCP 443 of one uid to the listener. Without --apply
+// it only prints the ruleset that would be installed.
+func runTransparent(ctx context.Context, o Options, env sysproxy.Env, sc *scope, st *store.Store, logger *slog.Logger, dir string) (res Result, err error) {
+	res.Degree = DegreeTransparent
+	sys := o.System
+	if envGOOS(env) != "linux" {
+		return res, fmt.Errorf("attach: --transparent: %w (Linux only)", sysproxy.ErrUnsupported)
+	}
+	uid := sys.UID
+	if uid < 0 {
+		n, ok := sudoUID(env)
+		if !ok {
+			return res, errors.New("attach: --transparent needs --transparent-uid N (or run it under sudo, which sets SUDO_UID)")
+		}
+		uid = n
+	}
+	proxyUID := env.Euid()
+	if proxyUID < 0 {
+		return res, errors.New("attach: the process uid is unknown")
+	}
+
+	plan := sysproxy.NFTPlan{TargetUID: uid, ProxyUID: proxyUID, AllDestinations: sys.AllDestinations}
+	var resolveErr error
+	if !sys.AllDestinations {
+		rctx, rcancel := context.WithTimeout(ctx, 15*time.Second)
+		plan.IPv4, resolveErr = sysproxy.ResolveIPv4(rctx, env, sc.runHosts)
+		rcancel()
+	}
+
+	if !sys.Apply {
+		text, err := plan.Ruleset()
+		if err != nil {
+			return res, err
+		}
+		out := o.Stdout
+		if out == nil {
+			out = io.Discard
+		}
+		fmt.Fprint(out, text)
+		res.Notes = append(res.Notes, "dry run: nothing changed; the redirect port is chosen when the rules are applied")
+		if resolveErr != nil {
+			res.Notes = append(res.Notes, "some MITM domains did not resolve: "+resolveErr.Error())
+		}
+		return res, nil
+	}
+	if !env.Privileged() {
+		return res, &sysproxy.ErrNeedPrivilege{Commands: transparentCommands(o, uid)}
+	}
+
+	rt, _, err := systemListener(o, env, sc, st, logger)
+	if err != nil {
+		return res, err
+	}
+	defer rt.close()
+
+	tln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		return res, fmt.Errorf("attach: redirect listener: %w", err)
+	}
+	defer tln.Close()
+	plan.RedirectPort = tln.Addr().(*net.TCPAddr).Port
+	if resolveErr != nil {
+		res.Notes = append(res.Notes, "some MITM domains did not resolve: "+resolveErr.Error())
+	}
+
+	act, err := sysproxy.StartTransparent(ctx, env, dir, plan)
+	if err != nil {
+		return res, fmt.Errorf("attach: transparent redirect: %w", err)
+	}
+	defer func() {
+		rctx, rcancel := sysproxy.RestoreContext()
+		defer rcancel()
+		notes, serr := act.Stop(rctx)
+		res.Notes = append(res.Notes, notes...)
+		if serr != nil {
+			err = errors.Join(err, fmt.Errorf("attach: restore nft table: %w (state kept; run acd-ctx attach --restore)", serr))
+		}
+	}()
+
+	hosts := slices.Clone(sc.runHosts)
+	mitmHost := func(h string) bool { return slices.Contains(hosts, h) }
+	router := &sysproxy.Router{
+		IsMITM: mitmHost,
+		MITM: func(c context.Context, conn net.Conn, host string, raw []byte) error {
+			return relayToMITM(rt.addr, host, conn, raw)
+		},
+		Blind: func(c context.Context, conn net.Conn, dst string, raw []byte) error {
+			up, err := sysproxy.Dial(c, dst)
+			if err != nil {
+				return err
+			}
+			if _, err := up.Write(raw); err != nil {
+				_ = up.Close()
+				return err
+			}
+			sysproxy.Splice(conn, up)
+			return nil
+		},
+	}
+	hctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	defer stop()
+	// A panic in a background goroutine would kill the process before the
+	// deferred restore runs. Instead it ends this run, and the restore runs on
+	// the normal path below.
+	rctx, endRun := context.WithCancel(hctx)
+	defer endRun()
+	onPanic := func(v any) {
+		fmt.Fprintf(o.stderr(), "acd-ctx: internal error (%v); ending the run to restore the redirect\n", v)
+		endRun()
+	}
+	router.OnPanic = onPanic
+	go refreshDestinations(rctx, env, hosts, act, onPanic)
+	go func() { <-rctx.Done(); _ = tln.Close() }()
+
+	fmt.Fprintf(o.stderr(), "acd-ctx: TCP 443 of uid %d is redirected for the MITM domains (Ctrl-C restores it)\n", uid)
+	if err := router.Serve(rctx, tln); err != nil {
+		return res, err
+	}
+	res.Hits = rt.gate.hits.Load()
+	return res, nil
+}
+
+// refreshDestinations re-resolves the MITM domains every few minutes so the
+// destination set follows DNS. A failed lookup keeps the previous set. A
+// connection to a stale address is still checked by SNI, so it is never
+// intercepted by mistake.
+func refreshDestinations(ctx context.Context, env sysproxy.Env, hosts []string, act *sysproxy.Active, onPanic func(any)) {
+	defer func() {
+		if v := recover(); v != nil {
+			onPanic(v)
+		}
+	}()
+	t := time.NewTicker(5 * time.Minute)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			addrs, _ := sysproxy.ResolveIPv4(rctx, env, hosts)
+			if len(addrs) > 0 {
+				_ = act.SetIPv4(rctx, addrs)
+			}
+			cancel()
+		}
+	}
+}
+
+// relayToMITM hands an intercepted connection to the runtime listener as a
+// CONNECT, then splices the bytes already read from the client.
+func relayToMITM(addr, host string, c net.Conn, raw []byte) error {
+	up, err := net.DialTimeout("tcp4", addr, upstreamTLSTO)
+	if err != nil {
+		return err
+	}
+	defer up.Close()
+	authority := net.JoinHostPort(host, "443")
+	if _, err := fmt.Fprintf(up, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", authority, authority); err != nil {
+		return err
+	}
+	br := bufio.NewReader(up)
+	resp, err := http.ReadResponse(br, &http.Request{Method: http.MethodConnect})
+	if err != nil {
+		return err
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("mitm: CONNECT refused: %s", resp.Status)
+	}
+	if _, err := up.Write(raw); err != nil {
+		return err
+	}
+	sysproxy.Splice(c, bufferedConn{Conn: up, r: br})
+	return nil
+}
+
+// bufferedConn reads through r, which may already hold bytes from the server.
+type bufferedConn struct {
+	net.Conn
+	r *bufio.Reader
+}
+
+func (b bufferedConn) Read(p []byte) (int, error) { return b.r.Read(p) }
+
+// transparentCommands are the commands a user runs as root when acd-ctx itself
+// lacks the privilege.
+func transparentCommands(o Options, uid int) []string {
+	cmd := fmt.Sprintf("sudo acd-ctx attach --transparent --yes --apply --transparent-uid %d", uid)
+	if o.System != nil && o.System.AllDestinations {
+		cmd += " --all-443"
+	}
+	return []string{cmd}
+}
+
+// stderr returns the error stream, or discards output when none is set.
+func (o Options) stderr() io.Writer {
+	if o.Stderr == nil {
+		return io.Discard
+	}
+	return o.Stderr
+}
+
+// port returns the TCP port of the runtime listener.
+func (rt *runtime) port() int {
+	_, p, _ := net.SplitHostPort(rt.addr)
+	n, _ := strconv.Atoi(p)
+	return n
+}
+
+func netAddrPortOf(a net.Addr) (netip.AddrPort, bool) {
+	ta, ok := a.(*net.TCPAddr)
+	if !ok {
+		return netip.AddrPort{}, false
+	}
+	ip, ok := netip.AddrFromSlice(ta.IP)
+	if !ok {
+		return netip.AddrPort{}, false
+	}
+	return netip.AddrPortFrom(ip.Unmap(), uint16(ta.Port)), true
+}
+
+// envGOOS is the platform the Env describes; "" means the running one.
+func envGOOS(e sysproxy.Env) string {
+	if e.GOOS != "" {
+		return e.GOOS
+	}
+	return goruntime.GOOS
+}
+
+// sudoUID returns the invoking user's uid when the process runs under sudo.
+func sudoUID(e sysproxy.Env) (int, bool) {
+	if e.Getenv == nil {
+		return 0, false
+	}
+	n, err := strconv.Atoi(e.Getenv("SUDO_UID"))
+	return n, err == nil && n >= 0
+}

@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/fsvxavier/accordion-context/internal/mitm"
 	"github.com/fsvxavier/accordion-context/internal/project"
 	"github.com/fsvxavier/accordion-context/internal/store"
+	"github.com/fsvxavier/accordion-context/internal/sysproxy"
 )
 
 // Status is the outcome of one check or of the whole report.
@@ -131,6 +133,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	add(checkForeignBaseURLs(ctx, client, vars, o.ProxyAddr, profiles))
 	add(checkNoProxy(vars, profiles))
 	add(checkIntegration(o.Client, profiles))
+	add(checkSystemLeftovers(o.DBPath))
 
 	r.Summary = Pass
 	for _, c := range r.Checks {
@@ -553,4 +556,40 @@ func uniqueStrings(in []string) []string {
 		}
 	}
 	return out
+}
+
+// checkSystemLeftovers reports state files of the system-proxy and transparent
+// degrees (spec §19.9, degrees 6 and 7). A live owner means a change is in
+// effect now; a dead owner means a crashed run left settings behind. Either way
+// the check is a WARN. doctor never changes settings itself: it names the
+// command that restores them.
+func checkSystemLeftovers(dbPath string) Check {
+	const name = "system proxy"
+	if dbPath == "" {
+		return Check{name, Pass, "not checked: no database path"}
+	}
+	left, err := sysproxy.Leftovers(sysproxy.StateDir(dbPath), sysproxy.Env{})
+	if err != nil {
+		return Check{name, Warn, "state files unreadable: " + err.Error() + "; inspect the sysproxy directory by hand"}
+	}
+	if len(left) == 0 {
+		return Check{name, Pass, "no system proxy or transparent redirect is left in place"}
+	}
+	var parts []string
+	hasProxy := false
+	for _, l := range left {
+		state := "stale (owner pid " + strconv.Itoa(l.PID) + " is gone)"
+		if l.Alive {
+			state = "active (owner pid " + strconv.Itoa(l.PID) + " is running)"
+		}
+		if l.Mode == sysproxy.ModeSystemProxy {
+			hasProxy = true
+		}
+		parts = append(parts, l.Mode+" "+state+" "+l.Path)
+	}
+	detail := strings.Join(parts, "; ") + "; restore with: acd-ctx attach --restore"
+	if hasProxy {
+		detail += "; while the system proxy is set, apps that do not trust the acd-ctx CA fail on the MITM domains"
+	}
+	return Check{name, Warn, detail}
 }

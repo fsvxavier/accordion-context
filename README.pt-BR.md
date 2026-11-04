@@ -121,7 +121,7 @@ Flags do `serve` (todas opcionais):
 | Modo | Comando | Situação | Observações |
 |---|---|---|---|
 | **Base URL** | `acd-ctx serve` mais a variável de URL base do cliente | Implementado | Verificado com requisições HTTP e clientes substitutos. Clientes reais não foram executados. |
-| **Launcher** | `acd-ctx claude`, `codex`, `gemini`, `opencode`, `run -- <cmd>` | Implementado para claude, codex e gemini | `run` aceita apenas comandos com perfil conhecido. `opencode` não tem variável de URL base e é recusado: use `attach`. |
+| **Launcher** | `acd-ctx claude`, `codex`, `gemini`, `opencode`, `run -- <cmd>` | Implementado para claude, codex, gemini e opencode | `run` aceita apenas comandos com perfil conhecido. `opencode` abre por uma configuração temporária (`OPENCODE_CONFIG`). |
 | **Attach** | `acd-ctx attach [--profiles f] [--mitm-domain h] -- <cmd>` | Implementado | Testa cada grau antes de iniciar o cliente e usa o primeiro que funciona: env de URL base, flag de URL base, configuração temporária, console (qualquer comando) e MITM. |
 | **MITM** | o grau `mitm` do `attach` | Implementado | Só os hosts da allowlist são terminados. Os demais são tunelados sem alteração. A CA é por instalação e não é adicionada ao repositório de certificados confiáveis do sistema. |
 | **Proxy do sistema** | `attach --system-proxy --yes` | Implementado; não validado em desktops reais | Aponta o proxy HTTPS do desktop para o acd-ctx durante a execução. Backends: GNOME, KDE, macOS, Windows. Mudança em toda a máquina: exige `--yes`. |
@@ -133,6 +133,31 @@ Flags do `serve` (todas opcionais):
 | **Doctor** | `acd-ctx doctor [--json] [cliente]` | Implementado | Verifica a instalação e a integração. Código de saída 0 para PASS, 3 para WARN, 1 para FAIL. |
 
 `attach --profiles arquivo.yaml` adiciona perfis que são comparados antes dos embutidos. Um perfil define `match`, `upstream`, `base_url_env` ou `base_url_flag` (com `flag_position`), um `temp_config` (`file`, `format`, `template`, `merge_from`, `key`; `merge_from` lê um arquivo existente nos formatos `json`, `yaml`, `toml`, `env` ou `ini` e define uma `key` com pontos; somente a cópia temporária é gravada, nunca a origem, e json, yaml e toml são reserializados, então os comentários da cópia mesclada se perdem), `env`, `detect` (`binaries`, `config_paths`, `version_regex`), `integration` (`prefer`, `base_url_env`, `https_proxy`, `ca_env`, `domains`), `model_info` e `quirks`.
+
+## Integrações com outros clientes e gateways
+
+O status dos clientes vem de [docs/integrations.md](docs/integrations.md), que lista as fontes. Nada aqui foi executado com um cliente ou gateway real.
+
+| Cliente | Como integrar | Status |
+|---|---|---|
+| Claude Code CLI | Launcher embutido `acd-ctx claude`, que define `ANTHROPIC_BASE_URL`. | Implementado; não executado com o CLI real. |
+| Chat do Claude Code na IDE (VS Code) | Manual: defina `ANTHROPIC_BASE_URL` em `claudeCode.environmentVariables` ou no bloco `env` de `~/.claude/settings.json`. Caminho do JetBrains não verificado. | Documentado; não verificado. |
+| OpenCode | Launcher `acd-ctx opencode`, que grava uma configuração temporária e aponta `OPENCODE_CONFIG` para ela. `opencode-openai` é acessado por um link ou wrapper com esse nome. | Implementado; não verificado com o OpenCode. |
+| Kilo Code (extensão VS Code) | Manual: Settings, Providers, Custom provider. Cole `http://127.0.0.1:8787/p/<id>/ctx/<upstream>` como Base URL. | Documentado; não verificado. CLI do Kilo sem perfil. |
+| GitHub Copilot Chat (VS Code) | Endpoint personalizado BYOK manual em `chatLanguageModels.json`. Somente chat; o modelo precisa suportar tool calling. Uma política da organização pode desativar o BYOK. | Documentado; não verificado. |
+| GitHub Copilot CLI | Sem perfil. O formato BYOK de `providers.json` não está confirmado. | Não verificado. |
+| Cline (extensão VS Code) | Manual: provedor OpenAI Compatible ou Anthropic, com o campo de URL base personalizada. | Documentado; não verificado. CLI do Cline não verificado. |
+| Cursor, Windsurf | Não suportado: nenhum mecanismo confirmado para uma URL base local. | Não suportado. |
+
+### Gateways
+
+freellmapi, Bifrost e OmniRoute podem rodar atrás do acd-ctx. Use um perfil de cliente com o gateway como upstream por `/ctx/` e adicione a origem do gateway em `ACD_CTX_ALLOW`, por exemplo `ACD_CTX_ALLOW=http://127.0.0.1:20128`. Portas padrão: freellmapi 3001, Bifrost 8080, OmniRoute 20128.
+
+- **Bifrost** descarta `anthropic-beta` a menos que o cabeçalho esteja na lista de permitidos. Sem ele, recursos beta são descartados ou recusados, e o Claude Code pode falhar. Inclua-o nas configurações de cliente do Bifrost.
+- **OmniRoute**: o cache semântico e a compressão reescrevem requisições. Isso conflita com o prefixo de prompt estável byte a byte do acd-ctx, então desative-os para o tráfego que passa pelo acd-ctx.
+- **freellmapi**: o failover troca o modelo entre turnos. Isso conflita com o dimensionamento da janela (`window.context_limit`) e com o cache de prompt do provedor. Use um modelo fixo, não `auto` nem `fusion`.
+
+Nenhum deles foi validado com um cliente ou gateway real. Os itens marcados como não verificados em [docs/integrations.md](docs/integrations.md) continuam não verificados.
 
 ## Configuração
 

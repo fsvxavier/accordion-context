@@ -121,7 +121,7 @@ OPENAI_BASE_URL=http://127.0.0.1:8787/ctx/https://api.openai.com/v1 codex
 | Mode | Command | Status | Notes |
 |---|---|---|---|
 | **Base URL** | `acd-ctx serve` plus the client's base-URL variable | Implemented | Verified with HTTP requests and stand-in clients. Real clients not run. |
-| **Launcher** | `acd-ctx claude`, `codex`, `gemini`, `opencode`, `run -- <cmd>` | Implemented for claude, codex, gemini | `run` accepts only commands with a known profile. `opencode` has no base-URL variable and is refused: use `attach`. |
+| **Launcher** | `acd-ctx claude`, `codex`, `gemini`, `opencode`, `run -- <cmd>` | Implemented for claude, codex, gemini, opencode | `run` accepts only commands with a known profile. `opencode` launches through a temp config (`OPENCODE_CONFIG`). |
 | **Attach** | `acd-ctx attach [--profiles f] [--mitm-domain h] -- <cmd>` | Implemented | Probes each degree before starting the client and uses the first that works: base-URL env, base-URL flag, temp config, console (any command), MITM. |
 | **MITM** | the `mitm` degree of `attach` | Implemented | Only allowlisted hosts are terminated. Others are tunnelled untouched. The CA is per install and is not added to the system trust store. |
 | **System proxy** | `attach --system-proxy --yes` | Implemented; not validated on real desktops | Points the desktop HTTPS proxy at acd-ctx for the run. Backends: GNOME, KDE, macOS, Windows. Machine-wide change: needs `--yes`. |
@@ -133,6 +133,31 @@ OPENAI_BASE_URL=http://127.0.0.1:8787/ctx/https://api.openai.com/v1 codex
 | **Doctor** | `acd-ctx doctor [--json] [client]` | Implemented | Checks the install and the integration. Exit code 0 for PASS, 3 for WARN, 1 for FAIL. |
 
 `attach --profiles file.yaml` adds profiles that are matched before the built-in ones. A profile sets `match`, `upstream`, `base_url_env` or `base_url_flag` (with `flag_position`), a `temp_config` (`file`, `format`, `template`, `merge_from`, `key`; `merge_from` reads an existing file of format `json`, `yaml`, `toml`, `env` or `ini` and sets one dotted `key`; only the temporary copy is written, never the source, and json, yaml and toml are re-marshalled, so comments in the merged copy are lost), `env`, `detect` (`binaries`, `config_paths`, `version_regex`), `integration` (`prefer`, `base_url_env`, `https_proxy`, `ca_env`, `domains`), `model_info` and `quirks`.
+
+## Integrations with other clients and gateways
+
+Client status comes from [docs/integrations.md](docs/integrations.md), which lists the sources. Nothing here has been run against a real client or gateway.
+
+| Client | How to integrate | Status |
+|---|---|---|
+| Claude Code CLI | Built-in launcher `acd-ctx claude`, which sets `ANTHROPIC_BASE_URL`. | Implemented; not run against the real CLI. |
+| Claude Code IDE chat (VS Code) | Manual: set `ANTHROPIC_BASE_URL` in `claudeCode.environmentVariables`, or in the `env` block of `~/.claude/settings.json`. JetBrains path not verified. | Documented; unverified. |
+| OpenCode | Launcher `acd-ctx opencode`, which writes a temp config and points `OPENCODE_CONFIG` at it. `opencode-openai` is reached through a link or wrapper with that name. | Implemented; unverified with OpenCode. |
+| Kilo Code (VS Code extension) | Manual: Settings, Providers, Custom provider. Paste `http://127.0.0.1:8787/p/<id>/ctx/<upstream>` as the Base URL. | Documented; unverified. Kilo CLI has no profile. |
+| GitHub Copilot Chat (VS Code) | Manual BYOK custom endpoint in `chatLanguageModels.json`. Chat only; the model must support tool calling. An organization policy can disable BYOK. | Documented; unverified. |
+| GitHub Copilot CLI | No profile. The BYOK `providers.json` format is not confirmed. | Unverified. |
+| Cline (VS Code extension) | Manual: OpenAI Compatible or Anthropic provider, with the custom base URL field. | Documented; unverified. Cline CLI unverified. |
+| Cursor, Windsurf | Not supported: no confirmed mechanism for a local base URL. | Not supported. |
+
+### Gateways
+
+freellmapi, Bifrost and OmniRoute can run behind acd-ctx. Use a client profile with the gateway as upstream through `/ctx/`, and add the gateway origin to `ACD_CTX_ALLOW`, for example `ACD_CTX_ALLOW=http://127.0.0.1:20128`. Default ports: freellmapi 3001, Bifrost 8080, OmniRoute 20128.
+
+- **Bifrost** drops `anthropic-beta` unless it is on the header allowlist. Without it, beta features are dropped or rejected and Claude Code can fail. Add it in Bifrost's client settings.
+- **OmniRoute** semantic cache and compression rewrite requests. That conflicts with acd-ctx's byte-stable prompt prefix, so turn them off for traffic that goes through acd-ctx.
+- **freellmapi** failover changes the model between turns. That conflicts with window sizing (`window.context_limit`) and with the provider's prompt cache. Use a fixed model, not `auto` or `fusion`.
+
+None of these has been validated against a real client or gateway. Items marked unverified in [docs/integrations.md](docs/integrations.md) remain unverified.
 
 ## Configuration
 

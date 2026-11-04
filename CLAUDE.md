@@ -70,7 +70,7 @@ Package map:
 - `conformance/`: plugin vectors, replayed by Go, Python and Node.
 - `middleware/python/acd_ctx`, `middleware/node/index.mjs`: plugin clients (stdlib only).
 - `e2e/`: black-box tests of the binary. `testdata/traces/`: golden event sequences.
-- `docs/`: `compatibility.md` (generated), `docker.md` (container install, backup, security), `release.md` (tags, release and image workflows).
+- `docs/`: `compatibility.md` (generated), `docker.md` (container install, backup, security), `release.md` (tags, release and image workflows), `integrations.md` (research and status of other clients and gateways; the README table is derived from it).
 - Release: `.goreleaser.yaml` and `.github/workflows/release.yml`. The workflow runs on a `v*` tag or by hand. Its GoReleaser and image jobs run only for a tag.
 
 Request flow: client → `proxy` (route, detect the dialect) → `wire` decode into `kernel.Message`s → `session`/`store` record the ledger → `kernel` decides the window and nudge → `proxy` injects the four internal tools (`compress`, `decompress`, `search_context`, `retrieve`) and sends upstream → `Read` takes the complete answer (only Anthropic streams live, through `Live`) → internal calls are applied by `session` → `Continue` loops the round → `wire` encodes the window back to the client.
@@ -113,7 +113,7 @@ Configuration:
 - **Python tests leave `__pycache__`.** `.gitignore` already covers `__pycache__/` and `*.pyc`; set `PYTHONDONTWRITEBYTECODE=1` anyway to keep the tree clean.
 - **e2e window.** The scenarios reach the 128K window through the `gpt-4o` model-name prefix (`e2eWindow`). The `window.*` keys are covered in `internal/proxy/window_test.go`, not in e2e.
 - **Transparent-mode limits:** the watchdog helper (`__watchdog`, hidden, dispatched in `cmd/acd-ctx/main.go`) restores the redirect when its owner dies, but a SIGKILL of the helper leaves it in place until `attach --restore`; `doctor` reports it. IPv6 is redirected only when `[::1]` is free on the redirect port. Unprivileged `--restore` keeps the transparent state file.
-- **Not implemented yet:** a watchdog that survives SIGKILL of itself.
+- **Not implemented yet:** fail-open when the transparent watchdog helper is SIGKILLed (the redirect stays until `attach --restore`), and IPv6 interception when `[::1]` is not free on the redirect port (IPv6 then bypasses acd-ctx).
 
 ## Implementation status
 

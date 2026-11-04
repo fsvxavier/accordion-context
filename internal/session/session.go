@@ -12,8 +12,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/cockroachdb/apd/v3"
-
 	"github.com/fsvxavier/accordion-context/internal/config"
 	"github.com/fsvxavier/accordion-context/internal/kernel"
 	"github.com/fsvxavier/accordion-context/internal/store"
@@ -173,11 +171,11 @@ func (s *Session) Plan(ctx context.Context, tokenCount int) (Plan, error) {
 	before := trig
 	trig.LowWater = kernel.UpdateLowWater(trig.LowWater, tokenCount)
 
-	pend := pending(snap, s.opts.RecentKeep)
+	pend := kernel.PendingTokens(snap, s.opts.RecentKeep)
 	d := kernel.DecideNudge(kernel.TriggerInput{
 		TokenCount:   tokenCount,
 		ContextLimit: snap.ContextLimit,
-		ReadDensity:  readDensity(snap),
+		ReadDensity:  kernel.ReadDensity(snap),
 		Pending:      pend,
 		Trigger:      trig,
 	}, s.opts.Kernel)
@@ -730,66 +728,6 @@ func sourceTokens(msgs []kernel.Message, lo, hi int64) int {
 		}
 	}
 	return total
-}
-
-// covered reports whether seq is inside an active block.
-func covered(blocks []kernel.Block, seq int64) bool {
-	for _, b := range blocks {
-		if b.Active && seq >= b.StartSeq && seq <= b.EndSeq {
-			return true
-		}
-	}
-	return false
-}
-
-// pending is the compressible tokens per tier. Tier 1 is the uncovered,
-// non-system, non-pinned messages outside the recent zone. Tiers 2 and 3 are the
-// best foldable run of active blocks one tier below (kernel.FoldablePending).
-func pending(snap kernel.Snapshot, keep int) map[int]int {
-	p := map[int]int{}
-	first := firstUserSeq(snap)
-	last := lastSeq(snap)
-	for _, m := range snap.Messages {
-		if m.Role == kernel.RoleSystem || m.Seq == first || m.Seq > last-int64(keep) {
-			continue
-		}
-		if covered(snap.Blocks, m.Seq) {
-			continue
-		}
-		p[1] += m.Tokens
-	}
-	p[2] = kernel.FoldablePending(snap, 2)
-	p[3] = kernel.FoldablePending(snap, 3)
-	return p
-}
-
-// sessionDecCtx does the readDensity division: 34 digits, round half to even.
-// Traps is empty, so the operation cannot fail.
-var sessionDecCtx = func() *apd.Context {
-	c := apd.BaseContext.WithPrecision(34)
-	c.Rounding = apd.RoundHalfEven
-	c.Traps = 0
-	return c
-}()
-
-// readDensity is the share of tool_result tokens in the whole ledger (spec §8.4 input).
-func readDensity(snap kernel.Snapshot) apd.Decimal {
-	total, reads := 0, 0
-	for _, m := range snap.Messages {
-		total += m.Tokens
-		if m.Kind == kernel.KindToolResult {
-			reads += m.Tokens
-		}
-	}
-	var r apd.Decimal
-	if total == 0 {
-		return r
-	}
-	var num, den apd.Decimal
-	num.SetInt64(int64(reads))
-	den.SetInt64(int64(total))
-	_, _ = sessionDecCtx.Quo(&r, &num, &den)
-	return r
 }
 
 // tokensAfter renders the window as it would be with the plan applied (new

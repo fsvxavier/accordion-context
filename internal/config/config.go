@@ -61,6 +61,13 @@ type Config struct {
 	WindowLimit  int            // window.context_limit: 0 derives the window from the model
 	WindowModels map[string]int // window.models: model prefix (lower case) -> tokens
 
+	// compaction.* (docs/compaction-commands.md). Global only: the setting decides
+	// which requests are passed through unchanged, so a project file must not change it.
+	// strong (default): the fixed prompt markers of the clients whose compaction
+	// prompt is a full sentence; all: also the weak prefixes of OpenCode v2;
+	// off: text rules are not used. Header and item signals are always on.
+	CompactionTextRules string // compaction.text_rules
+
 	// storage: "global" (default) or "local" (§18.1, §18.3).
 	Storage string // storage
 }
@@ -99,6 +106,8 @@ func Defaults() Config {
 		RecallMinAcceptRate: dec("0.05"),
 
 		WindowModels: map[string]int{},
+
+		CompactionTextRules: "strong",
 
 		Storage: "global",
 	}
@@ -164,6 +173,8 @@ var specs = []keySpec{
 
 	{"window.context_limit", true, func(c *Config) any { return &c.WindowLimit }},
 	{"window.models", true, func(c *Config) any { return &c.WindowModels }},
+
+	{"compaction.text_rules", false, func(c *Config) any { return &c.CompactionTextRules }},
 
 	{"storage", true, func(c *Config) any { return &c.Storage }},
 }

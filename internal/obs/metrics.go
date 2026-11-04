@@ -50,6 +50,10 @@ type Metrics struct {
 	CalibFactor prometheus.Gauge // acd_ctx_token_calib_factor
 	// Requests counts compaction requests by protocol and outcome.
 	Requests *prometheus.CounterVec // acd_ctx_requests_total{protocol,outcome}
+	// ClientCompactions counts the client's own compaction calls, forwarded
+	// unchanged, by protocol and by the signal that recognised them. The signals are a
+	// closed set in the proxy, so the cardinality stays bounded.
+	ClientCompactions *prometheus.CounterVec // acd_ctx_client_compactions_total{protocol,signal}
 	// RequestSeconds is the time of a whole compaction request, tool loop included.
 	RequestSeconds *prometheus.HistogramVec // acd_ctx_request_duration_seconds{protocol}
 	// UpstreamSeconds is the latency of each upstream call.
@@ -99,6 +103,10 @@ func NewMetrics() *Metrics {
 			Name: "acd_ctx_requests_total",
 			Help: "Compaction requests by protocol and outcome.",
 		}, []string{"protocol", "outcome"}),
+		ClientCompactions: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "acd_ctx_client_compactions_total",
+			Help: "Client compaction calls forwarded unchanged, by protocol and signal.",
+		}, []string{"protocol", "signal"}),
 		RequestSeconds: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "acd_ctx_request_duration_seconds",
 			Help:    "Duration of a compaction request, tool loop included.",
@@ -119,7 +127,7 @@ func NewMetrics() *Metrics {
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 		m.ContextTokens, m.CompressTotal, m.CompressRatio, m.CacheReadRatio,
 		m.FoldCacheCost, m.RecallHints, m.CalibFactor, m.Requests,
-		m.RequestSeconds, m.UpstreamSeconds, m.ToolCalls,
+		m.RequestSeconds, m.UpstreamSeconds, m.ToolCalls, m.ClientCompactions,
 	)
 	m.prime()
 	return m

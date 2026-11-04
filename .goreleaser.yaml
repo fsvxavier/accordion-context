@@ -1,0 +1,56 @@
+# GoReleaser configuration for acd-ctx. Only `goreleaser release` (run by
+# .github/workflows/release.yml on a pushed v* tag) uses it. Nothing here
+# publishes on its own, signs anything, or uploads anywhere but the GitHub
+# release of the tag. See docs/release.md.
+version: 2
+
+project_name: acd-ctx
+
+builds:
+  - id: acd-ctx
+    main: ./cmd/acd-ctx
+    binary: acd-ctx
+    # The SQLite driver (modernc.org/sqlite) is pure Go, so no C toolchain is needed.
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - id: default
+    ids:
+      - acd-ctx
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+release:
+  # Drafts keep a human in the loop: the release is published from the GitHub
+  # UI after the artifacts have been checked.
+  draft: true

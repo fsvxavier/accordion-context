@@ -1,0 +1,38 @@
+# Runs the acd-ctx proxy as a container. See docs/docker.md.
+#
+# Security defaults: the port is published on 127.0.0.1 only, the root
+# filesystem is read-only, all capabilities are dropped and privilege escalation
+# is blocked. Data lives in the named volume acd-ctx-data.
+name: acd-ctx
+
+services:
+  acd-ctx:
+    build:
+      context: .
+      args:
+        VERSION: ${ACD_CTX_VERSION:-dev}
+    image: acd-ctx:${ACD_CTX_VERSION:-dev}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - acd-ctx-data:/data
+      # Optional global config, read-only. Uncomment to use a host file:
+      # - ./acd-ctx.config.yaml:/data/config.yaml:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      # Upstream origins reachable through /ctx/<upstream>/ (serve --allow).
+      # Empty means only the default upstream, https://api.anthropic.com.
+      ACD_CTX_ALLOW: ${ACD_CTX_ALLOW:-}
+      # Host header names the guard accepts. Replaces the image default. Keep
+      # the loopback names: the host-side launcher and healthcheck use them.
+      ACD_CTX_ALLOWED_HOSTS: ${ACD_CTX_ALLOWED_HOSTS:-localhost,127.0.0.1,[::1],host.docker.internal}
+
+volumes:
+  acd-ctx-data:

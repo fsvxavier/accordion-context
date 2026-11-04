@@ -1,0 +1,421 @@
+{
+ "per_eval": [
+  {
+   "id": 1,
+   "type": "retrieval",
+   "hits": 4,
+   "total": 4,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 2,
+   "type": "retrieval",
+   "hits": 4,
+   "total": 4,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 3,
+   "type": "conflict",
+   "hits": 3,
+   "total": 4,
+   "misses": [
+    {
+     "fact": "IN 51 crioscopia: mesma familia normativa (IN 51 nao citada)",
+     "class": "answer_missed"
+    }
+   ],
+   "lenient": []
+  },
+  {
+   "id": 4,
+   "type": "formula",
+   "hits": 3,
+   "total": 3,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 5,
+   "type": "conflict",
+   "hits": 4,
+   "total": 4,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 6,
+   "type": "formula",
+   "hits": 3,
+   "total": 4,
+   "misses": [
+    {
+     "fact": "Area aproveitavel omite interesse ecologico e area em reforma comprovada na formula",
+     "class": "answer_missed"
+    }
+   ],
+   "lenient": [
+    "formula de area aproveitavel incompleta; numero 740 correto"
+   ]
+  },
+  {
+   "id": 7,
+   "type": "conflict",
+   "hits": 3,
+   "total": 3,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 8,
+   "type": "application",
+   "hits": 3,
+   "total": 4,
+   "misses": [
+    {
+     "fact": "Marcacao a ferro lado esquerdo da cara com V + ultimo digito do ano",
+     "class": "answer_missed"
+    }
+   ],
+   "lenient": []
+  },
+  {
+   "id": 9,
+   "type": "application",
+   "hits": 5,
+   "total": 5,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 10,
+   "type": "application",
+   "hits": 4,
+   "total": 4,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 11,
+   "type": "formula",
+   "hits": 4,
+   "total": 4,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 12,
+   "type": "retrieval",
+   "hits": 4,
+   "total": 4,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 13,
+   "type": "retrieval",
+   "hits": 4,
+   "total": 4,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 14,
+   "type": "retrieval",
+   "hits": 2,
+   "total": 2,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 15,
+   "type": "retrieval",
+   "hits": 4,
+   "total": 4,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 16,
+   "type": "retrieval",
+   "hits": 4,
+   "total": 4,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 17,
+   "type": "application",
+   "hits": 4,
+   "total": 4,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 18,
+   "type": "application",
+   "hits": 3,
+   "total": 3,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 19,
+   "type": "formula",
+   "hits": 3,
+   "total": 3,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 20,
+   "type": "retrieval",
+   "hits": 3,
+   "total": 3,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 21,
+   "type": "application",
+   "hits": 4,
+   "total": 4,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 22,
+   "type": "conflict",
+   "hits": 4,
+   "total": 4,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 23,
+   "type": "counter",
+   "hits": 3,
+   "total": 3,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 24,
+   "type": "counter",
+   "hits": 3,
+   "total": 3,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 25,
+   "type": "formula",
+   "hits": 4,
+   "total": 4,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 26,
+   "type": "formula",
+   "hits": 5,
+   "total": 5,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 27,
+   "type": "formula",
+   "hits": 4,
+   "total": 4,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 28,
+   "type": "formula",
+   "hits": 5,
+   "total": 5,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 29,
+   "type": "formula",
+   "hits": 4,
+   "total": 4,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 30,
+   "type": "formula",
+   "hits": 5,
+   "total": 5,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 31,
+   "type": "formula",
+   "hits": 4,
+   "total": 4,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 32,
+   "type": "formula",
+   "hits": 5,
+   "total": 5,
+   "misses": [],
+   "lenient": [
+    "UA/ha vs cab/ha: distincao so implicita"
+   ]
+  },
+  {
+   "id": 33,
+   "type": "formula",
+   "hits": 4,
+   "total": 4,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 34,
+   "type": "formula",
+   "hits": 5,
+   "total": 5,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 35,
+   "type": "retrieval",
+   "hits": 5,
+   "total": 5,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 36,
+   "type": "retrieval",
+   "hits": 5,
+   "total": 5,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 37,
+   "type": "retrieval",
+   "hits": 4,
+   "total": 4,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 38,
+   "type": "retrieval",
+   "hits": 5,
+   "total": 5,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 39,
+   "type": "retrieval",
+   "hits": 5,
+   "total": 5,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 40,
+   "type": "retrieval",
+   "hits": 4,
+   "total": 4,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 41,
+   "type": "application",
+   "hits": 5,
+   "total": 5,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 42,
+   "type": "application",
+   "hits": 5,
+   "total": 5,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 43,
+   "type": "application",
+   "hits": 5,
+   "total": 5,
+   "misses": [],
+   "lenient": [
+    "perda 4 L/dia: 240 L so como hipotese com 60 vacas",
+    "cultura/antibiograma sem citar leite colhido antes do tratamento"
+   ]
+  },
+  {
+   "id": 44,
+   "type": "application",
+   "hits": 4,
+   "total": 4,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 45,
+   "type": "conflict",
+   "hits": 3,
+   "total": 4,
+   "misses": [
+    {
+     "fact": "Arquivo sinaliza a discrepancia em Inconsistencias (resposta nao menciona sinalizacao)",
+     "class": "answer_missed"
+    }
+   ],
+   "lenient": [
+    "fato 4: resposta diz que nao e divergencia real"
+   ]
+  },
+  {
+   "id": 46,
+   "type": "conflict",
+   "hits": 4,
+   "total": 4,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 47,
+   "type": "counter",
+   "hits": 4,
+   "total": 4,
+   "misses": [],
+   "lenient": []
+  },
+  {
+   "id": 48,
+   "type": "counter",
+   "hits": 4,
+   "total": 4,
+   "misses": [],
+   "lenient": []
+  }
+ ],
+ "summary": {
+  "hits": 192,
+  "total": 196
+ }
+}

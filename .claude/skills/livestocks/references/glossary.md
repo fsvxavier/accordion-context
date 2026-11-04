@@ -1,0 +1,254 @@
+# Glossário livestocks
+
+> Detalhe e contexto de cada tema nos arquivos temáticos: [01 sistemas de produção e intensificação](01-sistemas-producao-intensificacao.md) · [02 reprodução e genética](02-reproducao-genetica.md) · [03 cria, bezerros e recria](03-cria-bezerros-recria.md) · [04 nutrição e suplementação](04-nutricao-suplementacao.md) · [05 confinamento e terminação](05-confinamento-terminacao.md) · [06 pastagem, adubação e forragem](06-pastagem-adubacao-forragem.md) · [07 sistemas integrados e silvipastoril](07-sistemas-integrados-silvipastoril.md) · [08 leite, qualidade e ordenha](08-leite-qualidade-ordenha.md) · [09 conforto, bem-estar, instalações e pré-abate](09-conforto-bem-estar-instalacoes-pre-abate.md) · [10 sanidade](10-sanidade.md) · [11 gestão, economia e finanças](11-gestao-economia-financas.md) · [12 legislação ambiental e rastreabilidade](12-legislacao-ambiental-rastreabilidade.md) · [13 sustentabilidade, mercado e certificação](13-sustentabilidade-mercado-certificacao-territorio.md) · [14 gestão do conhecimento e inovação](14-gestao-conhecimento-inovacao.md). Índice: [README](README.md).
+
+Ordem alfabética.
+
+- **3 P's** — Profit, Persons, Planet
+- **4 F's** — forrage, food, fiber, fuel; demanda de uso da terra
+- **4 I's** — intuitivo, interpretativo, integrativo, institucional; aprendizagem organizacional
+- **5S** — utilização, organização, limpeza, saúde, autodisciplina
+- **ABC** — programa Agricultura de Baixo Carbono
+- **Abordagem territorial** — iniciativa que atua em territórios sustentáveis, no Brasil em Mato Grosso, com metas e pactos regionais
+- **ABPO** — Associação Brasileira de Pecuária Orgânica (2001), eixo da carne orgânica certificada
+- **ACB** — análise custo-benefício financeira
+- **Acurácia** — confiabilidade da DEP; define a intensidade de uso do reprodutor
+- **A Farra do Boi na Amazônia** — dossiê Greenpeace (3 anos) que motivou a suspensão de compras por varejistas
+- **Aleitamento natural / restringido / artificial** — bezerro mama à vontade / em períodos predefinidos / em balde
+- **Aliança da Terra** — ONG da ferramenta de monitoramento socioambiental
+- **Alizarol 78%** — teste de acidez/estabilidade na coleta
+- **Animal caído** — incapaz de se levantar; mudar de lado, não içar sem veterinário
+- **APO** — Asian Productivity Organization; modelo de 7 dimensões escolhido como base
+- **APPCC** — Análise de Perigos e Pontos Críticos de Controle (HACCP); tem as BPA de campo como pré-requisito
+- **APP** — Área de Preservação Permanente; faixas ripárias de 30/50/100/200/500 m, nascente 50 m
+- **Arco de Fogo** — operação MMA + Polícia Federal na Amazônia Legal; R$ 31,3 milhões em multas em três estados
+- **Arroba (@)** — 15 kg de carcaça
+- **Arrobas baratas da porteira para dentro** — foco em reduzir custo de produção
+- **Aspado / mocho** — com / sem chifre; não misturar no lote de monta ou transporte
+- **Aspersão** — gotas maiores molham o corpo; resfriamento por evaporação; melhor com ventilação
+- **Aspranor** — associação de produtores de animais orgânicos de MT (Tangará da Serra); encerrou ~2009
+- **B19 / RB51** — vacinas de brucelose; B19 em fêmeas de 3 a 8 meses; RB51 em >8 meses e adultas não reagentes
+- **Bagaço hidrolisado** — 21,6% PB, 59,5% FDN
+- **Banco de proteína** — plantio isolado de leguminosa
+- **BAP** — Bacia do Alto Paraguai
+- **Barreirão / Santa Fé** — sistemas de renovação de pastagem com milho (aração) e consórcio em plantio direto
+- **BLUP** — modelos mistos para avaliação genética
+- **Boi magro** — animal de reposição; 64,56% do custo total
+- **Boi pirata** — gado apreendido de áreas ilegais/desmatadas
+- **Boi sanfona** — animal a pasto que perde ~20% do PV na seca e recupera nas águas
+- **Boi sanfona** — ganha nas águas e perde na seca por falta de suplementação
+- **Borrachão / colchão de borracha** — pisos emborrachados; colchão com raspas de pneu é mais confortável
+- **BPA** — Boas Práticas Agropecuárias
+- **BPA** — Boas Práticas Agropecuárias, mínimo de 70% de conformidade
+- **BPA** — Boas Práticas Agropecuárias, programa voluntário oficial de certificação de propriedade, processo e produto
+- **BPA (leite)** — conjunto de atividades na propriedade para leite seguro e de qualidade, com bem-estar animal e ambiente preservado
+- **Business as usual** — cenário extensivo sem intervenção
+- **Campos do Araguaia** — projeto de cofinanciamento de assistência técnica a pequenos produtores, desde 2016
+- **Caneca de fundo escuro** — teste de mastite clínica pelos primeiros jatos
+- **Caneca de fundo preto** — teste dos 3 primeiros jatos para mastite clínica
+- **Capital intelectual (Casey 2010)** — pessoas, sistemas organizacionais e constituintes externos
+- **Carbúnculo sintomático (manqueira)** — Clostridium chauvoei; jovens 6 m-2 anos
+- **Carência** — prazo de descarte do leite após medicamento
+- **Carne Sustentável do Pantanal** — produto Korin (2014), grãos convencionais; "Orgânica" usa grãos orgânicos
+- **Carne verde** — carne com origem livre de desmatamento exigida por varejo, UE e Ásia
+- **Caroço de algodão** — máx ~15% da MS
+- **CAR / PSA** — Cadastro Ambiental Rural / Pagamento por Serviços Ambientais
+- **Casquinha de soja** — intermediária entre volumoso e concentrado; substitui milho
+- **CBT / CPP** — Contagem Bacteriana Total / Contagem Padrão em Placas, UFC/mL; cai com higiene + resfriamento rápido
+- **CCS** — Contagem de Células Somáticas, CS/mL; >200 mil no tanque sugere mastite subclínica
+- **CCS** — contagem de células somáticas; sobe na mamite
+- **CEIP** — Certificado Especial de Identificação e Produção do MAPA, 1995
+- **Ciclo pecuário** — variação de oferta/preço em 4 fases: alta, estabilidade, baixa, recuperação
+- **CITE / Federacite** — Clubes de Integração e Trocas de Experiências (RS), 123 clubes e 1.400 produtores
+- **Cloro livre** — 0,2-0,5 mg/L na água; clorador de pastilha
+- **CMS** — consumo de matéria seca (kg/dia), equação BR Corte 2016
+- **CMT** — Califórnia Mastitis Test (raquete), mensal
+- **Cocho limpo** — manejo sem sobras
+- **Colostro** — primeiro leite; fonte única de imunoglobulinas; ingerir em até 3 h
+- **Colostro** — proibido misturar ao leite para a indústria
+- **Commodities pecuárias** — carne bovina, suína, frango e leite
+- **Compartilhamento Funcional (21-40)** — nível 1: socialização ad hoc
+- **Complementaridade** — combinação de vantagens de raças distintas
+- **Conhecimento (Drucker)** — informação em ação efetiva, focada em resultados
+- **Conhecimento tácito rural** — saber de experiência e de lugar, difícil de verbalizar
+- **Consumo de luxo de K** — absorção excessiva que prejudica Ca e Mg
+- **Controle estratégico (carrapato/verme)** — tratamentos concentrados por época e epidemiologia, não curativos indiscriminados
+- **CoP** — Comunidade de Prática
+- **COT / CT / CE** — custo operacional total / custo total / custo econômico (oportunidade da terra e capital)
+- **Creep-feeding** — concentrado em cocho privativo para bezerros; 75-80% NDT, 16-21% PB, 0,5-1,0% PV
+- **Creep-feeding** — suplementação privativa de bezerros: 1,5 m²/cria
+- **Creep-feeding** — suplementação privativa do bezerro na cria
+- **Creep-grazing** — área de pasto de alto valor só para bezerros
+- **Cria / Recria / Engorda** — produção de terneiros; desmame até terminação (machos) ou 1º entoure (fêmeas); terminação a mercado, fase mais insumo-intensiva
+- **Cruzamento absorvente / rotacionado / tricross** — sistemas de cruzamento; heterose estabiliza em 67% (2 raças) ou ~86% (3 raças) no rotacionado
+- **Cubículo** — baia individual de descanso; 1 por animal + 5%
+- **DEP** — diferença esperada na progênie; metade do valor genético
+- **Descorna** — remoção dos botões do chifre; até 30 dias; química desaconselhada
+- **Desmama lado a lado** — vacas em pasto vizinho aos bezerros por 3 dias, menos estresse
+- **Desmatamento evitado** — área não aberta devido à maior produtividade; 213,1 milhões ha 1975-2006
+- **Detergente alcalino clorado / ácido / neutro** — remove gordura e proteína / sais / limpeza manual; nunca misturar
+- **DFD** — Dark, Firm, Dry; carne com pH final >6,0
+- **Diferimento** — vedar pasto no fim do verão para uso no seco
+- **DNCB** — dermatite nodular contagiosa dos bovinos; vacinação anual
+- **ECC (escore de condição corporal)** — nota 1-5 por avaliação visual/tátil da região lombar; vaca >=3 para entrar na estação
+- **Economia de escopo** — EE=[ΣC(Yi)-C(Y)]/C(Y)
+- **Efeito substitutivo / aditivo / combinado** — modos como o suplemento altera o consumo de forragem
+- **Escore de higiene (1-3)** — limpeza de perna e úbere; não admitir 3 no úbere
+- **Escore de lesões (1-3)** — sem alteração / sem pelos / sem pelo+edema+escoriação
+- **Escore de locomoção (1-3)** — Welfare Quality: normal / claudicação / incapaz de apoiar
+- **Espiral do Conhecimento (SECI)** — socialização, externalização, combinação, internalização
+- **Estacionalidade** — % da produção anual de forragem que ocorre na seca
+- **Estação de monta** — período em que matrizes aptas são expostas a reprodutores (IA, monta natural ou controlada); +31% margem bruta na cria
+- **Estação de monta** — restrição do período de acasalamento; custo quase zero, +31% margem bruta
+- **Estresse por calor** — retal >39,4 °C (severo >40 °C), FR >80 mov/min, >=70% do rebanho com sinais
+- **ETR (Escore de Trato Reprodutivo)** — preditor de fertilidade de novilhas e vida produtiva
+- **Expansão direta / imersão** — tipos de resfriador; 4 °C vs <7 °C em 3 h
+- **Extensivo / Semi-intensivo / Intensivo** — pasto de baixa produtividade sem insumo; pasto cultivado + suplemento; pasto de alta produtividade + suplementação + confinamento na terminação
+- **Externalização Experimental (41-60)** — nível 2: GC informal e isolada
+- **Extrato seco desengordurado (ESD)** — proteína+lactose+vitaminas+minerais; mín. 8,4 g/100 g
+- **FBN** — fixação biológica de N pelas leguminosas (alfafa)
+- **FCS** — Fatores Críticos de Sucesso em GC: pessoas, organização, tecnologia
+- **FEFA-RO** — Fundo de Apoio à Defesa Sanitária Animal de Rondônia, criado por pecuaristas
+- **Feno / silagem** — forragem desidratada / forragem conservada por fermentação
+- **Fornecedor indireto** — criador (cria) que vende a recriador/engordador; elo difícil de rastrear
+- **Fornecimento individual/em grupo/sistema intensivo** — estratégias de entrega
+- **Free-stall** — estabulação com baias individuais de descanso e corredores comuns
+- **Função social do imóvel** — exigência legal de produtividade (GUT>=80%, GEE>=100%), uso correto dos recursos naturais e respeito às leis trabalhistas; descumprir expõe à desapropriação
+- **GC (Gestão do Conhecimento)** — abordagem integrada de identificar, criar, armazenar, compartilhar e aplicar conhecimento para melhorar desempenho
+- **GEE** — Grau de Eficiência na Exploração; área equivalente (pecuária+agricultura)/área aproveitável x 100
+- **GMGC** — Grau de Maturidade em GC, índice 0-100
+- **GPD, $/@, CA, RGP** — ganho de peso diário, custo da arroba, conversão alimentar, rendimento do ganho de peso
+- **Grau Dornic (°D)** — acidez; normal 14-18 °D
+- **GRSB** — Global Roundtable for Sustainable Beef (2010)
+- **Grupo ETCO** — grupo de pesquisa UNESP Jaboticabal em etologia e ecologia animal, autor do manual
+- **Grupon** — região nobre do couro; marca a ferro proibida nela
+- **GTA** — Guia de Trânsito Animal, obrigatória em toda movimentação
+- **GTPS** — Grupo de Trabalho da Pecuária Sustentável
+- **GTPS** — Grupo de Trabalho da Pecuária Sustentável (2007/2009)
+- **GUT** — Grau de Utilização da Terra = área utilizada/área aproveitável x 100
+- **Heterose (vigor híbrido)** — superioridade média da cria sobre a média dos pais; H=[(X1-X2)/X2]x100
+- **Holocêntrico (81-100)** — nível 4: GC institucionalizada, BI e sensores
+- **IBD** — Instituto Biodinâmico, certificador da carne orgânica
+- **Idade ao 1º acasalamento** — variável de grande impacto econômico; antecipar traz retorno cedo, mas eleva custo de recria
+- **ILPF** — Integração Lavoura-Pecuária-Floresta; meta 5 milhões ha até 2030
+- **ILPF** — Integração Lavoura-Pecuária-Floresta, projeto de pesquisa em Rondônia
+- **ILP / ILPF** — Integração Lavoura-Pecuária (-Floresta)
+- **ILP / ILPF** — integração lavoura-pecuária(-floresta): agrossilvipastoril, silvipastoril, silviagrícola
+- **ILP (integração lavoura-pecuária)** — pastoreio de inverno em áreas de grãos; intensidade de pastejo afeta rendimento
+- **IN 62/2011, IN 7/2016, IN 50/2013** — regulamento do leite cru refrigerado; alteração de CPP/CCS; lista de doenças de notificação
+- **Intensificação sustentável** — produzir mais na mesma área com menor impacto ambiental
+- **Internalização Operacional (61-80)** — nível 3: processos padronizados e melhorados
+- **Intervalo entre partos** — meta < 12 meses
+- **IPC / IDP / TN** — idade à primeira cria / intervalo de partos / taxa de natalidade
+- **IP (intervalo entre partos)** — 12 meses meta
+- **Lanternim** — abertura na cumeeira para saída de ar quente
+- **Lei da oferta e da demanda** — preço determinado pela interação entre quantidade ofertada e demandada
+- **Lei dos mínimos** — nutriente ausente limita o rendimento
+- **Leitura de cocho** — escore visual da sobra e do comportamento para ajustar a dieta do dia (+/-5 ou 10%)
+- **Leitura de cocho** — nota 1-5 da sobra; 3 ideal; ajuste 0,5%
+- **Linha de ordenha** — ordem: primíparas sadias, multíparas sadias, curadas, mastíticas
+- **Livre de aftosa com vacinação (OIE)** — certificação de Rondônia desde 21/05/2003
+- **Lucro operacional / econômico** — receita - COT / menos custos de oportunidade
+- **Madrinha** — vaca adulta no lote de desmamados para reduzir estresse
+- **Mamite ambiental vs contagiosa** — coliformes/estreptococos do ambiente vs patógenos "vaca-dependentes" transmitidos na ordenha
+- **Manejo racional** — manejo que considera comportamento e necessidades do animal
+- **Mastite clínica / subclínica** — com sinais visíveis (grumos, febre) / sem sinais, só CCS alta
+- **Mastite contagiosa x ambiental** — transmitida na ordenha vs vinda de fezes, solo e cama
+- **Matriz de Competências** — mapa de conhecimentos críticos x pessoas para direcionar treinamento
+- **Matriz de Mudge** — comparação pareada para pesos das dimensões
+- **Módulo fiscal** — unidade de classificação de propriedades; 80-100 ha nas áreas da abordagem territorial
+- **Minuta de embarque** — termo assinado pelo produtor ao embarcar animal doente
+- **MMGC** — Modelo de Maturidade em Gestão do Conhecimento
+- **MN / MS** — matéria natural / matéria seca; MN = MS x 100 / %MS do alimento
+- **Monta natural dirigida** — touro separado; vaca em cio levada ao touro
+- **MTI** — Iniciativa de Transformação de Mercados de uma organização ambiental
+- **NDC** — contribuição nacionalmente determinada: -37% GEE (2025), -43% (2030) vs 2005
+- **Índice crioscópico** — ponto de congelamento; detecta água; máx. −0,530 °H (−0,512 °C)
+- **Nebulização** — gotículas finas que umidificam/resfriam o ar sem molhar o animal
+- **NR 31** — segurança e saúde no trabalho rural
+- **NR 7 / PCMSO** — exames admissional, periódico (1 ou 2 anos) e demissional (<=15 dias)
+- **OIE (cinco princípios)** — sem fome/sede, sem medo, sem desconforto, sem dor/doença, comportamento normal
+- **Orçamento forrageiro** — planejamento estratégico do uso dos pastos
+- **Ordenha manual higiênica** — sequência: água clorada nos tetos, secar, descartar 3 primeiros jatos, ordenhar, pós-dipping, coar, resfriar
+- **Orientação para o mercado** — foco em clientes atuais e potenciais com informação antecipada e sistemática
+- **Osteofagia** — ingestão de ossos por falta de fósforo; risco de botulismo
+- **Pastejo rotacionado** — troca regular do gado entre piquetes menores para rebrota; permanência 2-7 dias
+- **Pastejo rotacional (Voisin 1959)** — rotação em piquetes com descanso
+- **Pasto maternidade** — piquete perto da moradia para onde as matrizes vão 45-30 dias antes do parto
+- **Pasto-maternidade** — piquete perto da sede para parição
+- **PCB (Cauenha)** — peripneumonia contagiosa bovina, Mycoplasma mycoides; até 80% de perdas
+- **PCI (Produzir, Conservar e Incluir)** — estratégia do governo de MT: conservar 60% da floresta nativa e dobrar a produção até 2030
+- **PD / PO** — período de descanso / período de ocupação do piquete
+- **Pedilúvio / lava-pés** — banho de casco com formol 3-5% ou sulfato de cobre 5% / pré-lavagem só com água
+- **Pedilúvio / lava-pés** — banho de solução para cascos; lava-pés remove sujeira antes
+- **Período negativo** — 2 a 3 semanas pós-vacina de clostridioses sem proteção efetiva
+- **PIC (Pecuária Intensiva em Conhecimento)** — gestão estratégica do conhecimento para produzir bens e serviços com base no agroecossistema, com foco em resultado econômico e social sem prejudicar o ecossistema
+- **Plano ABC** — crédito de agricultura de baixo carbono
+- **Plano ABC** — plano setorial de agricultura de baixa emissão de carbono e linhas de crédito
+- **Plano ex ante** — reserva de forragem, poupança, seguro contra choques
+- **Planta de cobertura** — gera palha, controla daninhas e cicla nutrientes
+- **PL (período de lactação) / persistência** — tempo de produção; 10 meses ideal
+- **PNDR / NNP** — proteína não degradável no rúmen / nitrogênio não proteico (ureia)
+- **PNEFA / PNCRH / PNCEBT** — programas nacionais de aftosa, raiva dos herbívoros, brucelose e tuberculose
+- **Época de cobrição** — janela planejada para que o terço final da gestação e o parto não caiam na carência alimentar
+- **Polpa cítrica** — 70-75% NDT, fibra alta, estimula ruminação
+- **POP** — procedimento operacional padrão
+- **PPI (Produção, Proteção, Inclusão)** — pactos regionais da abordagem territorial
+- **PRADE** — Projeto de Recuperação de Áreas Degradadas, para déficit de reserva legal
+- **Pró-Natureza** — linha de crédito de longo prazo do Banco do Brasil para pecuária orgânica
+- **Programa de Produção Sustentável de Bezerros** — programa para pequenos produtores de bezerros sem desmatamento
+- **Programa Pantanal para Sempre / Cerrado Pantanal** — programas de conservação no bioma (1998 / desde 2005-06)
+- **Pré / pós-dipping** — imersão das tetas em desinfetante antes (20-30 s) e depois da ordenha
+- **PRV** — Pastoreio Racional Voisin
+- **Raças compostas** — Brangus, Bonsmara, Canchim, Senepol, Santa Gertrudis
+- **Rastreabilidade** — saber o pasto de criação, onde foi processada/embalada e o caminho até o consumidor
+- **REBEM / IN 56** — Recomendações de Boas Práticas de Bem-Estar para animais de produção
+- **REDD+ / VCU** — pagamento por redução de desmatamento / unidade verificada de carbono
+- **Regra 60/40** — 60% do capital em compra, 40% em custos e despesas
+- **Remanga / manga / embute / apartadouro** — pós de espera, divisórias, antecâmara (2x a seringa) e separador de lotes (tipo ovo, em linha, de canto)
+- **REPROTEC** — Rede de Propriedades de Referência (SC)
+- **Reserva legal** — % da propriedade a manter com vegetação: 25% (1965) -> 50% -> 80% na Amazônia
+- **Reserva Legal** — % de vegetação nativa a manter e averbar (80/50/35/20% conforme região)
+- **Revisão Pós-Ação** — reunião documentada do que ocorreu e do que repetir, base da memória organizacional
+- **RGCS** — Resultados em GC para a Sustentabilidade
+- **RIISPOA** — regulamento (1952) de inspeção; descanso/jejum de 24 h, 2,5 m2/bovino
+- **RIPA** — Rede de Inovação e Prospecção Tecnológica para o Agronegócio
+- **Salva-vidas** — porteira horizontal na base do tronco coletivo para socorrer animal caído
+- **Sanitizante** — mata bactérias remanescentes (hipoclorito, ácido peracético)
+- **SAPI** — Sistema Agropecuário de Produção Integrada, baseado em BPA
+- **Saturação por bases (V%)** — meta de calagem por grupo de forrageira: 30-35, 40-45, 50-60
+- **SEDAM / SEAGRI / PROMEC / Solo Fértil** — órgãos e programas estaduais de RO para mata ciliar, mecanização e solo
+- **Senciência** — capacidade do animal de sentir dor, medo e prazer; base ética do manejo racional
+- **Seringa** — funil do curral que enfileira animais para o tronco; circular com porteira giratória é melhor que triangular
+- **Sistema de produção** — combinação de terra, trabalho e capital sob forças ambientais, socioeconômicas e de mercado; em animal, tecnologias + manejo + animal + região
+- **Sistema extensivo/semi-intensivo/intensivo** — grau de intervenção do criador em saúde, alimentação e reprodução, de nenhuma a total
+- **SMB** — síndrome da morte do braquiarão
+- **Sobreordenha** — teteiras além do fim do leite; evitada colocando-as em <=1 min 30 s
+- **Sobressemeadura** — aveia/azevém sobre tropical em abril/maio, só com irrigação
+- **SPV / VC** — sementes puras viáveis / valor cultural (%)
+- **SSPR** — Sistema Silvipastoril com Pastejo Rotacional: pasto recuperado, piquetes, árvores/leguminosas
+- **Suplementação (mineral/proteica/energética/volumosa/ração)** — tipos e usos
+- **Tanque coletivo (comunitário)** — resfriador de até 10 produtores a <=5 km
+- **Taxa de lotação** — UA/ha de pastagem
+- **Técnica de Grupo Nominal** — consenso de especialistas para validar o questionário
+- **TEC** — Tonelada Equivalente Carcaça
+- **TEC** — tonelada equivalente carcaça
+- **Temperatura crítica superior** — taurinos adultos 27 °C; bezerros 25 °C; zebuínos 35 °C
+- **TIR** — taxa que zera o VPL
+- **Trato** — fornecimento de dieta; 2/dia (50%/50%)
+- **TRI** — taxa de retorno incremental entre alternativas excludentes
+- **Tríplice lavagem** — lavar 3 vezes embalagem rígida de agroquímico e perfurar o fundo
+- **UA** — unidade animal, ~450 kg de peso vivo
+- **UA (unidade animal)** — 450 kg PV = 15 arrobas
+- **UA** — unidade animal (lotação em UA/ha)
+- **UD** — unidade demonstrativa
+- **% vacas em lactação** — PL/IP x 100 (derivado)
+- **Verticalização das pastagens** — intensificar uso da terra existente em vez de expandir
+- **Virginiamicina** — aditivo que reduz produção de ácido lático na adaptação
+- **Viteleiro** — estábulo individual ou coletivo de bezerros
+- **Volumoso / Concentrado** — silagem milho/cana, cana, silagem capim / milho, soja, sorgo e subprodutos
+- **VPL** — valor presente líquido do fluxo descontado
+- **VSA (Área de Originação Verificada)** — mecanismo baseado em jurisdição com governança ligada a critérios de mercado
+- **V%** — saturação por bases; calagem leva de 57 a 80% no exemplo
+- **Zona termoneutra** — faixa entre temperatura crítica inferior e superior sem gasto extra de energia para termorregulação
+- **ZP** — Zona Pecuária (INCRA), define o índice de lotação mínimo em UA/ha

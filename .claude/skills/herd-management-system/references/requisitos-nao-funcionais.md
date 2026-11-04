@@ -1,0 +1,14 @@
+# Requisitos não funcionais
+
+Metas numéricas de desempenho só após baseline de piloto.
+
+- **Precisão (PREC):** tipos/unidades/escala definidos; decimais sem erro binário; precisão por grandeza após limites reais; fórmula, população, período, unidade, ausência/outlier e arredondamento documentados com o indicador; payload decimal exato; testes table-driven, property-based e referência independente para GMD, rateio, lotação, reprodução, conversão; sem float em caminho de negócio.
+- **Segurança (SEC):** isolamento tenant/fazenda fail-closed com RLS; teste cross-tenant no CI; autenticação forte para admin; autorização por recurso e ação; PII minimizada, criptografada, fora de logs; exportação/correção/exclusão/retenção por finalidade e base legal com revisão jurídica; certificado/credencial oficial em cofre criptografado.
+- **Arquitetura (ARQ):** monólito modular com fronteiras explícitas; efeito assíncrono reentregável com idempotência e DLQ; domínio independente de adapters; versões de stack só normativas após validação; migrações testadas e backup/restore comprovado.
+- **Dados (DAT):** ID interno independente de brinco; timestamps de negócio × recepção × fuso; histórico preservado em correção; particionamento por volume medido; soft delete só onde a entidade permanece; agregados declaram latência/refresh; nenhuma view sem escopo testado.
+- **Offline (OFF):** curral essencial opera sem rede após cache inicial e informa dados locais; persistência local sobrevive a reinício; sync idempotente com ack, backoff e erro acionável; conflitos sem resolução insegura; testes de campo e bateria.
+- **Operação (OPS):** logs estruturados, métricas, tracing por request/evento sem PII; timeout, shutdown, health; backup e restore testado, RPO/RTO acordados; UI mostra indisponibilidade/offline/sync, erro nunca como sucesso; APIs externas com timeout, rate limit, circuit breaker, idempotência.
+- **Qualidade (QA):** cobertura por pacote sem substituir aceitação; mutation/property em cálculo crítico; integração com Postgres e RLS reais; E2E offline/retry/dupla submissão/autorização/troca de fazenda/lote grande/falha de hardware; acessibilidade WCAG.
+- **UX:** menos telas e digitação no curral; legível ao sol, luvas, botões grandes, feedback sonoro/vibratório; Android/iOS declarados após release e teste; pt-BR, unidades locais, nomes configuráveis sem mudar semântica.
+- **Regulatório (REG):** SISBOV, PNIB, GTA, NF-e, MDF-e, LCDPR, LGPD e normas estaduais sujeitos a especialista e fonte oficial vigente; integração oficial não é emissão/garantia sem autorização, docs e testes; cada regra registra fonte, jurisdição, vigência, revisão e comportamento se a fonte falhar.
+- **Suporte:** a rotina de curral inclui fins de semana e madrugada, então suporte com janela estendida no fim de semana; SLA numérico e central de ajuda pública diferenciam; backup não é responsabilidade do usuário.

@@ -1,0 +1,20 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'CODEGRAPH: antes de Read/Grep em perguntas sobre código ou arquitetura, chame codegraph_explore (MCP codegraph). Read/Grep só para o que ele não indexa (docs .md, configs, planilhas).'"
+          }
+        ]
+      }
+    ]
+  },
+  "disableAllHooks": false,
+  "enabledPlugins": {
+    "caveman@caveman": true,
+    "claude-obsidian@agricidaniel-claude-obsidian": true
+  },
+  "autoMemoryEnabled": true
+}

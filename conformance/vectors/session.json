@@ -1,0 +1,180 @@
+{
+  "suite": "session",
+  "description": "Runtime info, turn ingestion, idempotent re-sends, divergence and status.",
+  "vectors": [
+    {
+      "name": "session_lifecycle",
+      "description": "runtime-info creates the session, a turn ingests the transcript, a repeated turn ingests nothing, status reports the messages.",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "runtime-info",
+            "body": {
+              "conversationId": "{conv}",
+              "model": "conf-model",
+              "contextWindow": 200000,
+              "maxOutputTokens": 4096,
+              "cwd": "/tmp/conf"
+            }
+          },
+          "expect": {
+            "status": 200,
+            "json": {
+              "sessionId": "$any",
+              "created": true
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "turn",
+            "body": {
+              "conversationId": "{conv}",
+              "messages": [
+                {
+                  "role": "system",
+                  "kind": "text",
+                  "text": "You are a coding agent."
+                },
+                {
+                  "role": "user",
+                  "kind": "text",
+                  "text": "Read the config file."
+                },
+                {
+                  "role": "assistant",
+                  "kind": "text",
+                  "text": "The config sets port 8787."
+                }
+              ]
+            }
+          },
+          "expect": {
+            "status": 200,
+            "json": {
+              "ingested": 3,
+              "decision": {
+                "nudge": false
+              },
+              "hints": "$any",
+              "visible": "$any"
+            },
+            "keys": [
+              "lowWater"
+            ]
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "turn",
+            "body": {
+              "conversationId": "{conv}",
+              "messages": [
+                {
+                  "role": "system",
+                  "kind": "text",
+                  "text": "You are a coding agent."
+                },
+                {
+                  "role": "user",
+                  "kind": "text",
+                  "text": "Read the config file."
+                },
+                {
+                  "role": "assistant",
+                  "kind": "text",
+                  "text": "The config sets port 8787."
+                }
+              ]
+            }
+          },
+          "expect": {
+            "status": 200,
+            "json": {
+              "ingested": 0
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "status?conversationId={conv}"
+          },
+          "expect": {
+            "status": 200,
+            "json": {
+              "sessionId": "$any",
+              "messages": 3,
+              "contextLimit": 200000,
+              "activeBlocks": [],
+              "openIntents": "$any"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "turn_divergent_transcript",
+      "description": "A transcript that rewrites an already ingested message is refused with 409.",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "turn",
+            "body": {
+              "conversationId": "{conv}",
+              "messages": [
+                {
+                  "role": "user",
+                  "kind": "text",
+                  "text": "first"
+                },
+                {
+                  "role": "assistant",
+                  "kind": "text",
+                  "text": "reply"
+                }
+              ]
+            }
+          },
+          "expect": {
+            "status": 200,
+            "json": {
+              "ingested": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "turn",
+            "body": {
+              "conversationId": "{conv}",
+              "messages": [
+                {
+                  "role": "user",
+                  "kind": "text",
+                  "text": "rewritten"
+                },
+                {
+                  "role": "assistant",
+                  "kind": "text",
+                  "text": "reply"
+                }
+              ]
+            }
+          },
+          "expect": {
+            "status": 409,
+            "json": {
+              "error": "$any"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

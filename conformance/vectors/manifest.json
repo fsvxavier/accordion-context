@@ -1,0 +1,33 @@
+{
+  "suite": "manifest",
+  "description": "Protocol identity and method checks on the manifest endpoint.",
+  "vectors": [
+    {
+      "name": "manifest_ok",
+      "description": "The manifest names the protocol, its version and the tools of spec section 16.",
+      "steps": [
+        {"request": {"method": "GET", "path": "manifest"},
+         "expect": {"status": 200,
+                    "json": {"protocol": "acd-ctx-plugin", "protocolVersion": 1,
+                             "version": "$any", "tools": "$any", "doctrine": "$any"},
+                    "keys": ["tools", "doctrine"]}}
+      ]
+    },
+    {
+      "name": "manifest_wrong_method",
+      "description": "The manifest accepts GET only.",
+      "steps": [
+        {"request": {"method": "POST", "path": "manifest", "body": {}},
+         "expect": {"status": 405, "json": {"error": "$any"}}}
+      ]
+    },
+    {
+      "name": "unknown_plugin_path",
+      "description": "An authenticated request to a path that is not an endpoint gets 404.",
+      "steps": [
+        {"request": {"method": "GET", "path": "nope"},
+         "expect": {"status": 404}}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,366 @@
+[
+ {
+  "id": 1,
+  "type": "retrieval",
+  "n_facts": 4,
+  "hits": 4,
+  "misses": [],
+  "lenient": []
+ },
+ {
+  "id": 2,
+  "type": "retrieval",
+  "n_facts": 4,
+  "hits": 4,
+  "misses": [],
+  "lenient": []
+ },
+ {
+  "id": 3,
+  "type": "conflict",
+  "n_facts": 4,
+  "hits": 4,
+  "misses": [],
+  "lenient": []
+ },
+ {
+  "id": 4,
+  "type": "formula",
+  "n_facts": 3,
+  "hits": 3,
+  "misses": [],
+  "lenient": []
+ },
+ {
+  "id": 5,
+  "type": "conflict",
+  "n_facts": 4,
+  "hits": 4,
+  "misses": []
+ },
+ {
+  "id": 6,
+  "type": "formula",
+  "n_facts": 4,
+  "hits": 4,
+  "misses": [],
+  "lenient": []
+ },
+ {
+  "id": 7,
+  "type": "conflict",
+  "n_facts": 3,
+  "hits": 3,
+  "misses": [],
+  "lenient": []
+ },
+ {
+  "id": 8,
+  "type": "application",
+  "n_facts": 4,
+  "hits": 4,
+  "misses": [],
+  "lenient": []
+ },
+ {
+  "id": 9,
+  "type": "application",
+  "n_facts": 5,
+  "hits": 5,
+  "misses": [],
+  "lenient": []
+ },
+ {
+  "id": 10,
+  "type": "application",
+  "n_facts": 4,
+  "hits": 4,
+  "misses": [],
+  "lenient": []
+ },
+ {
+  "id": 11,
+  "type": "formula",
+  "n_facts": 4,
+  "hits": 4,
+  "misses": [],
+  "lenient": []
+ },
+ {
+  "id": 12,
+  "type": "retrieval",
+  "n_facts": 4,
+  "hits": 4,
+  "misses": [],
+  "lenient": []
+ },
+ {
+  "id": 13,
+  "type": "retrieval",
+  "n_facts": 4,
+  "hits": 4,
+  "misses": [],
+  "lenient": []
+ },
+ {
+  "id": 14,
+  "type": "retrieval",
+  "n_facts": 2,
+  "hits": 2,
+  "misses": [],
+  "lenient": []
+ },
+ {
+  "id": 15,
+  "type": "retrieval",
+  "n_facts": 4,
+  "hits": 4,
+  "misses": [],
+  "lenient": []
+ },
+ {
+  "id": 16,
+  "type": "retrieval",
+  "n_facts": 4,
+  "hits": 4,
+  "misses": [],
+  "lenient": []
+ },
+ {
+  "id": 17,
+  "type": "application",
+  "n_facts": 4,
+  "hits": 4,
+  "misses": [],
+  "lenient": []
+ },
+ {
+  "id": 18,
+  "type": "application",
+  "n_facts": 3,
+  "hits": 3,
+  "misses": [],
+  "lenient": []
+ },
+ {
+  "id": 19,
+  "type": "formula",
+  "n_facts": 3,
+  "hits": 3,
+  "misses": [],
+  "lenient": []
+ },
+ {
+  "id": 20,
+  "type": "retrieval",
+  "n_facts": 3,
+  "hits": 3,
+  "misses": [],
+  "lenient": []
+ },
+ {
+  "id": 21,
+  "type": "application",
+  "n_facts": 4,
+  "hits": 4,
+  "misses": []
+ },
+ {
+  "id": 22,
+  "type": "conflict",
+  "n_facts": 4,
+  "hits": 4,
+  "misses": [],
+  "lenient": []
+ },
+ {
+  "id": 23,
+  "type": "counter",
+  "n_facts": 3,
+  "hits": 3,
+  "misses": [],
+  "lenient": []
+ },
+ {
+  "id": 24,
+  "type": "counter",
+  "n_facts": 3,
+  "hits": 3,
+  "misses": []
+ },
+ {
+  "id": 25,
+  "type": "formula",
+  "n_facts": 4,
+  "hits": 4,
+  "misses": []
+ },
+ {
+  "id": 26,
+  "type": "formula",
+  "n_facts": 5,
+  "hits": 5,
+  "misses": []
+ },
+ {
+  "id": 27,
+  "type": "formula",
+  "n_facts": 4,
+  "hits": 4,
+  "misses": []
+ },
+ {
+  "id": 28,
+  "type": "formula",
+  "n_facts": 5,
+  "hits": 5,
+  "misses": []
+ },
+ {
+  "id": 29,
+  "type": "formula",
+  "n_facts": 4,
+  "hits": 4,
+  "misses": []
+ },
+ {
+  "id": 30,
+  "type": "formula",
+  "n_facts": 5,
+  "hits": 5,
+  "misses": []
+ },
+ {
+  "id": 31,
+  "type": "formula",
+  "n_facts": 4,
+  "hits": 4,
+  "misses": []
+ },
+ {
+  "id": 32,
+  "type": "formula",
+  "n_facts": 5,
+  "hits": 5,
+  "misses": []
+ },
+ {
+  "id": 33,
+  "type": "formula",
+  "n_facts": 4,
+  "hits": 4,
+  "misses": []
+ },
+ {
+  "id": 34,
+  "type": "formula",
+  "n_facts": 5,
+  "hits": 5,
+  "misses": []
+ },
+ {
+  "id": 35,
+  "type": "retrieval",
+  "n_facts": 5,
+  "hits": 5,
+  "misses": []
+ },
+ {
+  "id": 36,
+  "type": "retrieval",
+  "n_facts": 5,
+  "hits": 5,
+  "misses": []
+ },
+ {
+  "id": 37,
+  "type": "retrieval",
+  "n_facts": 4,
+  "hits": 4,
+  "misses": []
+ },
+ {
+  "id": 38,
+  "type": "retrieval",
+  "n_facts": 5,
+  "hits": 5,
+  "misses": []
+ },
+ {
+  "id": 39,
+  "type": "retrieval",
+  "n_facts": 5,
+  "hits": 5,
+  "misses": []
+ },
+ {
+  "id": 40,
+  "type": "retrieval",
+  "n_facts": 4,
+  "hits": 4,
+  "misses": []
+ },
+ {
+  "id": 41,
+  "type": "application",
+  "n_facts": 5,
+  "hits": 5,
+  "misses": []
+ },
+ {
+  "id": 42,
+  "type": "application",
+  "n_facts": 5,
+  "hits": 5,
+  "misses": []
+ },
+ {
+  "id": 43,
+  "type": "application",
+  "n_facts": 5,
+  "hits": 4,
+  "misses": [
+   {
+    "fact": "Mastite clínica: cultura e antibiograma do quarto afetado com leite colhido antes do tratamento; tratar mastite sem cultura é erro",
+    "class": "answer_missed",
+    "where_it_is": "08-leite-qualidade-ordenha.md",
+    "note": "culture/antibiogram of milk collected before treatment; treating without culture is error: answer only lists cultura e antibiograma; 08 read"
+   }
+  ]
+ },
+ {
+  "id": 44,
+  "type": "application",
+  "n_facts": 4,
+  "hits": 4,
+  "misses": []
+ },
+ {
+  "id": 45,
+  "type": "conflict",
+  "n_facts": 4,
+  "hits": 4,
+  "misses": []
+ },
+ {
+  "id": 46,
+  "type": "conflict",
+  "n_facts": 4,
+  "hits": 4,
+  "misses": []
+ },
+ {
+  "id": 47,
+  "type": "counter",
+  "n_facts": 4,
+  "hits": 4,
+  "misses": []
+ },
+ {
+  "id": 48,
+  "type": "counter",
+  "n_facts": 4,
+  "hits": 4,
+  "misses": []
+ }
+]

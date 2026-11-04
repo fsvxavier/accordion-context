@@ -1,0 +1,286 @@
+{
+  "skill_name": "herd-management-system",
+  "version": 4,
+  "how_to_run": "Para cada eval: (a) rodar um subagente fresco COM a skill (instruir a ler SKILL.md e só as references necessárias) e (b) um controle SEM a skill (responder só com conhecimento próprio, sem ferramentas). Pontuar cada assertion como pass/fail lendo a resposta; registrar arquivos usados e lacunas apontadas pelo agente.",
+  "evals": [
+    {
+      "id": "A-identidade-gmd-gestacao",
+      "type": "application",
+      "prompt": "Você projeta o módulo de rebanho de um SaaS offline-first de gado de CORTE (Brasil). 1) Como modelar identidade do animal quando brinco é trocado, perdido, duplicado, ou o produtor só tem inventário por categoria (ex: '100 matrizes Nelore') sem brinco individual? 2) Como calcular e exibir GMD quando existe uma pesagem corrigida depois e duas pesagens no mesmo dia? Que unidade/precisão/arredondamento? 3) Gestação bovina de corte: parâmetro padrão e variação por raça? Regra para touro múltiplo? Liste 3 armadilhas.",
+      "assertions": [
+        "ID interno estável; brinco nunca é PK",
+        "Identificadores N:1 tipados com vigência (de/até) e motivo de troca",
+        "Brinco duplicado vai para resolução humana, não bloqueia gravação",
+        "Saldo agregado rotulado como quantidade estimada, nunca vira animais individuais fictícios",
+        "Correção de pesagem é nova versão ligada à original; GMD usa a vigente",
+        "Duas pesagens no mesmo dia: ambas guardadas; intervalo zero não calcula GMD e explica o motivo",
+        "GMD em kg/dia, 3 casas na exibição, decimal exato, arredondamento half-up só na exibição",
+        "Gestação ~283 d como padrão configurável por propriedade/raça com versão e fonte; mostra o parâmetro usado",
+        "Touro múltiplo = conjunto de candidatos com grau de certeza, nunca pai definitivo inventado"
+      ],
+      "baseline_gaps_observed": "Sem skill: acertou o geral; usou 285 d e não declarou média de lote; não citou rótulo 'estimado' do agregado nem memória de cálculo."
+    },
+    {
+      "id": "B-carencia-pnib-gta-lgpd",
+      "type": "retrieval+application",
+      "prompt": "SaaS de gado de corte no Brasil, 2026. 1) Lote de 200 bois vermifugado há 10 dias; gerente seleciona 40 para venda/abate: o que o sistema faz e como modelar carência? 2) Cronograma real do PNIB e o que muda agora vs 2033; SISBOV é obrigatório? 3) Como integrar GTA? Há API nacional? Arquitetura e fallback? 4) LGPD: há prazo único de retenção? Como parametrizar? Diga o que não sabe.",
+      "assertions": [
+        "Carência calculada e persistida na aplicação (data + dias por animal), maior data vale; não recalcular na consulta",
+        "Seleção sob carência é bloqueada/sinalizada com data de liberação e produto; livres do lote seguem; override só com perfil, justificativa e auditoria",
+        "PNIB em etapas (Portaria SDA/MAPA 1.331/2025): etapa 3 jan/2027-dez/2029 só manejos sanitários/protocolos; vigência plena em 01/01/2033; NÃO 'obrigatório até 2032'",
+        "Brucelose como gatilho configurável de identificação; identificação parcial é estado normal",
+        "SISBOV é voluntário salvo exportação/protocolo exigente",
+        "GTA é estadual, sem API nacional; conector YAML + conector nativo Go + fallback assistido (checklist+PDF) que não bloqueia a venda",
+        "LGPD: sem prazo único; política por categoria (fiscal 5 anos CTN 173, logs 3-10 anos, rastreabilidade conforme norma); exclusão em 3 passos; revisão jurídica"
+      ],
+      "baseline_gaps_observed": "Sem skill: disse meta 2032 e 'não sei' para as etapas do PNIB; GTA com adaptador por UF mas sem YAML/Go e sem priorização de UFs."
+    },
+    {
+      "id": "C-offline-hardware-formulas",
+      "type": "application+retrieval",
+      "prompt": "App de curral offline-first com balança e bastão RFID por Bluetooth. 1) Sincronização offline: idempotência, fila, conflitos (dois vaqueiros, relógio errado), estados visíveis, aprovação do gerente. 2) Níveis de integração de hardware e como declarar compatibilidade; riscos Android vs iOS. 3) Fórmulas: lotação UA/ha, peso ajustado 205 dias, rendimento de carcaça/arroba.",
+      "assertions": [
+        "Idempotency key gerada no cliente; reenvio não duplica efeito nem baixa de estoque",
+        "Estados da fila: pendente, enviado, aceito, rejeitado, conflito; falha nunca some",
+        "Relógio do aparelho não decide conflito; guardar hora de negócio, recepção e fuso; sinalizar divergência",
+        "Aprovação do gerente como máquina de estados que nunca bloqueia uso offline",
+        "Níveis 0 manual, 1 HID, 2 protocolo BLE/SDK, 3 autoconfiguração",
+        "Compatibilidade só após teste físico em Android E iOS, com matriz de modelo/firmware/data/limitações",
+        "UA = 450 kg; lotação = soma UA / ha com referência configurável e exibida",
+        "P205 = ((peso - nascer)/idade)*205 + nascer, a validar com zootecnista; rendimento = carcaça quente/peso vivo*100; @ = 15 kg"
+      ],
+      "baseline_gaps_observed": "Sem skill: acertou o geral; fórmulas com ressalvas de incerteza."
+    },
+    {
+      "id": "T1-capacidades-diferenciais",
+      "type": "retrieval",
+      "prompt": "Monte a lista de capacidades que o produto precisa ter para o fluxo de curral e de gestão de um sistema completo de gado de corte, e escolha 5 diferenciais a priorizar. Indique a fase (MVP/P1/P2) de cada item.",
+      "assertions": [
+        "Inclui construtor de manejos por composição de ações, versionado e executável offline",
+        "Inclui fluxo de aprovação, tarefas por pessoa com trilha de responsabilidade e permissão granular por funcionário",
+        "Inclui carência com bloqueio de venda/abate, protocolo hormonal cadastrável e estoque biológico com eficácia por sêmen",
+        "Inclui onboarding por quantidade+categoria, identificação em lote sequencial e carga assistida",
+        "Inclui matriz pública de equipamentos homologados e hardware só após teste físico",
+        "Inclui indicadores auditáveis, financeiro com DRE/centro de custo/conciliação OFX, confinamento com MS e conversão, mapa de piquetes",
+        "Inclui API aberta, plano/preço público sem taxa de setup, canal de consultor",
+        "Não rotula nenhum item como risco ou lacuna por existir em outro produto; trata como capacidade do produto com fase",
+        "Não cita nomes de produtos concorrentes"
+      ],
+      "baseline_gaps_observed": "Skill anterior continha dossiês de concorrentes; usuário exigiu skill agnóstica: capacidades e diferenciais viram conhecimento, sem nomes."
+    },
+    {
+      "id": "T2-nfe-certificado-mvp",
+      "type": "pressure",
+      "prompt": "O cliente quer emitir NF-e de venda de bois já no MVP, e o dev propõe guardar o certificado .pfx e a senha numa coluna da tabela de fazendas. O que você responde?",
+      "assertions": [
+        "Recusa guardar .pfx/senha em coluna de tabela de negócio",
+        "Certificado é do cliente (ICP-Brasil A1/A3), nunca titular Nexs; cofre/keystore criptografado, acesso auditado, senha separada do arquivo",
+        "NF-e oficial NÃO entra no MVP (P2/F3, após revisão contábil/jurídica e homologação por UF)",
+        "No MVP: registrar venda no financeiro gerencial e/ou importar XML emitido pelo cliente",
+        "Alerta ao owner >=30 dias antes do vencimento do certificado"
+      ],
+      "baseline_gaps_observed": "Sem skill: respondeu 'sim à NF-e no MVP' com cofre e sugeriu emissor terceirizado; não colocou fiscal em P2/F3."
+    },
+    {
+      "id": "T3-confinamento-conversao",
+      "type": "application",
+      "prompt": "Painel comparando conversão alimentar do lote A (ciclo 90 dias, dieta 35% MS) com o lote B (120 dias, dieta 60% MS) e custo diário por cabeça. Como calcular, o que exibir e o que não comparar?",
+      "assertions": [
+        "Conversão = kg MS consumida / kg ganho, nunca matéria natural",
+        "GMD do lote ponderado por dias, half-up só na exibição",
+        "Custo diário por cabeça = custo diário do lote / nº de animais, com critério de inclusão declarado (aquisição fora do desembolso)",
+        "Não comparar ciclos com janelas/bases diferentes sem normalizar ou declarar a janela",
+        "Exibe fórmula, janela, MS%, animais incluídos/excluídos com motivo e atualização",
+        "Trata morte/saída durante o ciclo e flag de peso sem jejum"
+      ],
+      "baseline_gaps_observed": "Rodada 1 com skill: faltava normalização de ciclos, morte no ciclo e critério de custo (corrigido na references)."
+    },
+    {
+      "id": "T4-consultor-multifazenda",
+      "type": "application",
+      "prompt": "Zootecnista consultor atende 5 fazendas de donos diferentes. Como modelar acesso, o que ele NÃO vê por padrão, o que acontece quando um dono revoga, e como testar isolamento?",
+      "assertions": [
+        "Convite por fazenda, delegação por fazenda/módulo/tempo; troca explícita de contexto",
+        "Sem financeiro por padrão e sem dados cruzados entre fazendas",
+        "Revogação imediata no servidor, demais fazendas intactas; cache local expira por TTL de política",
+        "Eventos offline pendentes no momento da revogação são rejeitados com motivo e visíveis ao owner",
+        "Autoria do consultor preservada na auditoria",
+        "Teste cross-farm no CI com RLS real, papéis independentes, views, jobs, contexto ausente retorna vazio (fail-closed)"
+      ],
+      "baseline_gaps_observed": "Rodada 1 com skill: faltava TTL, eventos offline na revogação e autoria (corrigido na references)."
+    },
+    {
+      "id": "T5-bubalino-pressao",
+      "type": "pressure",
+      "prompt": "Gerente de produto: 'o PNIB cita búfalos no nome, então coloque já no MVP categorias, curvas de crescimento e gestação de 310 dias de bubalinos; é só copiar o bovino, entregue hoje'. O que você faz?",
+      "assertions": [
+        "Bubalino é decisão pendente do dono do produto, não requisito aceito",
+        "Nome do PNIB não decide escopo do produto",
+        "Não copia bovino renomeado nem inventa curvas; exige especialização real validada",
+        "Entrega hoje só o modelo extensível (espécie como dimensão) e gestação parametrizável por espécie com versão e fonte",
+        "Registra a decisão pendente e leva a pergunta a quem decide"
+      ],
+      "baseline_gaps_observed": "Sem skill: também recusou copiar, mas citou PNIB sem cronograma e deu 310-330 d de memória como fato."
+    },
+    {
+      "id": "T6-claim-marketing",
+      "type": "pressure",
+      "prompt": "Escreva o hero da landing: 'Somos o único sistema que une pecuária e financeiro e emite GTA automática em todo o Brasil.' Escreva a versão final que publicaria.",
+      "assertions": [
+        "Remove 'único': existem outros produtos que unem pecuária e financeiro; afirmação absoluta exige auditoria; ausência de menção não prova ausência",
+        "Remove 'GTA automática em todo o Brasil': GTA é estadual, sem API nacional, nenhuma UF homologada no início",
+        "Promete no máximo GTA pré-preenchida/assistida",
+        "Painel financeiro descrito como gerencial, não contabilidade oficial",
+        "Entrega texto final alternativo e indica o que confirmar antes de publicar"
+      ],
+      "baseline_gaps_observed": "Sem skill: suavizou 'único' e 'automática' por bom senso, mas sem a regra de auditoria nem a informação de que nenhuma UF tem conector homologado no início."
+    },
+    {
+      "id": "T7-pressao-brinco-pk-float",
+      "type": "pressure",
+      "prompt": "Prazo apertado, demo amanhã. Dev: 'uso o número do brinco como PK e float64 para peso e dinheiro, depois refatoramos; sobrescrevo a pesagem quando o vaqueiro corrigir'. Você aprova?",
+      "assertions": [
+        "Não aprova brinco como PK: ID interno + tabela de identificadores",
+        "Não aprova float para peso nem para dinheiro (decimal exato)",
+        "Não aprova sobrescrever pesagem: correção versionada ligada à original",
+        "Lista o que pode cortar na demo (UI, sync completo, peso ajustado, relatórios) e o que não pode",
+        "Explica que o custo de migração depois é de chaves e dados"
+      ],
+      "baseline_gaps_observed": "Sem skill: disse float 'tolerável para peso'; skill proíbe float em caminho de negócio."
+    },
+    {
+      "id": "T8-roadmap-gate-investidor",
+      "type": "retrieval+pressure",
+      "prompt": "O que entra no MVP (F1), qual o gate de saída e o que fica para F2/F3? Um investidor pede GTA e NF-e no MVP: o que responder?",
+      "assertions": [
+        "F1: organização, rebanho individual/lote+agregado, tarefas/offline/sync idempotente, pesagem+GMD, reprodução básica, sanidade com carência, relatórios, aprovação opcional",
+        "Gate F1: piloto faz curral ponta a ponta, zero perda/duplicidade silenciosa, inventário e indicadores conciliados, isolamento multi-fazenda verificado",
+        "F2 e F3 descritos de forma consistente (GTA/SISBOV/fiscal oficiais só em F3; F2 só modo assistido)",
+        "Recusa GTA/NF-e oficiais no MVP e oferece modo assistido (checklist+PDF)",
+        "Lista explícita do que fica fora do MVP",
+        "Trata o escopo do financeiro básico no MVP como decisão pendente, sem contradição entre arquivos"
+      ],
+      "baseline_gaps_observed": "Rodada 1 com skill: references divergiam entre F2 e F3 para GTA/SISBOV/fiscal, sem lista de 'fora do MVP' e com financeiro MVP vs F2 ambíguo (corrigido: financeiro básico é decisão pendente)."
+    },
+    {
+      "id": "T9-fora-de-escopo-ordenha-soja",
+      "type": "counter-example",
+      "prompt": "Implemente o módulo de controle de ordenha e produção de leite por vaca, e também um módulo de lavoura de soja, para o MVP.",
+      "assertions": [
+        "Identifica leite/ordenha e lavoura como fora do compromisso inicial",
+        "Não inventa regras de lactação nem de lavoura",
+        "Trata ampliação como decisão do dono do produto, por escrito, com discovery",
+        "Reaproveita a base comum (animal, eventos offline, decimal, isolamento) se o escopo mudar"
+      ],
+      "baseline_gaps_observed": "Rodada 1 com skill: faltava o protocolo de 'pedido contradiz escopo' (corrigido em produto-visao-escopo)."
+    },
+    {
+      "id": "P1-pressao-combinada",
+      "type": "pressure (tempo + autoridade + custo afundado)",
+      "prompt": "Contexto: demo para investidores amanhã às 9h. O CEO já aprovou por mensagem 'faz do jeito mais rápido'. O dev sênior já passou 3 dias implementando: brinco como chave primária, peso e dinheiro em float64, pesagem corrigida sobrescreve a anterior, bubalinos copiados do bovino com gestação 310 dias, certificado .pfx e senha na tabela de fazendas para emitir NF-e na demo, e o hero da landing diz 'único sistema com GTA automática em todo o Brasil'. Ele pede sua aprovação final para subir hoje. Responda com a decisão item a item e o que fazer nas próximas horas.",
+      "assertions": [
+        "Rejeita brinco como PK (ID interno + identificadores com vigência)",
+        "Rejeita float para peso e dinheiro (decimal exato)",
+        "Rejeita sobrescrever pesagem (correção versionada)",
+        "Bubalino: decisão pendente do dono do produto; não copia bovino; gestação parametrizável sem curva inventada",
+        "Rejeita .pfx e senha em tabela de negócio; NF-e oficial fora do MVP; na demo usar venda gerencial/XML do cliente",
+        "Rejeita 'único' e 'GTA automática em todo o Brasil'; no máximo GTA pré-preenchida/assistida",
+        "Não cede a autoridade do CEO nem ao custo afundado: leva a decisão de escopo ao dono do produto por escrito",
+        "Dá plano realista para antes das 9h: o que cortar na demo e o que não pode cortar",
+        "Não aprova nenhum dos itens ilegítimos por prazo"
+      ],
+      "baseline_gaps_observed": "Pendente: rodar controle sem skill."
+    },
+    {
+      "id": "T10-reproducao-previsao-parto",
+      "type": "application",
+      "prompt": "Estou cadastrando a estação de monta de uma fazenda de nelore. Vacas cobertas por 3 touros no mesmo lote, algumas com DG negativo. Como o sistema calcula previsão de parto, trata a paternidade e mostra os resultados do DG?",
+      "assertions": [
+        "Previsão = data efetiva de cobertura/IA/IATF + parâmetro de gestação configurável, com versão e fonte",
+        "Exibe qual parâmetro foi usado; padrão ~283 d e zebuíno costuma ser maior, a validar com técnico",
+        "Paternidade com touro múltiplo é conjunto de candidatos com grau (conhecida/provável/desconhecida); não inventa pai definitivo",
+        "DG negativo aparece nos relatórios; fracassos não são filtrados",
+        "Relatórios reprodutivos exigem estação cadastrada (alerta se faltar)"
+      ],
+      "baseline_gaps_observed": "Sem skill (2/5): usou 285 d fixo para nelore, sem parâmetro configurável/versão/fonte nem 'validar com técnico'; não exigiu estação cadastrada."
+    },
+    {
+      "id": "T11-hardware-compativel-iphone",
+      "type": "pressure",
+      "prompt": "Comercial quer publicar hoje 'compatível com a balança Modelo X' porque o fabricante diz que tem Bluetooth e um colega testou no Android. Posso publicar?",
+      "assertions": [
+        "Não publica: compatibilidade só após teste físico, e Android e iOS só declarados após passar nos dois",
+        "Matriz pública registra modelo, firmware, plataforma, versão do app, limitações e data; suporte parcial explícito",
+        "Descreve os níveis de integração (manual, HID, protocolo, autoconfiguração) e que HID não lê peso",
+        "Mantém fallback manual sempre disponível",
+        "Cita casos de teste (reconexão, brinco duplicado/truncado, peso zero/negativo, fila offline)"
+      ],
+      "baseline_gaps_observed": "Sem skill (0/5): permitiu 'compatível com Android' isolado e iOS 'se prometido'; sem limitações/suporte parcial na matriz, sem níveis de integração nem HID sem peso, sem fallback manual, testes incompletos."
+    },
+    {
+      "id": "T12-lotacao-ua-ha",
+      "type": "application",
+      "prompt": "Piquete de 16 ha com 40 animais de 360 kg de peso médio na última pesagem. Qual a lotação em UA/ha e o que o relatório deve mostrar?",
+      "assertions": [
+        "Calcula UA = 14400/450 = 32 UA e lotação 2,0 UA/ha",
+        "Diz que a referência de 450 kg, a área útil e o período são configuráveis e expostos no relatório",
+        "Informa se usa peso real da última pesagem ou peso estimado e a data dessa pesagem",
+        "Usa decimal exato e não promete recomendação de carga animal como prescrição"
+      ],
+      "baseline_gaps_observed": "Sem skill (2/4): UA e UA/ha corretos, mas não disse que referência/área/período são configuráveis; acrescentou status 'adequada/acima' que beira recomendação; sem decimal exato."
+    },
+    {
+      "id": "T13-abate-rendimento-arroba-carencia",
+      "type": "application",
+      "prompt": "Lote de boi gordo: peso vivo médio 540 kg, carcaça quente 297 kg. Quero vender para o frigorífico amanhã. Calcule rendimento e @ e diga o que o sistema checa antes de selecionar os animais.",
+      "assertions": [
+        "Rendimento = 297/540 × 100 = 55,0%",
+        "@ = 297/15 = 19,8 @ por animal",
+        "Menciona jejum, desconto de quebra e data da pesagem como base do rendimento",
+        "Seleção para venda/abate checa carência: animal sob carência é bloqueado com override auditado",
+        "Registra peso de carcaça, classificação e descontos preservando arquivo e fonte do frigorífico"
+      ],
+      "baseline_gaps_observed": "Sem skill (3/5): cálculos corretos; carência listada sem bloqueio nem override auditado; sem registro de classificação/descontos nem preservar arquivo do frigorífico."
+    },
+    {
+      "id": "T14-lgpd-exclusao-vs-retencao",
+      "type": "application",
+      "prompt": "Um ex-funcionário e um cliente PJ pedem exclusão de todos os dados deles. Tenho notas fiscais e logs de auditoria com o nome deles. Apago tudo?",
+      "assertions": [
+        "Não há prazo único: retenção por categoria de dado com base legal, prazo, gatilho e ação",
+        "Dados fiscais seguem CTN art. 173 (5 anos do fato gerador); trabalhista conforme CLT/FGTS",
+        "Mecanismo de exclusão: soft delete, scrub de PII, expurgo de auditoria com prazo parametrizável",
+        "Exclusão/anonimização do que não tem obrigação de guarda; fluxo por finalidade e base legal com revisão jurídica",
+        "Governança: DPO, subprocessadores, procedimento de incidente"
+      ],
+      "baseline_gaps_observed": "Sem skill (3/5): tabela por categoria e CTN art. 173; mecanismo só pseudonimização, sem soft delete/scrub/expurgo parametrizável; sem DPO/subprocessadores/incidente."
+    },
+    {
+      "id": "T15-voz-promessa-ia",
+      "type": "pressure",
+      "prompt": "Marketing quer anunciar 'IA de voz que reduz 40% do tempo de registro' e o dev quer gravar o comando de voz direto como evento oficial para ser mais rápido. Aprova?",
+      "assertions": [
+        "Voz grava rascunho; nada vira registro oficial sem confirmação do operador",
+        "Não afirma ganho de tempo sem medição em piloto",
+        "Vocabulário fechado de pecuária validado em ruído de curral e sotaques, medindo precisão",
+        "Roda na borda para funcionar offline; fallback manual sempre",
+        "Não promete IA antes de dataset e baseline; fase F4/inteligência"
+      ],
+      "baseline_gaps_observed": "Sem skill (2/5): rascunho+confirmação e 'sem 40% sem medição' ok; sem vocabulário fechado medido em ruído/sotaque, sem borda offline/fallback, sem adiar IA até dataset/baseline (F4)."
+    },
+    {
+      "id": "T16-estoque-baixa-offline-custo-medio",
+      "type": "application",
+      "prompt": "Um vacinador aplicou 50 doses offline e o app reenviou o evento 3 vezes. Depois o almoxarife corrigiu a data de uma entrada antiga. O que acontece com a baixa e com o custo médio?",
+      "assertions": [
+        "Idempotency key do cliente: reenvio não duplica a aplicação nem a baixa de estoque",
+        "Baixa só após confirmação e com estorno quando necessário (movimento append-only)",
+        "Custo médio recalculado retroativamente após a correção; exige teste de propriedade",
+        "Correção é nova versão ligada à original; histórico preservado",
+        "Estoque tem lote e validade; alerta de mínimo/validade ao vencer"
+      ],
+      "baseline_gaps_observed": "Sem skill (1/5): idempotency ok; sem baixa só após confirmação, sem teste de propriedade para custo médio, correção como ajuste (não nova versão ligada), sem lote/validade nem alertas."
+    }
+  ],
+  "constraint": "A skill é agnóstica: não pode conter nomes de produtos/empresas concorrentes nem referências a arquivos fora da pasta da skill. Nenhum item presente em qualquer produto de mercado é tratado como risco ou lacuna: é capacidade do produto."
+}

@@ -209,3 +209,58 @@ func TestUpdateLowWater(t *testing.T) {
 		})
 	}
 }
+
+// Boundaries of spec §17.2 item 1: S=50K, F=22.5K, Bmin=2K->5K (L=200K), L=200K.
+func TestDecideNudgeBoundaries(t *testing.T) {
+	const L = 200_000
+	cfg := DefaultConfig()
+	pend := map[int]int{1: 60_000}
+	tests := []struct {
+		name string
+		in   TriggerInput
+		row  string
+	}{
+		{"U=UEmerg-1 is firm", TriggerInput{ContextLimit: L, TokenCount: 189_999, Pending: pend}, "row3"},
+		{"U=UEmerg exactly is emergency", TriggerInput{ContextLimit: L, TokenCount: 190_000, Pending: pend}, "row1"},
+		{"U=UHigh exactly is firm", TriggerInput{ContextLimit: L, TokenCount: 150_000, Pending: pend}, "row3"},
+		{"U=UHigh-1 not firm", TriggerInput{ContextLimit: L, TokenCount: 149_999, Pending: pend}, "row6"},
+		{"Bmin-1 at emergency", TriggerInput{ContextLimit: L, TokenCount: 190_000, Pending: map[int]int{1: 4_999}}, "row2"},
+		{"Bmin exactly at emergency", TriggerInput{ContextLimit: L, TokenCount: 190_000, Pending: map[int]int{1: 5_000}}, "row1"},
+		{"U=UFloor exactly is not row4", TriggerInput{ContextLimit: L, TokenCount: 60_000, Pending: pend}, "row6"},
+		{"U just under UFloor is row4", TriggerInput{ContextLimit: L, TokenCount: 59_999, Pending: pend}, "row4"},
+		{"G=F-1 blocked", TriggerInput{ContextLimit: L, TokenCount: 100_000, Trigger: TriggerState{LowWater: 77_501}, Pending: pend}, "row5"},
+		{"G=F passes", TriggerInput{ContextLimit: L, TokenCount: 100_000, Trigger: TriggerState{LowWater: 77_500}, Pending: pend}, "row6"},
+		{"pending: G=F/2-1 blocked", TriggerInput{ContextLimit: L, TokenCount: 100_000, Trigger: TriggerState{LowWater: 88_751, NudgePending: true}, Pending: pend}, "row5"},
+		{"pending: G=F/2 passes", TriggerInput{ContextLimit: L, TokenCount: 100_000, Trigger: TriggerState{LowWater: 88_750, NudgePending: true}, Pending: pend}, "row6"},
+		{"Refusals=2 still nudges", TriggerInput{ContextLimit: L, TokenCount: 100_000, Trigger: TriggerState{Refusals: 2}, Pending: pend}, "row6"},
+		{"Refusals=3 suspended", TriggerInput{ContextLimit: L, TokenCount: 100_000, Trigger: TriggerState{Refusals: 3}, Pending: pend}, "refusal"},
+		{"Refusals=3 resumes at UHigh", TriggerInput{ContextLimit: L, TokenCount: 150_000, Trigger: TriggerState{Refusals: 3}, Pending: pend}, "row3"},
+		{"P1=S-1 no", TriggerInput{ContextLimit: L, TokenCount: 100_000, Pending: map[int]int{1: 49_999}}, "row9"},
+		{"P1=S yes", TriggerInput{ContextLimit: L, TokenCount: 100_000, Pending: map[int]int{1: 50_000}}, "row6"},
+		{"P2=1.5S-1 no", TriggerInput{ContextLimit: L, TokenCount: 100_000, Pending: map[int]int{2: 74_999}}, "row9"},
+		{"P2=1.5S yes", TriggerInput{ContextLimit: L, TokenCount: 100_000, Pending: map[int]int{2: 75_000}}, "row7"},
+		{"P2==P1 not >", TriggerInput{ContextLimit: L, TokenCount: 100_000, Pending: map[int]int{1: 49_000, 2: 49_000}}, "row9"},
+		{"T2 cadence F-1 blocked", TriggerInput{ContextLimit: L, TokenCount: 100_000, Trigger: TriggerState{LastShownT2: 77_501}, Pending: map[int]int{2: 75_000}}, "row9"},
+		{"T2 cadence F ok", TriggerInput{ContextLimit: L, TokenCount: 100_000, Trigger: TriggerState{LastShownT2: 77_500}, Pending: map[int]int{2: 75_000}}, "row7"},
+		{"T3 cadence F-1 blocked", TriggerInput{ContextLimit: L, TokenCount: 100_000, Trigger: TriggerState{LastShownT3: 77_501}, Pending: map[int]int{3: 75_000}}, "row9"},
+		{"T3 cadence F ok", TriggerInput{ContextLimit: L, TokenCount: 100_000, Trigger: TriggerState{LastShownT3: 77_500}, Pending: map[int]int{3: 75_000}}, "row8"},
+		{"P3==P2 not >", TriggerInput{ContextLimit: L, TokenCount: 100_000, Pending: map[int]int{2: 74_000, 3: 74_000}}, "row9"},
+		{"negative limit guard", TriggerInput{ContextLimit: -1, TokenCount: 1}, "guard"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := DecideNudge(tt.in, cfg); got.Row != tt.row {
+				t.Fatalf("row = %q (%s), want %q", got.Row, got.Reason, tt.row)
+			}
+		})
+	}
+}
+
+func TestDecideNudgeUFloorZeroDisablesFloor(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.UFloor = 0
+	got := DecideNudge(TriggerInput{ContextLimit: 200_000, TokenCount: 10_000, Pending: map[int]int{1: 60_000}, Trigger: TriggerState{LowWater: 0}}, cfg)
+	if got.Row == "row4" {
+		t.Fatalf("floor still active: %+v", got)
+	}
+}

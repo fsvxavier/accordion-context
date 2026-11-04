@@ -16,7 +16,7 @@ const (
 	ToolDecompress = "decompress"
 )
 
-const compressToolJSON = `{"name":"compress","description":"Replace already-finished ranges of the conversation with summaries. Each summary is written in the past tense, keeps paths with line numbers, exact errors, decisions with their reasons and exact values, and marks finished user requests as concluded. Pass closeIntents for user requests that the summarized ranges completed. Do not compress the work in progress.","input_schema":{"type":"object","properties":{"ranges":{"type":"array","description":"Ranges of message refs to summarize, for example m00340..m00412.","items":{"type":"object","properties":{"startRef":{"type":"string"},"endRef":{"type":"string"},"summary":{"type":"string"},"topic":{"type":"string"}},"required":["startRef","endRef","summary"]}},"closeIntents":{"type":"array","description":"Ids of open intents completed by the summarized ranges.","items":{"type":"integer"}}},"required":["ranges"]}}`
+const compressToolJSON = `{"name":"compress","description":"Replace already-finished ranges of the conversation with summaries. Each summary is written in the past tense, keeps paths with line numbers, exact errors, decisions with their reasons and exact values, and marks finished user requests as concluded. Pass closeIntents for user requests that the summarized ranges completed. Do not compress the work in progress.","input_schema":{"type":"object","properties":{"ranges":{"type":"array","description":"Ranges of message refs to summarize, for example m00340..m00412.","items":{"type":"object","properties":{"startRef":{"type":"string"},"endRef":{"type":"string"},"summary":{"type":"string"},"topic":{"type":"string"}},"required":["startRef","endRef","summary"]}},"folds":{"type":"array","description":"Folds of tier-2 or tier-3 blocks: the active blocks one tier below, from startBlock to endBlock, become one block of the given tier.","items":{"type":"object","properties":{"tier":{"type":"integer"},"startBlock":{"type":"string"},"endBlock":{"type":"string"},"summary":{"type":"string"},"topic":{"type":"string"}},"required":["tier","startBlock","endBlock","summary"]}},"closeIntents":{"type":"array","description":"Ids of open intents completed by the summarized ranges.","items":{"type":"integer"}}},"required":["ranges"]}}`
 
 const decompressToolJSON = `{"name":"decompress","description":"Recover the original messages behind a summary block. Use mode peek with a query to read only the relevant excerpts, or context to bring the whole block back.","input_schema":{"type":"object","properties":{"blockId":{"type":"string","description":"Block id from a history envelope, for example b12."},"mode":{"type":"string","enum":["context","file","peek"]},"query":{"type":"string","description":"Optional search text, used with mode peek."}},"required":["blockId","mode"]}}`
 
@@ -110,6 +110,7 @@ func isNull(raw json.RawMessage) bool {
 // CompressArgs is the normalized input of a compress tool call.
 type CompressArgs struct {
 	Ranges       []CompressRange
+	Folds        []CompressFold
 	CloseIntents []int64
 }
 
@@ -241,6 +242,13 @@ func decodeAny(c string, depth int) (any, error) {
 
 func normalizeCompress(v any) (CompressArgs, error) {
 	var args CompressArgs
+	if m, ok := v.(map[string]any); ok {
+		folds, err := parseFolds(m)
+		if err != nil {
+			return args, err
+		}
+		args.Folds = folds
+	}
 	var ranges any
 	var closeList any
 	switch x := v.(type) {

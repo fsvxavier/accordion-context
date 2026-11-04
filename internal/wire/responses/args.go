@@ -12,6 +12,7 @@ import (
 // CompressArgs is the normalized input of a compress function call.
 type CompressArgs struct {
 	Ranges       []CompressRange
+	Folds        []CompressFold
 	CloseIntents []int64
 }
 
@@ -190,6 +191,13 @@ func decodeAny(c string, depth int) (any, error) {
 
 func normalizeCompress(v any) (CompressArgs, error) {
 	var args CompressArgs
+	if m, ok := v.(map[string]any); ok {
+		folds, err := parseFolds(m)
+		if err != nil {
+			return args, err
+		}
+		args.Folds = folds
+	}
 	var ranges any
 	var closeList any
 	switch x := v.(type) {

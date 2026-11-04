@@ -1,11 +1,14 @@
 package acdctx_test
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -275,4 +278,91 @@ func TestHandlerEmbedsProxy(t *testing.T) {
 	if got := up.received(); len(got) != 1 || !strings.Contains(got[0], `"compress"`) {
 		t.Fatal("embedded proxy did not compact the request")
 	}
+}
+
+type closeSpy struct {
+	io.Reader
+	closed chan struct{}
+}
+
+func (c *closeSpy) Close() error { close(c.closed); return nil }
+
+func TestRoundTripClosesRequestBodyAndKeepsCallerRequest(t *testing.T) {
+	up := newFakeUpstream(t, func(_ int, _ string, w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(textAnswer))
+	})
+	cl := newTransportClient(t, up.srv.URL)
+	body := &closeSpy{Reader: strings.NewReader(messagesBody(t, 3, false)), closed: make(chan struct{})}
+	req, _ := http.NewRequest(http.MethodPost, up.srv.URL+"/v1/messages", body)
+	req.Header.Set("X-Api-Key", "k")
+	url0, host0 := req.URL.String(), req.Host
+	resp, err := cl.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	select {
+	case <-body.closed:
+	default:
+		t.Fatal("request body was not closed")
+	}
+	if req.URL.String() != url0 || req.Host != host0 || req.Header.Get("X-Acd-Ctx-Project-Dir") != "" {
+		t.Fatalf("caller request mutated: %s %s %v", req.URL, req.Host, req.Header)
+	}
+}
+
+func TestRoundTripAfterCloseAndNilBody(t *testing.T) {
+	up := newFakeUpstream(t, func(_ int, _ string, w http.ResponseWriter) { _, _ = w.Write([]byte(textAnswer)) })
+	dir := t.TempDir()
+	tr, err := acdctx.NewTransport(nil, acdctx.Options{DBPath: dir + "/a.db", Cwd: dir, ConfigPath: dir + "/x.yaml", Upstreams: []string{up.srv.URL}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := &http.Request{Method: http.MethodPost, URL: mustURL(t, up.srv.URL+"/v1/messages"), Header: http.Header{}}
+	if resp, err := tr.RoundTrip(req); err == nil {
+		if resp.StatusCode >= 500 {
+			t.Fatalf("nil body gave %d", resp.StatusCode)
+		}
+		resp.Body.Close()
+	}
+	if err := tr.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.Close(); err != nil {
+		t.Fatalf("double Close: %v", err)
+	}
+	req2, _ := http.NewRequest(http.MethodPost, up.srv.URL+"/v1/messages", strings.NewReader("{}"))
+	if _, err := tr.RoundTrip(req2); !errors.Is(err, acdctx.ErrClosed) {
+		t.Fatalf("RoundTrip after Close: %v, want ErrClosed", err)
+	}
+}
+
+func TestConcurrentTurnsOnOneClient(t *testing.T) {
+	c := openClient(t)
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := c.Turn(context.Background(), transcript(6), 1000); err != nil {
+				t.Errorf("Turn: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+	_ = c.Close()
+	if _, err := c.Turn(context.Background(), transcript(2), 10); !errors.Is(err, acdctx.ErrClosed) {
+		t.Fatalf("Turn after Close: %v", err)
+	}
+}
+
+func mustURL(t *testing.T, s string) *url.URL {
+	t.Helper()
+	u, err := url.Parse(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return u
 }

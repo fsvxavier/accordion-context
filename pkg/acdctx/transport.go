@@ -108,6 +108,10 @@ func newProxy(base http.RoundTripper, opts Options) (*Proxy, error) {
 // ServeHTTP implements http.Handler. A request without X-Acd-Ctx-Project-Dir gets the
 // project of Options.Cwd.
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if p.isClosed() {
+		http.Error(w, ErrClosed.Error(), http.StatusServiceUnavailable)
+		return
+	}
 	if p.cwd != "" && r.Header.Get("X-Acd-Ctx-Project-Dir") == "" {
 		r = r.Clone(r.Context())
 		r.Header.Set("X-Acd-Ctx-Project-Dir", p.cwd)
@@ -126,6 +130,12 @@ func (p *Proxy) Close() error {
 	return p.st.Close()
 }
 
+func (p *Proxy) isClosed() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.closed
+}
+
 // compactable reports whether req goes through the proxy.
 func (p *Proxy) compactable(req *http.Request) bool {
 	if req.Method != http.MethodPost || req.URL == nil {
@@ -141,6 +151,10 @@ func (p *Proxy) compactable(req *http.Request) bool {
 // streamed answers reach the caller as they are produced. The request context
 // cancels the handler, and closing the response body does too.
 func (p *Proxy) roundTrip(req *http.Request) (*http.Response, error) {
+	if p.isClosed() {
+		closeBody(req)
+		return nil, ErrClosed
+	}
 	ctx, cancel := context.WithCancel(req.Context())
 	inner := req.Clone(ctx)
 	inner.URL = &url.URL{
@@ -151,6 +165,9 @@ func (p *Proxy) roundTrip(req *http.Request) (*http.Response, error) {
 	}
 	inner.Host = "127.0.0.1"
 	inner.RequestURI = ""
+	if inner.Body == nil {
+		inner.Body = http.NoBody // the handler reads the body unconditionally
+	}
 	if p.cwd != "" && inner.Header.Get("X-Acd-Ctx-Project-Dir") == "" {
 		inner.Header.Set("X-Acd-Ctx-Project-Dir", p.cwd)
 	}
@@ -167,6 +184,7 @@ func (p *Proxy) roundTrip(req *http.Request) (*http.Response, error) {
 			rw.WriteHeader(http.StatusOK) // a handler that wrote nothing answers 200
 			pw.Close()
 		}()
+		defer closeBody(req) // the RoundTripper contract: the body is always closed
 		p.srv.ServeHTTP(rw, inner)
 	}()
 
@@ -183,7 +201,7 @@ func (p *Proxy) roundTrip(req *http.Request) (*http.Response, error) {
 		Proto:      "HTTP/1.1",
 		ProtoMajor: 1,
 		ProtoMinor: 1,
-		Header:     rw.header,
+		Header:     rw.snap,
 		Body:       &cancelBody{ReadCloser: pr, cancel: cancel},
 		Request:    req,
 	}, nil
@@ -196,6 +214,7 @@ type pipeWriter struct {
 	ready  chan struct{}
 	once   sync.Once
 	status int
+	snap   http.Header // header as of WriteHeader, safe to hand to the caller
 }
 
 func (w *pipeWriter) Header() http.Header { return w.header }
@@ -204,6 +223,7 @@ func (w *pipeWriter) Header() http.Header { return w.header }
 func (w *pipeWriter) WriteHeader(code int) {
 	w.once.Do(func() {
 		w.status = code
+		w.snap = w.header.Clone()
 		close(w.ready)
 	})
 }
@@ -215,6 +235,12 @@ func (w *pipeWriter) Write(b []byte) (int, error) {
 
 // Flush is a no-op: pipe writes are delivered as soon as the reader takes them.
 func (w *pipeWriter) Flush() {}
+
+func closeBody(req *http.Request) {
+	if req.Body != nil {
+		_ = req.Body.Close()
+	}
+}
 
 type cancelBody struct {
 	io.ReadCloser

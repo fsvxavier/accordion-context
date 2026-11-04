@@ -104,99 +104,9 @@ func (s *Store) MoveProject(ctx context.Context, id, newRoot string) error {
 	return nil
 }
 
-// purgeSteps lists the DELETE statements of PurgeProject in foreign-key-safe
-// order. Every statement selects by the session IDs of the project, and
-// sessions and projects go last. search_idx has no foreign key, so it is
-// listed explicitly: skipping it would leave searchable copies behind.
-var purgeSteps = []struct {
-	table string
-	query string
-}{
-	{"search_idx", `DELETE FROM search_idx WHERE session_id IN (` + projectSessions + `)`},
-	{"events", `DELETE FROM events WHERE session_id IN (` + projectSessions + `)`},
-	{"cache_ledger", `DELETE FROM cache_ledger WHERE session_id IN (` + projectSessions + `)`},
-	{"intents", `DELETE FROM intents WHERE session_id IN (` + projectSessions + `)`},
-	{"trigger_state", `DELETE FROM trigger_state WHERE session_id IN (` + projectSessions + `)`},
-	{"block_sources", `DELETE FROM block_sources WHERE session_id IN (` + projectSessions + `)`},
-	{"block_messages", `DELETE FROM block_messages WHERE session_id IN (` + projectSessions + `)`},
-	{"blocks", `DELETE FROM blocks WHERE session_id IN (` + projectSessions + `)`},
-	{"messages", `DELETE FROM messages WHERE session_id IN (` + projectSessions + `)`},
-	{"sessions", `DELETE FROM sessions WHERE project_id = ?1`},
-}
-
-const projectSessions = `SELECT id FROM sessions WHERE project_id = ?1`
-
-// PurgeProject deletes every row of one project in a single transaction and
-// returns the number of rows removed per table. This is the only deletion in
-// the store: the event log is otherwise append-only (spec §5.2). Contents are
-// content-addressed and shared, so a content row goes only when no message
-// refers to it any more.
-func (s *Store) PurgeProject(ctx context.Context, id string) (map[string]int64, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
-	var exists int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM projects WHERE id = ?1`, id).Scan(&exists); err != nil {
-		return nil, fmt.Errorf("check project %s: %w", id, err)
-	}
-	if exists == 0 {
-		return nil, fmt.Errorf("%w: %s", ErrProjectNotFound, id)
-	}
-
-	hashes, err := stringColumn(ctx, tx,
-		`SELECT DISTINCT content_hash FROM messages WHERE session_id IN (`+projectSessions+`)`, id)
-	if err != nil {
-		return nil, fmt.Errorf("collect contents of %s: %w", id, err)
-	}
-
-	counts := make(map[string]int64, len(purgeSteps)+2)
-	for _, st := range purgeSteps {
-		n, err := execCount(ctx, tx, st.query, id)
-		if err != nil {
-			return nil, fmt.Errorf("purge %s of %s: %w", st.table, id, err)
-		}
-		counts[st.table] = n
-	}
-
-	// Content rows referenced by another project's messages stay.
-	var orphans int64
-	for _, h := range hashes {
-		n, err := execCount(ctx, tx, `
-			DELETE FROM contents WHERE hash = ?1
-			  AND NOT EXISTS (SELECT 1 FROM messages WHERE content_hash = ?1)`, h)
-		if err != nil {
-			return nil, fmt.Errorf("purge content %s: %w", h, err)
-		}
-		orphans += n
-	}
-	counts["contents"] = orphans
-
-	n, err := execCount(ctx, tx, `DELETE FROM projects WHERE id = ?1`, id)
-	if err != nil {
-		return nil, fmt.Errorf("purge project %s: %w", id, err)
-	}
-	counts["projects"] = n
-
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("commit purge of %s: %w", id, err)
-	}
-	return counts, nil
-}
-
 // rowSource is satisfied by *sql.DB and *sql.Tx.
 type rowSource interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-}
-
-func execCount(ctx context.Context, tx *sql.Tx, query string, args ...any) (int64, error) {
-	res, err := tx.ExecContext(ctx, query, args...)
-	if err != nil {
-		return 0, err
-	}
-	return res.RowsAffected()
 }
 
 func stringColumn(ctx context.Context, q rowSource, query string, args ...any) ([]string, error) {
@@ -249,6 +159,8 @@ func (d ProjectDump) SessionIDs() []string {
 	}
 	return out
 }
+
+const projectSessions = `SELECT id FROM sessions WHERE project_id = ?1`
 
 // dumpTables lists what ExportProject copies, parents before children. The
 // filter uses ?1 for the project ID.

@@ -67,8 +67,8 @@ func TestMigrateV1DatabaseToV2(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open v1 database: %v", err)
 	}
-	if v := userVersion(t, s); v != 2 {
-		t.Fatalf("user_version = %d after migration, want 2", v)
+	if v := userVersion(t, s); v != schemaVersion {
+		t.Fatalf("user_version = %d after migration, want %d", v, schemaVersion)
 	}
 	if n := countIndexRows(t, s, indexKindMessage, "m00002"); n != 1 {
 		t.Fatalf("backfill indexed m00002 %d times, want 1", n)

@@ -120,3 +120,17 @@ func DockerRestore(ctx context.Context, r Runner, container string, in io.Reader
 	}
 	return nil
 }
+
+// DockerClean runs "acd-ctx clean <acdArgs>" inside container through the same
+// validated argv as the other docker commands. The caller decides which flags
+// go in; this function only adds the container and the subcommand.
+func DockerClean(ctx context.Context, r Runner, container string, acdArgs []string, stdout, stderr io.Writer) error {
+	args, err := dockerArgs(container, append([]string{"clean"}, acdArgs...)...)
+	if err != nil {
+		return err
+	}
+	if err := r.Run(ctx, "docker", args, nil, stdout, stderr); err != nil {
+		return fmt.Errorf("docker clean: %w", err)
+	}
+	return nil
+}

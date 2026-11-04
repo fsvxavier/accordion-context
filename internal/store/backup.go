@@ -172,8 +172,8 @@ type RestoreReport struct {
 // RestoreDumps applies items in one transaction, so either every project lands
 // or none does. Merge (replace=false) refuses when a project ID, a session ID or
 // a root path already belongs to another project. Replace first purges each
-// target project ID that exists, using the same DELETE statements as
-// PurgeProject, and then imports. dryRun runs the whole plan and rolls back, so
+// target project ID that exists, using the purge core of purge.go, and then
+// imports. dryRun runs the whole plan and rolls back, so
 // the report shows what would happen. Every imported session must pass the
 // invariants before commit.
 func (s *Store) RestoreDumps(ctx context.Context, items []RestoreItem, replace, dryRun bool) (RestoreReport, error) {
@@ -206,11 +206,11 @@ func (s *Store) RestoreDumps(ctx context.Context, items []RestoreItem, replace, 
 			if n == 0 {
 				continue
 			}
-			counts, err := purgeTx(ctx, tx, id)
+			res, err := purgeTx(ctx, tx, projectSelection(id), false)
 			if err != nil {
 				return rep, err
 			}
-			addCounts(rep.Purged, counts)
+			addCounts(rep.Purged, res.Rows)
 		}
 	}
 
@@ -282,47 +282,6 @@ func addCounts(dst, src map[string]int64) {
 	for k, v := range src {
 		dst[k] += v
 	}
-}
-
-func rowCount(ctx context.Context, tx *sql.Tx, query string, args ...any) (int64, error) {
-	var n int64
-	err := tx.QueryRowContext(ctx, query, args...).Scan(&n)
-	return n, err
-}
-
-// purgeTx is PurgeProject on an open transaction. A missing project purges
-// nothing. It runs the same DELETE statements, in the same order.
-func purgeTx(ctx context.Context, tx *sql.Tx, id string) (map[string]int64, error) {
-	hashes, err := stringColumn(ctx, tx,
-		`SELECT DISTINCT content_hash FROM messages WHERE session_id IN (`+projectSessions+`)`, id)
-	if err != nil {
-		return nil, fmt.Errorf("collect contents of %s: %w", id, err)
-	}
-	counts := make(map[string]int64, len(purgeSteps)+2)
-	for _, st := range purgeSteps {
-		n, err := execCount(ctx, tx, st.query, id)
-		if err != nil {
-			return nil, fmt.Errorf("purge %s of %s: %w", st.table, id, err)
-		}
-		counts[st.table] = n
-	}
-	var orphans int64
-	for _, h := range hashes {
-		n, err := execCount(ctx, tx, `
-			DELETE FROM contents WHERE hash = ?1
-			  AND NOT EXISTS (SELECT 1 FROM messages WHERE content_hash = ?1)`, h)
-		if err != nil {
-			return nil, fmt.Errorf("purge content %s: %w", h, err)
-		}
-		orphans += n
-	}
-	counts["contents"] = orphans
-	n, err := execCount(ctx, tx, `DELETE FROM projects WHERE id = ?1`, id)
-	if err != nil {
-		return nil, fmt.Errorf("purge project %s: %w", id, err)
-	}
-	counts["projects"] = n
-	return counts, nil
 }
 
 // importTx is ImportProject on an open transaction: the same inserts and the

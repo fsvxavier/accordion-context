@@ -18,8 +18,7 @@ func (s *Store) migrateV2(ctx context.Context, tx *sql.Tx) error {
 		CHECK (nudge_forced IN (0,1))`); err != nil {
 		return fmt.Errorf("add nudge_forced: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx,
-		`DELETE FROM search_idx WHERE kind IN (?, ?)`, indexKindMessage, indexKindBlock); err != nil {
+	if err := clearSearchKinds(ctx, tx, indexKindMessage, indexKindBlock); err != nil {
 		return fmt.Errorf("clear search index: %w", err)
 	}
 
@@ -116,4 +115,25 @@ func (s *Store) blockBodies(ctx context.Context, tx *sql.Tx) ([]v2Block, error) 
 		out = append(out, b)
 	}
 	return out, rows.Err()
+}
+
+// migrateV3 runs inside migrate's transaction. It adds the store epoch, a
+// single-row counter that every purge increments (purge.go). Processes that
+// cache session state compare it to drop the cache after a purge. It also
+// indexes messages by content hash, so purges can find unreferenced contents
+// without a full scan of messages.
+func (s *Store) migrateV3(ctx context.Context, tx *sql.Tx) error {
+	for _, q := range []string{
+		`CREATE TABLE store_epoch (
+		   id    INTEGER PRIMARY KEY CHECK (id = 1),
+		   epoch INTEGER NOT NULL
+		 )`,
+		`INSERT INTO store_epoch(id, epoch) VALUES (1, 0)`,
+		`CREATE INDEX idx_messages_content ON messages(content_hash)`,
+	} {
+		if _, err := tx.ExecContext(ctx, q); err != nil {
+			return fmt.Errorf("v3 %.40s: %w", q, err)
+		}
+	}
+	return nil
 }

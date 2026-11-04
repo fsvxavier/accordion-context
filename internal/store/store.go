@@ -27,7 +27,7 @@ var schemaSQL string
 
 // schemaVersion is the newest schema. schema.sql is the v1 base and stays frozen;
 // each later version is a step in migrate (see migrate.go).
-const schemaVersion = 2
+const schemaVersion = 3
 
 // Store is a single-writer handle over one SQLite database.
 type Store struct {
@@ -167,6 +167,11 @@ func (s *Store) migrate(ctx context.Context) error {
 	if v < 2 {
 		if err := s.migrateV2(ctx, tx); err != nil {
 			return fmt.Errorf("migrate to v2: %w", err)
+		}
+	}
+	if v < 3 {
+		if err := s.migrateV3(ctx, tx); err != nil {
+			return fmt.Errorf("migrate to v3: %w", err)
 		}
 	}
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); err != nil {

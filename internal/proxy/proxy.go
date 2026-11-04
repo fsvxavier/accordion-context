@@ -8,14 +8,18 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -33,6 +37,7 @@ const (
 	pathMessages   = "/v1/messages"
 	pathHealth     = "/__acd-ctx/health"
 	pathStatus     = "/__acd-ctx/status"
+	pathInternal   = "/__acd-ctx/"
 	headerProject  = "X-Acd-Ctx-Project-Dir"
 	headerConv     = "X-Acd-Ctx-Conversation"
 	defaultProject = "default"
@@ -59,6 +64,9 @@ type Config struct {
 	Markers      []string     // project root markers, default go.mod, package.json, ...
 	Logger       *slog.Logger // default: discard
 	Transport    http.RoundTripper
+	// ListenHost is the host part of the listen address. It is accepted in the
+	// Host header in addition to the loopback names. Empty when unknown.
+	ListenHost string
 	// UpstreamAllow lists the origins (scheme://host[:port]) reachable through the
 	// /ctx/<upstream>/ prefix. Default: the origin of Upstream only.
 	UpstreamAllow []string
@@ -70,6 +78,9 @@ type Server struct {
 	client  *http.Client
 	started time.Time
 	allow   map[string]bool // origins allowed for /ctx/ targets
+	hosts   map[string]bool // Host header names accepted (DNS-rebinding guard)
+	// inherit gives a new fork its parent's blocks. A field so tests can fail it.
+	inherit func(ctx context.Context, child string, f *fork) error
 
 	defaultRequests atomic.Int64 // requests that fell back to the default project (§18.2)
 
@@ -108,16 +119,49 @@ func New(cfg Config) (*Server, error) {
 		// Redirects are returned to the client as-is, never followed.
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
-	return &Server{
-		cfg: cfg, client: client, started: time.Now(), allow: allow,
+	hosts := map[string]bool{"localhost": true, "127.0.0.1": true, "::1": true}
+	if h := strings.ToLower(cfg.ListenHost); h != "" {
+		hosts[h] = true
+	}
+	srv := &Server{
+		cfg: cfg, client: client, started: time.Now(), allow: allow, hosts: hosts,
 		sessions: map[string]*session.Session{},
 		ensured:  map[string]bool{},
 		roots:    map[string]string{},
-	}, nil
+	}
+	srv.inherit = srv.inheritBlocks
+	return srv, nil
 }
 
-// ServeHTTP routes internal endpoints, the compaction path and pass-through.
+// hostAllowed reports whether a Host header names this loopback proxy. Any other
+// name is refused, which stops DNS rebinding from reaching the proxy from a page.
+func (s *Server) hostAllowed(hostport string) bool {
+	host := hostport
+	if h, _, err := net.SplitHostPort(hostport); err == nil {
+		host = h
+	} else {
+		host = strings.TrimSuffix(strings.TrimPrefix(hostport, "["), "]")
+	}
+	return s.hosts[strings.ToLower(host)]
+}
+
+// ServeHTTP checks the request against the loopback guard, then routes internal
+// endpoints, the compaction path and pass-through.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if !s.hostAllowed(r.Host) {
+		http.Error(w, "forbidden host", http.StatusForbidden)
+		return
+	}
+	if r.Method == http.MethodOptions {
+		// CORS preflight: the proxy grants no cross-origin access, so answer here.
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, pathInternal) && len(r.Header.Values("Origin")) > 0 {
+		// Browser pages may not reach the control endpoints.
+		http.Error(w, "forbidden origin", http.StatusForbidden)
+		return
+	}
 	switch r.URL.Path {
 	case pathHealth:
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -195,8 +239,9 @@ func (s *Server) messages(w http.ResponseWriter, r *http.Request, rt routed) {
 		return
 	}
 	if fk != nil {
-		if err := s.inheritBlocks(ctx, sid, fk); err != nil {
-			s.cfg.Logger.Warn("fork did not inherit blocks", "session", sid, "err", err)
+		// Retried on every turn of the fork until it succeeds (see inheritBlocks).
+		if err := s.inherit(ctx, sid, fk); err != nil {
+			s.cfg.Logger.Warn("fork did not inherit blocks; retry next turn", "session", sid, "err", err)
 		}
 	}
 	snap, err := s.cfg.Store.Snapshot(ctx, sid)
@@ -402,6 +447,7 @@ func (s *Server) streamRound(w http.ResponseWriter, resp *http.Response, t *turn
 	}
 	fw.BeginRound()
 	sse := anthropic.NewSSEReader(resp.Body)
+	ended := false
 	for {
 		ev, err := sse.Next()
 		if errors.Is(err, io.EOF) {
@@ -412,10 +458,22 @@ func (s *Server) streamRound(w http.ResponseWriter, resp *http.Response, t *turn
 			s.abort(w, t, "upstream stream broken", http.StatusBadGateway)
 			return true
 		}
+		if ev.Name == "message_stop" || ev.Name == "error" {
+			// An upstream error event is terminal too, so no second one is added.
+			ended = true
+		}
 		if err := fw.Feed(ev); err != nil {
 			s.cfg.Logger.Warn("client stream write failed", "session", t.sid, "err", err)
 			return true
 		}
+	}
+
+	if !ended {
+		// The upstream closed the stream before message_stop: the round is cut
+		// short and must not be finished as if it were complete.
+		s.cfg.Logger.Error("upstream stream truncated", "session", t.sid, "round", round)
+		s.abort(w, t, "upstream stream truncated", http.StatusBadGateway)
+		return true
 	}
 
 	res := fw.EndRound()
@@ -651,14 +709,12 @@ func (s *Server) upstreamCall(r *http.Request, up *url.URL, path string, body []
 // resolveProject applies §18.2: URL prefix, then X-Acd-Ctx-Project-Dir, then default.
 func (s *Server) resolveProject(r *http.Request, urlID string) projectRef {
 	if dir := strings.TrimSpace(r.Header.Get(headerProject)); dir != "" {
-		res, err := project.Resolve(dir, s.cfg.Markers)
-		if err == nil {
+		if res, ok := s.projectFromDir(dir); ok {
 			s.mu.Lock()
 			s.roots[res.ID] = res.Root
 			s.mu.Unlock()
 			return projectRef{ID: res.ID, Root: res.Root, Storage: res.Storage}
 		}
-		s.cfg.Logger.Warn("project dir not usable", "err", err)
 	}
 	if urlID != "" {
 		return projectRef{ID: urlID, Root: s.rootOf(urlID), Storage: "global"}
@@ -666,6 +722,25 @@ func (s *Server) resolveProject(r *http.Request, urlID string) projectRef {
 	s.defaultRequests.Add(1)
 	s.cfg.Logger.Warn("no project signal; using default project")
 	return projectRef{ID: defaultProject, Root: s.rootOf(defaultProject), Storage: "global"}
+}
+
+// projectFromDir resolves a client-supplied directory without writing anything.
+// The directory must be absolute and exist; otherwise the header is ignored.
+func (s *Server) projectFromDir(dir string) (project.Resolved, bool) {
+	if !filepath.IsAbs(dir) {
+		s.cfg.Logger.Warn("project dir ignored: not absolute")
+		return project.Resolved{}, false
+	}
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+		s.cfg.Logger.Warn("project dir ignored: not an existing directory")
+		return project.Resolved{}, false
+	}
+	res, err := project.ResolveWith(dir, s.cfg.Markers, project.Options{ReadOnly: true})
+	if err != nil {
+		s.cfg.Logger.Warn("project dir not usable", "err", err)
+		return project.Resolved{}, false
+	}
+	return res, true
 }
 
 type projectRef struct {
@@ -700,6 +775,11 @@ func (s *Server) session(ctx context.Context, p projectRef, sid, model string) (
 		s.ensured[p.ID] = true
 	}
 	if _, err := s.cfg.Store.Snapshot(ctx, sid); err != nil {
+		// Only a missing session is created. Any other failure must not
+		// overwrite or shadow a session that may exist.
+		if !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
 		if err := s.cfg.Store.CreateSession(ctx, store.Session{
 			ID: sid, ProjectID: p.ID, Model: model, ContextLimit: s.cfg.ContextLimit,
 			Mode: "proxy", Integration: "url",

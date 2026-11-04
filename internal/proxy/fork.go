@@ -45,10 +45,8 @@ func (s *Server) resolveLedger(ctx context.Context, p projectRef, base string, m
 		}
 		d := divergence(snap.Messages, msgs)
 		if d < 0 {
-			if f != nil && len(snap.Messages) == 0 {
-				return sid, sess, f, nil
-			}
-			return sid, sess, nil, nil
+			// Reached through a fork: the caller inherits until it succeeds.
+			return sid, sess, f, nil
 		}
 		s.cfg.Logger.Warn("ledger diverges from transcript", "session", sid, "at", d)
 		f = &fork{parent: sid, common: d}
@@ -118,6 +116,10 @@ func (s *Server) inheritBlocks(ctx context.Context, child string, f *fork) error
 	snap, err := s.cfg.Store.Snapshot(ctx, child)
 	if err != nil {
 		return err
+	}
+	if len(snap.Blocks) > 0 {
+		// Already inherited, or the fork compressed on its own.
+		return nil
 	}
 	hyp := snap
 	for _, nb := range plan.NewBlocks {

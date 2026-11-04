@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/url"
 	"os"
 	"os/signal"
@@ -94,7 +95,9 @@ func serve(args []string, stderr io.Writer) int {
 	}
 	defer st.Close()
 
-	h, err := proxy.New(proxy.Config{Upstream: up, Store: st, Version: version, Logger: logger, UpstreamAllow: allowed})
+	listenHost, _, _ := net.SplitHostPort(*listen)
+	h, err := proxy.New(proxy.Config{Upstream: up, Store: st, Version: version, Logger: logger,
+		UpstreamAllow: allowed, ListenHost: listenHost})
 	if err != nil {
 		logger.Error("configure proxy", "err", err)
 		return 1

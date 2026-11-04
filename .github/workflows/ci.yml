@@ -98,3 +98,64 @@ jobs:
         run: go run ./scripts/gen-compat-matrix > "$RUNNER_TEMP/compatibility.md"
       - name: fail when the committed file is stale
         run: diff -u docs/compatibility.md "$RUNNER_TEMP/compatibility.md"
+
+  docker:
+    name: docker image (build and smoke test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: gover
+        name: read Go version from go.mod
+        run: echo "go=$(sed -n 's/^go \([0-9][0-9.]*\)$/\1/p' go.mod | head -n 1)" >> "$GITHUB_OUTPUT"
+      - name: docker build (no push)
+        run: >-
+          docker build
+          --build-arg GO_VERSION=${{ steps.gover.outputs.go }}
+          --build-arg VERSION=ci-${{ github.sha }}
+          -t acd-ctx:ci .
+      - name: smoke test against /__acd-ctx/health
+        run: |
+          set -euo pipefail
+          if ! command -v docker >/dev/null 2>&1; then
+            echo "docker is not available on this runner; smoke test skipped"
+            exit 0
+          fi
+          docker run -d --name acd-ctx-ci -p 127.0.0.1:8787:8787 \
+            --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true \
+            acd-ctx:ci
+          healthy=0
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8787/__acd-ctx/health | grep -q '"ok":true'; then
+              healthy=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$healthy" != 1 ]; then
+            echo "health endpoint did not answer"
+            docker logs acd-ctx-ci || true
+            exit 1
+          fi
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: evil.com' http://127.0.0.1:8787/__acd-ctx/health)
+          if [ "$code" != 403 ]; then
+            echo "Host guard let evil.com through (status $code)"
+            exit 1
+          fi
+          # The plugin protocol has its own Host guard and bearer token.
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: evil.com' http://127.0.0.1:8787/__acd-ctx/plugin/status)
+          if [ "$code" != 403 ]; then
+            echo "plugin Host guard let evil.com through (status $code)"
+            exit 1
+          fi
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8787/__acd-ctx/plugin/status)
+          if [ "$code" != 401 ]; then
+            echo "plugin endpoint without a token answered $code, want 401"
+            exit 1
+          fi
+          docker exec acd-ctx-ci /acd-ctx healthcheck --port 8787
+      - name: container logs on failure
+        if: failure()
+        run: docker logs acd-ctx-ci || true
+      - name: remove container
+        if: always()
+        run: docker rm -f acd-ctx-ci >/dev/null 2>&1 || true

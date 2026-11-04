@@ -1,0 +1,32 @@
+# Keep the build context to what the Go build needs.
+.git
+.github
+.claude
+.kilo
+.rtk
+.codegraph-wsl
+.acd-ctx
+.gitignore
+
+# Local state and secrets must never reach the image.
+**/*.db
+**/*.db-wal
+**/*.db-shm
+**/*.token
+**/*.key
+**/*.pem
+**/exports/
+**/.env
+**/.env.*
+
+# Not needed to build the binary.
+docs
+middleware
+e2e
+conformance
+testdata
+scripts
+*.md
+Dockerfile
+docker-compose.yml
+.dockerignore

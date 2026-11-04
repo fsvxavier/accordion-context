@@ -102,6 +102,8 @@ Configuration:
 
 ## Gotchas
 
+- **Run `go test -race -count=1 ./...` before every commit (mandatory).** CI runs it, and it catches races that plain `go test` and a partial `-race` run on a few packages miss (it caught a stderr buffer shared by the client and the proxy it starts). It takes about 4 minutes.
+
 - **Concurrent git commits.** When several agents commit at once, `.git/index.lock` errors happen. Wait and retry. Never delete the lock while a git process may still be running.
 - **Offline `go mod tidy`.** `go mod tidy` needs every module in the graph, in the module cache or from the network. Offline (`GOPROXY=off`) it fails, or it can leave `go.sum` incomplete. Do not commit a `go.mod`/`go.sum` change that you could not produce with network access.
 - **Cross vet with CGO off.** Run `CGO_ENABLED=0 GOOS=darwin go vet ./...` (and `windows`) after touching `sysproxy`, `attach` or other platform code. CI runs it in the `cross-vet` job, but run it locally first. The SQLite driver is pure Go, so the cross run needs no C cross-toolchain.

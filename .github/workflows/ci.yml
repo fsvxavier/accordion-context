@@ -45,6 +45,26 @@ jobs:
       - name: go test -race
         run: go test -race -count=1 ./...
 
+  cross-vet:
+    name: cross vet (${{ matrix.goos }}, CGO off)
+    needs: matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [darwin, windows]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ fromJSON(needs.matrix.outputs.go-versions)[0] }}
+          cache: true
+      - name: go vet for ${{ matrix.goos }}
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+        run: go vet ./...
+
   conformance:
     name: conformance vectors (Go runner)
     needs: matrix

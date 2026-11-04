@@ -30,8 +30,8 @@ const cleanUsage = `usage: clean (--project <id|path|.> | --session <id> | --old
              [--dry-run] [--yes] [--backup <file.db>] [--vacuum] [--exports] [--keep-config] [--include-local] [--docker <container>]
   <dur> is 30d, 12h, 90m or any Go duration. The confirmation word is the project ID for
   --project, the session ID for --session, and the word delete for --all and --older-than.
-  --include-local also cleans the current directory's .acd-ctx database when --all or
-  --older-than has no --project; without it that database is listed as skipped.`
+  --include-local also cleans the current directory's .acd-ctx database when --all,
+  --older-than or --session has no --project; without it that database is listed as skipped.`
 
 // cleanFlags are the parsed flags of clean.
 type cleanFlags struct {
@@ -128,14 +128,17 @@ func runClean(args []string, s IO) int {
 			found = append(found, t)
 		}
 	}
+	for _, p := range skipped {
+		fmt.Fprintf(s.Stdout, "skipped (use --include-local): %s\n", p)
+	}
 	if len(found) == 0 {
+		if len(skipped) > 0 {
+			return fail(s, fmt.Errorf("nothing to clean outside the local database: pass --include-local to clean it"))
+		}
 		return fail(s, fmt.Errorf("nothing to clean: no matching data in the known databases"))
 	}
 	var total store.Report
 	var totalExports int
-	for _, p := range skipped {
-		fmt.Fprintf(s.Stdout, "skipped (use --include-local): %s\n", p)
-	}
 	for _, t := range found {
 		fmt.Fprintf(s.Stdout, "would delete from %s: %s\n", t.path, formatReport(t.report))
 		if f.exports {
@@ -250,7 +253,7 @@ func parseCleanFlags(args []string) (cleanFlags, error) {
 	fset.BoolVar(&f.vacuum, "vacuum", false, "compact the database files after deleting")
 	fset.BoolVar(&f.exports, "exports", false, "also remove exported block files this tool created for the removed sessions")
 	fset.BoolVar(&f.keepConfig, "keep-config", true, "never delete configuration, the CA or the plugin token (always true)")
-	fset.BoolVar(&f.includeLocal, "include-local", false, "with --all or --older-than and no --project, also clean the local .acd-ctx database of the current directory")
+	fset.BoolVar(&f.includeLocal, "include-local", false, "with --all, --older-than or --session and no --project, also clean the local .acd-ctx database of the current directory")
 	fset.StringVar(&f.docker, "docker", "", "run the clean inside this container")
 	pos, err := parseFlags(fset, args)
 	if err != nil {
@@ -303,7 +306,8 @@ func parseAge(s string) (time.Duration, error) {
 // the databases it skips. A project given by path resolves to one database and
 // one project ID. A project ID, or no project, applies to every database this
 // command knows. Without --project, --all and --older-than leave the current
-// directory's local database out unless --include-local is given: it is
+// directory's local database out unless --include-local is given (--session
+// too, when it has no --project): it is
 // returned in skipped, so the report can name it.
 func resolveClean(s IO, f cleanFlags) (cleanPlan, []string, []string, error) {
 	var plan cleanPlan
@@ -367,7 +371,7 @@ func resolveClean(s IO, f cleanFlags) (cleanPlan, []string, []string, error) {
 		if err != nil {
 			return plan, nil, nil, err
 		}
-		if f.project == "" && (plan.mode == modeAll || plan.mode == modeOlder) && !f.includeLocal {
+		if f.project == "" && (plan.mode == modeAll || plan.mode == modeOlder || plan.mode == modeSession) && !f.includeLocal {
 			// purgeCandidates lists the global database first and the local one
 			// only when it is not the same file.
 			globalPath, err := globalDBPath(s.LookupEnv)

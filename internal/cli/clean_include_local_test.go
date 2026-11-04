@@ -81,3 +81,28 @@ func TestTypedEqualsIsExact(t *testing.T) {
 		}
 	}
 }
+
+// --session without --project also leaves the local database out unless
+// --include-local is given, like --all and --older-than.
+func TestCleanSessionSkipsLocalDatabaseUnlessIncluded(t *testing.T) {
+	f := newFixture(t)
+	seed(t, f.db, globalProjectID(f.root), f.root, "global", "s1", 2)
+	local := localDBPath(f.root)
+	seed(t, local, "localproj", f.root, "local", "ls1", 3)
+
+	dry := f.run("", "clean", "--session", "ls1", "--dry-run")
+	if dry.code == ExitOK || !strings.Contains(dry.stderr, "--include-local") {
+		t.Fatalf("local-only session without --include-local: code %d, stdout %q, stderr %q", dry.code, dry.stdout, dry.stderr)
+	}
+	if !strings.Contains(dry.stdout, "skipped (use --include-local): "+local) {
+		t.Fatalf("local database not listed as skipped:\n%s", dry.stdout)
+	}
+
+	inc := f.run("", "clean", "--session", "ls1", "--dry-run", "--include-local")
+	if inc.code != ExitOK || !strings.Contains(inc.stdout, "would delete from "+local) {
+		t.Fatalf("--include-local: code %d, stdout %q, stderr %q", inc.code, inc.stdout, inc.stderr)
+	}
+	if got := count(t, local, "localproj", "messages"); got != 3 {
+		t.Fatalf("dry run deleted local messages: %d", got)
+	}
+}

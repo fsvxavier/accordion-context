@@ -131,12 +131,13 @@ func TestEncodeRoundTripIsByteStable(t *testing.T) {
 	if !bytes.Contains(out, []byte(`"system": "You are <agent> & friends.`)) && !bytes.Contains(out, []byte(`"system":"You are <agent> & friends.`)) {
 		t.Errorf("system prompt not byte-identical in output: %s", out)
 	}
-	// Re-decoding gives the same kernel view.
+	// Re-decoding gives the same kernel view, once the reference labels are removed.
 	_, again := mustDecode(t, string(out))
 	if len(again) != len(msgs) {
 		t.Fatalf("round trip count %d != %d", len(again), len(msgs))
 	}
 	for i := range msgs {
+		again[i].Text = strings.TrimPrefix(again[i].Text, kernel.RefLabel(msgs[i]))
 		if again[i].Kind != msgs[i].Kind || again[i].Text != msgs[i].Text || again[i].ToolCallID != msgs[i].ToolCallID {
 			t.Errorf("msg %d changed: %+v -> %+v", i, msgs[i], again[i])
 		}
@@ -382,5 +383,40 @@ func TestToolDefinitionsAreValidJSON(t *testing.T) {
 	defs[0][0] = 'X' // copies must not alias package state
 	if ToolDefinitions()[0][0] != '{' {
 		t.Error("ToolDefinitions aliases shared state")
+	}
+}
+
+func TestEncodeLabelsVisibleTextOnly(t *testing.T) {
+	req, msgs := mustDecode(t, sampleRequest)
+	// Ledger: 1 system, 2 user text, 3 thinking, 4 assistant text, ...
+	// The envelope has no ledger position, so it stays unlabelled.
+	env := kernel.Message{Role: kernel.RoleUser, Kind: kernel.KindText, Text: "<history block=\"b1\">done</history>"}
+	out, err := Encode(req, []kernel.Message{msgs[1], env, msgs[2], msgs[3]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out, []byte(`"text":"[m00002] fix the parser"`)) {
+		t.Fatalf("pinned user text not labelled: %s", out)
+	}
+	if !bytes.Contains(out, []byte(`"text":"[m00004] reading the file"`)) {
+		t.Fatalf("kept assistant text not labelled: %s", out)
+	}
+	if !bytes.Contains(out, []byte(`"text":"<history`)) {
+		t.Fatalf("envelope must stay unlabelled: %s", out)
+	}
+	if !bytes.Contains(out, []byte(`"signature": "SIG"`)) && !bytes.Contains(out, []byte(`"signature":"SIG"`)) {
+		t.Fatalf("thinking block lost: %s", out)
+	}
+	if bytes.Contains(out, []byte(`"text":"[m00002] You are`)) {
+		t.Fatalf("system prompt must never be labelled: %s", out)
+	}
+}
+
+func TestEncodeLabelIsByteStable(t *testing.T) {
+	req, msgs := mustDecode(t, sampleRequest)
+	a, _ := Encode(req, msgs)
+	b, _ := Encode(req, msgs)
+	if !bytes.Equal(a, b) {
+		t.Fatal("encode is not deterministic")
 	}
 }

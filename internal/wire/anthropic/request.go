@@ -308,13 +308,18 @@ func (r *Request) blockFor(m kernel.Message) (item, bool) {
 	if m.Role == kernel.RoleAssistant {
 		role = roleAssistant
 	}
+	label := kernel.RefLabel(m)
 	if k, ok := r.kept[m.Seq]; ok && k.role == role && k.kind == m.Kind &&
 		k.text == m.Text && k.toolID == m.ToolCallID {
-		return item{role: role, kind: m.Kind, id: m.ToolCallID, raw: k.raw}, true
+		raw := k.raw
+		if m.Kind == kernel.KindText {
+			raw = withLabel(raw, label)
+		}
+		return item{role: role, kind: m.Kind, id: m.ToolCallID, raw: raw}, true
 	}
 	switch m.Kind {
 	case kernel.KindText:
-		raw, err := marshalNoEscape(map[string]string{"type": "text", "text": m.Text})
+		raw, err := marshalNoEscape(map[string]string{"type": "text", "text": label + m.Text})
 		if err != nil {
 			return item{}, false
 		}
@@ -337,6 +342,33 @@ func (r *Request) blockFor(m kernel.Message) (item, bool) {
 		return item{role: roleUser, kind: kernel.KindToolResult, id: m.ToolCallID, raw: raw}, true
 	}
 	return item{}, false
+}
+
+// withLabel puts the reference label in front of a kept text block's text. Other
+// fields of the block, cache_control included, are carried over. Blocks that
+// are not plain text (image placeholders, for example) are returned unchanged.
+func withLabel(raw json.RawMessage, label string) json.RawMessage {
+	if label == "" {
+		return raw
+	}
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(raw, &obj) != nil {
+		return raw
+	}
+	var typ, text string
+	if json.Unmarshal(obj["type"], &typ) != nil || typ != "text" || json.Unmarshal(obj["text"], &text) != nil {
+		return raw
+	}
+	enc, err := marshalNoEscape(label + text)
+	if err != nil {
+		return raw
+	}
+	obj["text"] = enc
+	out, err := marshalNoEscape(obj)
+	if err != nil {
+		return raw
+	}
+	return out
 }
 
 type toolUseBlock struct {

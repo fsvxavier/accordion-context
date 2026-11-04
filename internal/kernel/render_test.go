@@ -40,3 +40,90 @@ func TestRenderInactiveBlockIgnored(t *testing.T) {
 		t.Fatalf("want 5 visible, got %d", n)
 	}
 }
+
+func TestRefLabel(t *testing.T) {
+	if got := RefLabel(Message{Ref: "m00042", Role: RoleUser, Kind: KindText}); got != "[m00042] " {
+		t.Fatalf("label = %q", got)
+	}
+	if RefLabel(Message{Role: RoleUser, Kind: KindText, Text: "envelope"}) != "" {
+		t.Fatal("synthetic message must have no label")
+	}
+	if RefLabel(Message{Ref: "m00001", Role: RoleSystem, Kind: KindText}) != "" {
+		t.Fatal("system message must have no label")
+	}
+}
+
+func TestRenderKeepsRefsOnRawMessages(t *testing.T) {
+	s := Snapshot{Messages: msgs(), Blocks: []Block{{ID: "b1", Tier: 1, Summary: "sum", StartSeq: 2, EndSeq: 3, Active: true}}}
+	for _, m := range Render(s) {
+		if m.Text == "last" && m.Ref != "m00004" {
+			t.Fatalf("raw message lost its ref: %+v", m)
+		}
+		if strings.HasPrefix(m.Text, "<history") && m.Ref != "" {
+			t.Fatalf("envelope must not carry a ref: %+v", m)
+		}
+	}
+}
+
+// spanMsgs builds a ledger of n messages where index i has the given kind.
+func spanMsgs(kinds ...Kind) []Message {
+	out := make([]Message, len(kinds))
+	for i, k := range kinds {
+		role := RoleAssistant
+		if i == 0 {
+			role = RoleUser
+		}
+		m := Message{Seq: int64(i + 1), Ref: FormatRef(int64(i + 1)), Role: role, Kind: k, Tokens: 100}
+		if k == KindToolCall || k == KindToolResult {
+			m.ToolCallID = "t" + FormatRef(int64(i+1))
+		}
+		out[i] = m
+	}
+	return out
+}
+
+func TestCompressibleSpansExcludesProtectedAndCovered(t *testing.T) {
+	// 12 text messages, keep=4: candidates are seq 2..8 (seq 1 is the first user message).
+	kinds := make([]Kind, 12)
+	for i := range kinds {
+		kinds[i] = KindText
+	}
+	s := Snapshot{Messages: spanMsgs(kinds...)}
+	got := CompressibleSpans(s, 4)
+	if len(got) != 1 || got[0].Start != "m00002" || got[0].End != "m00008" || got[0].Tokens != 700 {
+		t.Fatalf("spans = %+v", got)
+	}
+	// Cover seq 4..5: the candidates split into two spans.
+	s.Blocks = []Block{{ID: "b1", Active: true, StartSeq: 4, EndSeq: 5}}
+	got = CompressibleSpans(s, 4)
+	if len(got) != 2 || got[0].End != "m00003" || got[1].Start != "m00006" {
+		t.Fatalf("spans around block = %+v", got)
+	}
+}
+
+func TestCompressibleSpansNeverSplitsToolPairs(t *testing.T) {
+	// seq: 1 user, 2 text, 3 call, 4 result, 5 text, 6..9 text (protected with keep=4).
+	kinds := []Kind{KindText, KindText, KindToolCall, KindToolResult, KindText, KindText, KindText, KindText, KindText}
+	got := CompressibleSpans(Snapshot{Messages: spanMsgs(kinds...)}, 4)
+	for _, sp := range got {
+		if sp.StartSeq <= 4 && sp.EndSeq >= 3 && !(sp.StartSeq <= 3 && sp.EndSeq >= 4) {
+			t.Fatalf("span %+v splits the pair 3..4", sp)
+		}
+		if sp.Start == "m00004" {
+			t.Fatalf("span starts on a tool_result: %+v", sp)
+		}
+	}
+	// A pair crossing the protected boundary must be excluded entirely.
+	kinds = []Kind{KindText, KindText, KindText, KindToolCall, KindToolResult, KindText, KindText}
+	for _, sp := range CompressibleSpans(Snapshot{Messages: spanMsgs(kinds...)}, 3) {
+		if sp.EndSeq >= 4 && sp.StartSeq <= 5 {
+			t.Fatalf("span %+v covers a pair that crosses the protected zone", sp)
+		}
+	}
+}
+
+func TestCompressibleSpansEmpty(t *testing.T) {
+	if got := CompressibleSpans(Snapshot{}, 4); got != nil {
+		t.Fatalf("empty ledger: %+v", got)
+	}
+}

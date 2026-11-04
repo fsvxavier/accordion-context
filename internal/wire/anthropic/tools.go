@@ -121,10 +121,14 @@ type CompressRange struct {
 	Topic    string
 }
 
-// ParseRef parses a message reference such as "m00042", "m42", "#42" or "42"
+// ParseRef parses a message reference such as "m00042", "[m00042]", "m42", "#42" or "42"
 // into its ledger sequence number. The number must be at least 1.
 func ParseRef(s string) (int64, error) {
 	t := strings.TrimSpace(s)
+	// The window shows refs as [m00042]; models often copy the brackets.
+	if strings.HasPrefix(t, "[") && strings.HasSuffix(t, "]") {
+		t = t[1 : len(t)-1]
+	}
 	t = strings.TrimPrefix(t, "#")
 	t = strings.TrimPrefix(strings.TrimPrefix(t, "m"), "M")
 	if len(t) == 0 || len(t) > 18 {

@@ -102,3 +102,127 @@ func firstLine(s string) string {
 	}
 	return s
 }
+
+// RefLabel is the reference shown to the model in front of a raw message's text,
+// for example "[m00042] ". It depends only on the ledger position, so it is
+// byte-stable across turns. Synthetic messages (history envelopes, intents) and
+// system messages have no label.
+func RefLabel(m Message) string {
+	if m.Ref == "" || m.Role == RoleSystem {
+		return ""
+	}
+	return "[" + m.Ref + "] "
+}
+
+// Span is a run of ledger messages that a compress call may cover now.
+type Span struct {
+	Start    string // ref of the first message, inclusive
+	End      string // ref of the last message, inclusive
+	StartSeq int64
+	EndSeq   int64
+	Tokens   int // sum of the messages' token estimates
+}
+
+// CompressibleSpans lists the ranges that may be compressed now (spec §10.2),
+// in ledger order. A message is a candidate when it is not a system message,
+// not covered by an active block, not the pinned first user message and not in
+// the last keep messages. A tool call and its result must both be candidates,
+// and every message between them too, so no compressed range splits a pair.
+// Each span starts on a non-result and ends on a non-call, as compress requires.
+func CompressibleSpans(s Snapshot, keep int) []Span {
+	msgs := s.Messages
+	if len(msgs) == 0 {
+		return nil
+	}
+	firstUser := int64(0)
+	for _, m := range msgs {
+		if m.Role == RoleUser && m.Kind == KindText {
+			firstUser = m.Seq
+			break
+		}
+	}
+	last := msgs[len(msgs)-1].Seq
+	covered := func(seq int64) bool {
+		for _, b := range s.Blocks {
+			if b.Active && seq >= b.StartSeq && seq <= b.EndSeq {
+				return true
+			}
+		}
+		return false
+	}
+
+	cand := make([]bool, len(msgs))
+	for i, m := range msgs {
+		cand[i] = m.Role != RoleSystem && m.Seq != firstUser && m.Seq <= last-int64(keep) && !covered(m.Seq)
+	}
+	// Index span of every tool pair (call and result share ToolCallID).
+	type pair struct{ lo, hi int }
+	pairs := map[string]*pair{}
+	for i, m := range msgs {
+		if m.ToolCallID == "" {
+			continue
+		}
+		if p, ok := pairs[m.ToolCallID]; ok {
+			p.hi = i
+		} else {
+			pairs[m.ToolCallID] = &pair{lo: i, hi: i}
+		}
+	}
+	// A pair is usable only if everything between its members is a candidate.
+	// Dropping a member can invalidate another pair, so repeat to a fixed point.
+	for changed := true; changed; {
+		changed = false
+		for id, p := range pairs {
+			ok := true
+			for i := p.lo; i <= p.hi && ok; i++ {
+				ok = cand[i]
+			}
+			if ok {
+				continue
+			}
+			for i := p.lo; i <= p.hi; i++ {
+				if msgs[i].ToolCallID == id && cand[i] {
+					cand[i] = false
+					changed = true
+				}
+			}
+		}
+	}
+
+	var out []Span
+	for i := 0; i < len(msgs); {
+		if !cand[i] {
+			i++
+			continue
+		}
+		j := i
+		for j+1 < len(msgs) && cand[j+1] {
+			j++
+		}
+		if sp := makeSpan(msgs[i : j+1]); sp.Start != "" {
+			out = append(out, sp)
+		}
+		i = j + 1
+	}
+	return out
+}
+
+// makeSpan trims a candidate run so it neither starts on a tool_result nor ends
+// on a tool_call, and sums its tokens.
+func makeSpan(run []Message) Span {
+	lo, hi := 0, len(run)-1
+	for lo <= hi && run[lo].Kind == KindToolResult {
+		lo++
+	}
+	for hi >= lo && run[hi].Kind == KindToolCall {
+		hi--
+	}
+	if lo > hi {
+		return Span{}
+	}
+	sp := Span{Start: run[lo].Ref, End: run[hi].Ref, StartSeq: run[lo].Seq, EndSeq: run[hi].Seq}
+	for _, m := range run[lo : hi+1] {
+		sp.Tokens += m.Tokens
+	}
+	return sp
+}

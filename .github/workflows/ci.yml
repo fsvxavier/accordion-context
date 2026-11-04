@@ -1,0 +1,100 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    name: read Go version from go.mod
+    runs-on: ubuntu-latest
+    outputs:
+      go-versions: ${{ steps.read.outputs.versions }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: read
+        run: |
+          v=$(sed -n 's/^go \([0-9][0-9.]*\)$/\1/p' go.mod | head -n 1)
+          if [ -z "$v" ]; then echo "go.mod has no go directive" >&2; exit 1; fi
+          echo "versions=[\"$v\"]" >> "$GITHUB_OUTPUT"
+
+  go:
+    name: Go ${{ matrix.go-version }}
+    needs: matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: ${{ fromJSON(needs.matrix.outputs.go-versions) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then echo "$unformatted"; exit 1; fi
+      - name: go vet
+        run: go vet ./...
+      - name: go test -race
+        run: go test -race -count=1 ./...
+
+  conformance:
+    name: conformance vectors (Go runner)
+    needs: matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: ${{ fromJSON(needs.matrix.outputs.go-versions) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+      - run: go test -count=1 -v ./conformance/...
+
+  python:
+    name: python client (unittest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: unittest, replaying conformance vectors against the fake server
+        working-directory: middleware/python
+        run: python -m unittest discover -s tests -v
+
+  node:
+    name: node client (node:test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: node --test, replaying conformance vectors against the fake server
+        working-directory: middleware/node
+        run: node --test
+
+  compat-matrix:
+    name: compatibility matrix is up to date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: regenerate docs/compatibility.md
+        run: go run ./scripts/gen-compat-matrix > "$RUNNER_TEMP/compatibility.md"
+      - name: fail when the committed file is stale
+        run: diff -u docs/compatibility.md "$RUNNER_TEMP/compatibility.md"

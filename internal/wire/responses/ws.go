@@ -327,7 +327,7 @@ func (c *FrameCodec) stamp(frame []byte) ([]byte, error) {
 
 // isInternalCall reports whether a function call is one of the proxy's tools.
 func isInternalCall(name string) bool {
-	return name == ToolCompress || name == ToolDecompress
+	return IsInternalTool(name)
 }
 
 func mustRaw(v any) json.RawMessage {

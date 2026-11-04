@@ -32,7 +32,8 @@ func TestInjectToolsAddsBothWhenAbsent(t *testing.T) {
 		t.Fatal(err)
 	}
 	names := toolNames(t, out)
-	if len(names) != 2 || names[0] != ToolCompress || names[1] != ToolDecompress {
+	want := []string{ToolCompress, ToolDecompress, ToolSearchContext, ToolRetrieve}
+	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Fatalf("tool names = %v", names)
 	}
 	if !HasTool(out, ToolCompress) || !HasTool(out, ToolDecompress) {

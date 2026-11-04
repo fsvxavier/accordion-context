@@ -14,7 +14,11 @@ import (
 // IsInternalTool reports whether name is one of the proxy's own tools. Their
 // tool_use blocks never reach the client.
 func IsInternalTool(name string) bool {
-	return name == ToolCompress || name == ToolDecompress
+	switch name {
+	case ToolCompress, ToolDecompress, ToolSearchContext, ToolRetrieve:
+		return true
+	}
+	return false
 }
 
 // SSEEvent is one server-sent event as received from upstream.

@@ -59,7 +59,7 @@ func TestInjectToolsMergesIntoExistingEntry(t *testing.T) {
 	for _, d := range doc.Tools[1].FunctionDeclarations {
 		names = append(names, d.Name)
 	}
-	if strings.Join(names, ",") != "ls,compress,decompress" || doc.Tools[1].X != 1 {
+	if strings.Join(names, ",") != "ls,compress,decompress,search_context,retrieve" || doc.Tools[1].X != 1 {
 		t.Errorf("merge wrong: %v x=%d", names, doc.Tools[1].X)
 	}
 	if !strings.Contains(string(out), `{"googleSearch":{}}`) {
@@ -82,7 +82,7 @@ func TestInjectToolsAddsOnlyMissing(t *testing.T) {
 }
 
 func TestInjectToolsNoChangeReturnsSameBody(t *testing.T) {
-	body := []byte(`{"tools":[{"functionDeclarations":[{"name":"compress"},{"name":"decompress"}]}]}`)
+	body := []byte(`{"tools":[{"functionDeclarations":[{"name":"compress"},{"name":"decompress"},{"name":"search_context"},{"name":"retrieve"}]}]}`)
 	out, err := InjectTools(body)
 	if err != nil {
 		t.Fatal(err)

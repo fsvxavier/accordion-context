@@ -94,7 +94,7 @@ func observeLine(line []byte, sum *StreamSummary, open map[int]*StreamCall) {
 		sum.Complete = true
 	case "content_block_start":
 		if ev.ContentBlock != nil && ev.ContentBlock.Type == "tool_use" &&
-			(ev.ContentBlock.Name == ToolCompress || ev.ContentBlock.Name == ToolDecompress) {
+			IsInternalTool(ev.ContentBlock.Name) {
 			open[ev.Index] = &StreamCall{Index: ev.Index, ID: ev.ContentBlock.ID, Name: ev.ContentBlock.Name}
 		}
 	case "content_block_delta":

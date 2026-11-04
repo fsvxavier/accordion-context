@@ -19,7 +19,9 @@ type StreamCall struct {
 	Arguments   string        // final arguments string
 	Compress    *CompressArgs // set when Name is compress and parsing succeeded
 	Decompress  *DecompressArgs
-	Err         error // argument parse error
+	Search      *SearchArgs   // set when Name is search_context and parsing succeeded
+	Retrieve    *RetrieveArgs // set when Name is retrieve and parsing succeeded
+	Err         error         // argument parse error
 }
 
 // StreamSummary is what StreamPassthrough observed while copying the stream.
@@ -159,7 +161,7 @@ func finishStream(sum StreamSummary, open map[int]*StreamCall) StreamSummary {
 	sort.Ints(keys)
 	for _, k := range keys {
 		c := open[k]
-		if c.Name != ToolCompress && c.Name != ToolDecompress {
+		if !IsInternalTool(c.Name) {
 			continue
 		}
 		finalizeCall(c)
@@ -185,5 +187,19 @@ func finalizeCall(c *StreamCall) {
 			return
 		}
 		c.Decompress = &v
+	case ToolSearchContext:
+		v, err := ParseSearchArgs(args)
+		if err != nil {
+			c.Err = err
+			return
+		}
+		c.Search = &v
+	case ToolRetrieve:
+		v, err := ParseRetrieveArgs(args)
+		if err != nil {
+			c.Err = err
+			return
+		}
+		c.Retrieve = &v
 	}
 }

@@ -21,6 +21,8 @@ type StreamCall struct {
 	Arguments  string          // compact JSON object
 	Compress   *CompressArgs   // set when Name is compress and parsing succeeded
 	Decompress *DecompressArgs // set when Name is decompress and parsing succeeded
+	Search     *SearchArgs     // set when Name is search_context and parsing succeeded
+	Retrieve   *RetrieveArgs   // set when Name is retrieve and parsing succeeded
 	Err        error           // argument parse error
 }
 
@@ -98,7 +100,7 @@ func observeLine(line []byte, sum *StreamSummary, parts map[int]int) {
 			if json.Unmarshal(raw, &p) != nil || p.FunctionCall == nil {
 				continue
 			}
-			if name := p.FunctionCall.Name; name != ToolCompress && name != ToolDecompress {
+			if name := p.FunctionCall.Name; !IsInternalTool(name) {
 				continue
 			}
 			call := StreamCall{
@@ -128,5 +130,19 @@ func finalizeCall(c *StreamCall) {
 			return
 		}
 		c.Decompress = &v
+	case ToolSearchContext:
+		v, err := ParseSearchArgs(args)
+		if err != nil {
+			c.Err = err
+			return
+		}
+		c.Search = &v
+	case ToolRetrieve:
+		v, err := ParseRetrieveArgs(args)
+		if err != nil {
+			c.Err = err
+			return
+		}
+		c.Retrieve = &v
 	}
 }

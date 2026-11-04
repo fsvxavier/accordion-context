@@ -45,7 +45,7 @@ func TestInjectToolsWithoutToolsField(t *testing.T) {
 }
 
 func TestInjectToolsSkipsWhenPresent(t *testing.T) {
-	body := []byte(`{"tools":[{"type":"function","function":{"name":"compress"}},{"type":"function","function":{"name":"decompress"}}]}`)
+	body := []byte(`{"tools":[{"type":"function","function":{"name":"compress"}},{"type":"function","function":{"name":"decompress"}},{"type":"function","function":{"name":"search_context"}},{"type":"function","function":{"name":"retrieve"}}]}`)
 	out, err := InjectTools(body)
 	if err != nil {
 		t.Fatal(err)

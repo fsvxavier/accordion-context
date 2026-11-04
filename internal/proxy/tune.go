@@ -133,15 +133,46 @@ func costModel(cfg config.Config) kernel.CostModel {
 	return m
 }
 
-// nudgeSpans lists the ranges the nudge may offer. The recent zone is the larger
-// of the configured and the session's own protection, and ranges below the
-// session's minimum are dropped, because the session would refuse them.
-func nudgeSpans(snap kernel.Snapshot, cfg config.Config) []kernel.Span {
-	keep := max(cfg.PreserveRecentMessages, session.RecentKeep)
-	minTokens := max(session.MinCompressRange, cfg.MinCompressRange)
+// calibSeedRows is how many stored cache samples a restarted session replays into
+// its calibration (spec §15).
+const calibSeedRows = 64
+
+// sessionOptions maps the configuration of a project onto the session settings.
+// The session protects at least the spec's recent zone (session.RecentKeep), so
+// the nudge and the compress validation agree on what may be compressed.
+func sessionOptions(cfg config.Config) session.Options {
+	return session.Options{
+		Kernel:           cfg.Kernel(),
+		MinCompressRange: cfg.MinCompressRange,
+		MinSummaryChars:  cfg.MinSummaryChars,
+		RecentKeep:       max(cfg.PreserveRecentMessages, session.RecentKeep),
+	}
+}
+
+// seedCalibLocked replays the stored cache samples of sid into its calibration, so
+// the estimate keeps its scale after a restart (spec §15). s.mu must be held.
+func (s *Server) seedCalibLocked(ctx context.Context, sid string) {
+	rows, err := s.cfg.Store.ListCacheLedger(ctx, sid, calibSeedRows)
+	if err != nil {
+		s.cfg.Logger.Warn("calibration not restored", "session", sid, "err", err)
+		return
+	}
+	t := s.tuneLocked(sid)
+	if t.calib.Samples > 0 {
+		return
+	}
+	for _, r := range rows {
+		t.calib.Update(r.EstTokens, r.InputTokens)
+	}
+}
+
+// nudgeSpans lists the ranges the nudge may offer: the spans outside the session's
+// recent zone and at least its MinCompressRange, because the session would refuse
+// the others.
+func nudgeSpans(snap kernel.Snapshot, opts session.Options) []kernel.Span {
 	var out []kernel.Span
-	for _, sp := range kernel.CompressibleSpans(snap, keep) {
-		if sp.Tokens >= minTokens {
+	for _, sp := range kernel.CompressibleSpans(snap, opts.RecentKeep) {
+		if sp.Tokens >= opts.MinCompressRange {
 			out = append(out, sp)
 		}
 	}
@@ -150,8 +181,8 @@ func nudgeSpans(snap kernel.Snapshot, cfg config.Config) []kernel.Span {
 
 // gateIn is what the cache gate needs about one turn.
 type gateIn struct {
-	plan    session.Plan
-	prev    kernel.TriggerState // trigger state before Plan changed it
+	sess    *session.Session
+	plan    session.Plan // Before holds the trigger state before Plan changed it
 	spans   []kernel.Span
 	visible []kernel.Message
 	tokens  int // TokenCount given to Plan (calibrated)
@@ -191,7 +222,7 @@ func (s *Server) gateNudge(ctx context.Context, sid string, g gateIn) bool {
 	if g.limit > 0 {
 		u = float64(g.tokens) / float64(g.limit)
 	}
-	g0 := g.tokens - g.prev.LowWater
+	g0 := g.tokens - g.plan.Before.LowWater
 	attrs := []any{
 		"session", sid, "row", d.Row, "tier", d.Tier, "voice", string(d.Voice),
 		"U", u, "G", g0, "cost", fc.Cost.String(), "benefit", fc.Benefit.String(),
@@ -199,9 +230,7 @@ func (s *Server) gateNudge(ctx context.Context, sid string, g gateIn) bool {
 	}
 	switch action {
 	case kernel.GateDefer:
-		restore := g.prev
-		restore.LowWater = g.plan.LowWater
-		if err := s.cfg.Store.SetTrigger(ctx, sid, restore); err != nil {
+		if err := g.sess.DeferNudge(ctx, g.plan); err != nil {
 			// Without the undo the state would count a nudge that never reached the client, so inject.
 			s.cfg.Logger.Warn("nudge gate: trigger undo failed; injecting", "session", sid, "err", err)
 			return true

@@ -104,10 +104,12 @@ type toolResult struct {
 
 // toolArgs is a normalized internal call. Each adapter fills it from its codec.
 type toolArgs struct {
-	ranges []session.CompressRange // compress
-	block  string                  // decompress: block id
-	mode   string
-	query  string
+	ranges       []session.CompressRange // compress
+	folds        []session.FoldRange     // compress: folds of tier 2 and 3 (§12)
+	closeIntents []int64                 // compress: open intents the ranges complete (§11.3)
+	block        string                  // decompress: block id
+	mode         string
+	query        string
 }
 
 // usage is the prompt size of one upstream call, as the cache ledger counts it.

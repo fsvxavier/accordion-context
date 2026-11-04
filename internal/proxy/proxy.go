@@ -261,6 +261,8 @@ func (s *Server) compactTurn(w http.ResponseWriter, r *http.Request, rt routed, 
 		s.failOpen(w, r, rt, body, "session", err)
 		return
 	}
+	// The session takes the settings of the project's configuration (spec §18.5).
+	sess.SetOptions(sessionOptions(cfg))
 	if _, err := sess.Ingest(ctx, msgs); err != nil {
 		s.failOpen(w, r, rt, body, "ingest", err)
 		return
@@ -274,12 +276,6 @@ func (s *Server) compactTurn(w http.ResponseWriter, r *http.Request, rt routed, 
 	snap, err := s.cfg.Store.Snapshot(ctx, sid)
 	if err != nil {
 		s.failOpen(w, r, rt, body, "snapshot", err)
-		return
-	}
-	// The trigger state before Plan, so a deferred nudge can be undone (tune.go).
-	prev, err := s.cfg.Store.GetTrigger(ctx, sid)
-	if err != nil {
-		s.failOpen(w, r, rt, body, "trigger", err)
 		return
 	}
 	// The client resends the whole transcript, so the size that matters is the
@@ -304,9 +300,9 @@ func (s *Server) compactTurn(w http.ResponseWriter, r *http.Request, rt routed, 
 		return
 	}
 	if plan.Decision.Nudge {
-		spans := nudgeSpans(snap, cfg)
+		spans := nudgeSpans(snap, sess.Settings())
 		send := s.gateNudge(ctx, sid, gateIn{
-			plan: plan, prev: prev, spans: spans, visible: window,
+			sess: sess, plan: plan, spans: spans, visible: window,
 			tokens: tokenCount, limit: snap.ContextLimit, cfg: cfg,
 		})
 		if send {
@@ -513,7 +509,9 @@ func (s *Server) execTool(t *turn, c toolCall) (string, error) {
 }
 
 func (s *Server) compress(t *turn, args toolArgs) (string, error) {
-	res, err := t.sess.HandleCompress(t.ctx, session.CompressArgs{Ranges: args.ranges})
+	res, err := t.sess.HandleCompress(t.ctx, session.CompressArgs{
+		Ranges: args.ranges, Folds: args.folds, CloseIntents: args.closeIntents,
+	})
 	if err != nil {
 		return "", err
 	}
@@ -522,8 +520,10 @@ func (s *Server) compress(t *turn, args toolArgs) (string, error) {
 		len(res.BlockIDs), strings.Join(res.BlockIDs, ", "), res.TokensAfter), nil
 }
 
-// decompress returns the original messages of a block. mode peek filters lines
-// by query, context and file return the whole block (capped).
+// decompress expands a block (mode context, the default): its sources come back and
+// the block is deactivated, which the next window shows (spec §13.1). A message
+// ref is recalled. mode peek returns the original lines that match a query, and
+// file returns the whole block text (capped).
 func (s *Server) decompress(t *turn, args toolArgs) (string, error) {
 	if args.block == "" {
 		return "", errors.New("decompress: blockId is required")
@@ -549,6 +549,14 @@ func (s *Server) decompress(t *turn, args toolArgs) (string, error) {
 			return refExcerpt(args.block, text, args), nil
 		}
 		return "", fmt.Errorf("decompress: unknown block %q", args.block)
+	}
+	if args.mode == "" || args.mode == "context" {
+		res, err := t.sess.Decompress(t.ctx, args.block)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Expanded %s into %s; reactivated: %s. Their messages are visible again.",
+			args.block, res.Target, strings.Join(res.Reactivated, ", ")), nil
 	}
 
 	var b strings.Builder
@@ -688,7 +696,7 @@ func (s *Server) projectFromDir(dir string) (project.Resolved, bool) {
 		s.cfg.Logger.Warn("project dir ignored: not an existing directory")
 		return project.Resolved{}, false
 	}
-	res, err := project.ResolveWith(dir, s.cfg.Markers, project.Options{ReadOnly: true})
+	res, err := project.ResolveWith(dir, s.cfg.Markers, project.Options{ReadOnly: true, IDByRoot: s.idByRoot})
 	if err != nil {
 		s.cfg.Logger.Warn("project dir not usable", "err", err)
 		return project.Resolved{}, false
@@ -700,6 +708,13 @@ type projectRef struct {
 	ID      string
 	Root    string
 	Storage string
+}
+
+// idByRoot returns the project id registered at root. A project moved with
+// `project move` keeps its id, so its history follows it (spec §18.2).
+func (s *Server) idByRoot(root string) (string, bool) {
+	id, err := s.cfg.Store.ProjectIDByRoot(context.Background(), root)
+	return id, err == nil
 }
 
 // rootOf returns the root_path last seen for id. Projects known only by id get a
@@ -742,6 +757,7 @@ func (s *Server) session(ctx context.Context, p projectRef, sid, model string, l
 	}
 	sess := session.New(s.cfg.Store, sid)
 	s.sessions[sid] = sess
+	s.seedCalibLocked(ctx, sid)
 	return sess, nil
 }
 

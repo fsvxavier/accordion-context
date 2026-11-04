@@ -7,6 +7,7 @@ import (
 	"io"
 
 	"github.com/fsvxavier/accordion-context/internal/kernel"
+	"github.com/fsvxavier/accordion-context/internal/session"
 	"github.com/fsvxavier/accordion-context/internal/wire/openai"
 )
 
@@ -81,6 +82,12 @@ func (openaiProtocol) ParseTool(name string, input []byte) (toolArgs, error) {
 		for _, r := range args.Ranges {
 			out.ranges = append(out.ranges, compressRange(r.StartSeq, r.EndSeq, r.Summary, r.Topic))
 		}
+		for _, f := range args.Folds {
+			out.folds = append(out.folds, session.FoldRange{
+				Tier: f.Tier, StartBlock: f.StartBlock, EndBlock: f.EndBlock, Summary: f.Summary, Topic: f.Topic,
+			})
+		}
+		out.closeIntents = args.CloseIntents
 		return out, nil
 	case toolDecompress:
 		args, err := openai.ParseDecompressArgs(input)

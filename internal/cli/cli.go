@@ -99,6 +99,10 @@ func Run(args []string, streams IO) int {
 		return runGeneric(args[1:], s)
 	case "mcp":
 		return runMCP(args[1:], s)
+	case "attach":
+		return runAttach(args[1:], s)
+	case "doctor":
+		return runDoctor(args[1:], s)
 	case "help", "-h", "--help":
 		fmt.Fprint(s.Stdout, Usage())
 		return ExitOK
@@ -127,6 +131,8 @@ project purge <id> [--yes]            delete all data of a project
 config show --effective               effective configuration with the source of each key
 claude|codex|gemini|opencode [args]   launch a client through the proxy
 run -- <cmd> [args]                   launch any client whose profile is known
+attach [--profiles f] -- <cmd> [args] run any command through the proxy, verifying the integration first
+doctor [--json] [client]              check the installation and, optionally, one client's integration
 mcp                                   serve the companion MCP server on stdio
 help                                  show this help
 

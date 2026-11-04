@@ -56,7 +56,13 @@ type wsSession struct {
 	clientIn <-chan wsMsg
 	up       *wsUpstream
 	pending  [][]byte // client frames that arrived during a response
+	// pendingBytes is the total size of pending. Both are capped, so a client
+	// cannot grow the queue without limit while a response runs.
+	pendingBytes int
 }
+
+// maxWSPending caps the client frames queued during one response.
+const maxWSPending = 16
 
 // wsUpstream is the upstream connection of a session. in is fed by a reader
 // goroutine, which stops after sending its one error.
@@ -112,6 +118,7 @@ func (ws *wsSession) run(ctx context.Context) error {
 		if len(ws.pending) > 0 {
 			frame := ws.pending[0]
 			ws.pending = ws.pending[1:]
+			ws.pendingBytes -= len(frame)
 			if err := ws.handle(ctx, frame); err != nil {
 				return err
 			}
@@ -300,10 +307,18 @@ func (ws *wsSession) nextUpstream(ctx context.Context) ([]byte, error) {
 		return nil, ws.upstreamFailed(ctx, "upstream closed before the response completed")
 	}
 	up := ws.up
+	// An upstream that goes quiet in the middle of a response must not hold the
+	// connection forever: the idle timeout also bounds the wait for each event.
+	stall := time.NewTimer(ws.srv.cfg.WSIdleTimeout)
+	defer stall.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return nil, errClientGone
+		case <-stall.C:
+			ws.srv.cfg.Logger.Warn("websocket upstream stalled", "path", ws.rt.path)
+			ws.dropUpstream()
+			return nil, ws.upstreamFailed(ctx, "upstream stalled before the response completed")
 		case m := <-up.in:
 			if m.err != nil {
 				ws.srv.cfg.Logger.Warn("websocket upstream read failed", "path", ws.rt.path, "err", m.err)
@@ -314,6 +329,10 @@ func (ws *wsSession) nextUpstream(ctx context.Context) ([]byte, error) {
 		case m := <-ws.clientIn:
 			if m.err != nil {
 				return nil, errClientGone
+			}
+			ws.pendingBytes += len(m.data)
+			if len(ws.pending) >= maxWSPending || int64(ws.pendingBytes) > 2*ws.srv.cfg.WSMaxFrameBytes {
+				return nil, closeErr{websocket.StatusPolicyViolation, "too many frames during a response"}
 			}
 			ws.pending = append(ws.pending, m.data)
 		}
@@ -372,7 +391,9 @@ func (s *Server) failOpenWS(stage string, err error) {
 // The reader is the only goroutine that reads c, which lets pings be answered
 // while nothing else is reading.
 func pumpWS(ctx context.Context, c *websocket.Conn) <-chan wsMsg {
-	out := make(chan wsMsg)
+	// One slot of buffer lets the reader hand over its final error and exit even
+	// when nobody reads the channel any more (a dropped upstream).
+	out := make(chan wsMsg, 1)
 	go func() {
 		for {
 			_, data, err := c.Read(ctx)

@@ -512,3 +512,49 @@ func TestWSForeignHostRefused(t *testing.T) {
 		t.Fatal("upstream contacted for a refused host")
 	}
 }
+
+// An upstream that sends the start of a response and then goes quiet must not
+// hold the connection open past the idle timeout.
+func TestWSUpstreamStallEndsSession(t *testing.T) {
+	up := newFakeWS(t, func(int, []byte) ([]string, bool) { return textTurn("resp_1")[:2], false })
+	base, _, _ := newWSProxy(t, up, func(c *Config) { c.WSIdleTimeout = 300 * time.Millisecond })
+	c := mustDial(t, base)
+	if err := c.Write(context.Background(), websocket.MessageText, []byte(wsCreate())); err != nil {
+		t.Fatal(err)
+	}
+	types, frames := readUntilEnd(t, c)
+	if types[len(types)-1] != "error" || !strings.Contains(frames[len(frames)-1], "stalled") {
+		t.Fatalf("events = %v", types)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, _, err := c.Read(ctx); websocket.CloseStatus(err) != websocket.StatusInternalError {
+		t.Fatalf("close status = %v (err %v), want 1011", websocket.CloseStatus(err), err)
+	}
+}
+
+// Frames sent while a response runs are queued, but only up to a cap.
+func TestWSQueuedFramesAreCapped(t *testing.T) {
+	release := make(chan struct{})
+	up := newFakeWS(t, func(int, []byte) ([]string, bool) {
+		<-release
+		return textTurn("resp_1"), false
+	})
+	t.Cleanup(func() { close(release) })
+	base, _, _ := newWSProxy(t, up, nil)
+	c := mustDial(t, base)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := c.Write(ctx, websocket.MessageText, []byte(wsCreate())); err != nil {
+		t.Fatal(err)
+	}
+	var closed error
+	for i := 0; i < 4*maxWSPending && closed == nil; i++ {
+		closed = c.Write(ctx, websocket.MessageText, []byte(`{"type":"response.cancel"}`))
+		time.Sleep(5 * time.Millisecond)
+	}
+	_, _, err := c.Read(ctx)
+	if websocket.CloseStatus(err) != websocket.StatusPolicyViolation {
+		t.Fatalf("close status = %v (err %v), want 1008", websocket.CloseStatus(err), err)
+	}
+}

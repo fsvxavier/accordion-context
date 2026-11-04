@@ -50,11 +50,38 @@ func (responsesProtocol) Decode(body []byte) (request, []kernel.Message, error) 
 	}), msgs, nil
 }
 
-// ClientCompaction matches a POST to /v1/responses/compact, with or without a /ctx/
-// gateway prefix. The endpoint is stateless and its output must not be pruned, so
-// the request is never changed.
-func (responsesProtocol) ClientCompaction(rt routed, _ http.Header, _ []byte) bool {
-	return routedTo(rt, func(path string) bool { return path == pathResponsesCompact })
+// ClientCompaction matches two shapes of Codex's own compaction call. A POST to
+// /v1/responses/compact, with or without a /ctx/ gateway prefix, is the legacy
+// remote call. A POST to /v1/responses whose last input item is compaction_trigger
+// is the current remote call (codex-rs/core/src/compact_remote_v2_attempt.rs:225),
+// on HTTP or on the WebSocket, which the server checks with the same function.
+// Both are forwarded unchanged; the request is never rewritten.
+func (responsesProtocol) ClientCompaction(rt routed, _ http.Header, body []byte) string {
+	if routedTo(rt, func(path string) bool { return path == pathResponsesCompact }) {
+		return signalCodexCompactPath
+	}
+	if routedTo(rt, responsesProtocol{}.Detect) && lastInputType(body) == "compaction_trigger" {
+		return signalCodexTrigger
+	}
+	return ""
+}
+
+// lastInputType returns the type of the last element of the input array of a
+// request, or "". The body is decoded only when it holds the item's name, so an
+// ordinary turn costs one byte search.
+func lastInputType(body []byte) string {
+	if !bytes.Contains(body, []byte("compaction_trigger")) {
+		return ""
+	}
+	var v struct {
+		Input []struct {
+			Type string `json:"type"`
+		} `json:"input"`
+	}
+	if json.Unmarshal(body, &v) != nil || len(v.Input) == 0 {
+		return ""
+	}
+	return v.Input[len(v.Input)-1].Type
 }
 
 func (responsesProtocol) InjectTools(body []byte) ([]byte, error) {

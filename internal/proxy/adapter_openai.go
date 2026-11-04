@@ -43,9 +43,9 @@ func (openaiProtocol) Decode(body []byte) (request, []kernel.Message, error) {
 	}), msgs, nil
 }
 
-// ClientCompaction always reports false: chat completions has no documented
-// signal for a client's compaction call.
-func (openaiProtocol) ClientCompaction(routed, http.Header, []byte) bool { return false }
+// ClientCompaction reports no signal: chat completions has no documented signal for
+// a client's compaction call. Text rules may still match (see compaction_rules.go).
+func (openaiProtocol) ClientCompaction(routed, http.Header, []byte) string { return "" }
 
 func (openaiProtocol) InjectTools(body []byte) ([]byte, error) {
 	return openai.InjectTools(body)

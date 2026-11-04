@@ -61,16 +61,20 @@ func (anthropicProtocol) InjectTools(body []byte) ([]byte, error) {
 
 // ClientCompaction matches the summarizing request of Claude Code: the header
 // x-claude-code-compaction with one of auto, manual or reactive, or the request
-// class header with the value compaction. Any other request is not a match.
-func (anthropicProtocol) ClientCompaction(rt routed, h http.Header, _ []byte) bool {
+// class header with the value compaction. Any other request is not a match. Claude
+// Code's prompt text is not published, so there is no text rule for this client.
+func (anthropicProtocol) ClientCompaction(rt routed, h http.Header, _ []byte) string {
 	if !routedTo(rt, anthropicProtocol{}.Detect) {
-		return false
+		return ""
 	}
 	switch strings.ToLower(strings.TrimSpace(h.Get(headerClaudeCompaction))) {
 	case "auto", "manual", "reactive":
-		return true
+		return signalClaudeCodeHeader
 	}
-	return strings.EqualFold(strings.TrimSpace(h.Get(headerClaudeRequestClass)), "compaction")
+	if strings.EqualFold(strings.TrimSpace(h.Get(headerClaudeRequestClass)), "compaction") {
+		return signalClaudeCodeClass
+	}
+	return ""
 }
 
 func (anthropicProtocol) AppendNudge(body []byte, text string) ([]byte, error) {

@@ -64,13 +64,15 @@ type protocol interface {
 	// Continue appends one round and its tool results to an encoded body. rr.assistant
 	// is the dialect's assistant turn, as Read produced it.
 	Continue(body []byte, rr reply, results []toolResult) ([]byte, error)
-	// ClientCompaction reports whether a POST is the client's own compaction call
-	// (for example /compact in a coding client). Such a call is forwarded unchanged:
-	// no ingest, no tools, no nudge. Only reliable signals count: a header the client
-	// documents, or an endpoint path. rt is the routed request, h its headers and
-	// body its raw body (nil when the caller has not read it). Adapters without a
-	// reliable signal return false.
-	ClientCompaction(rt routed, h http.Header, body []byte) bool
+	// ClientCompaction names the signal that marks a POST as the client's own
+	// compaction call (for example /compact in a coding client), or returns "" when
+	// there is none. Such a call is forwarded unchanged: no ingest, no tools, no
+	// nudge. Only deterministic signals count here: a header the client documents, an
+	// endpoint path, or an input item of the request. The text rules of
+	// compaction_rules.go are checked separately, by the server. rt is the routed
+	// request, h its headers and body its raw body (nil when the caller has not read
+	// it). Adapters without such a signal return "".
+	ClientCompaction(rt routed, h http.Header, body []byte) string
 }
 
 // request is a decoded client request that can be rendered again.
@@ -115,14 +117,15 @@ func routedTo(rt routed, match func(path string) bool) bool {
 }
 
 // compactionEndpoint returns the first adapter that reports a POST as the client's
-// own compaction call, for paths that no adapter compacts. It returns nil otherwise.
-func compactionEndpoint(rt routed, h http.Header) protocol {
+// own compaction call, for paths that no adapter compacts, with the signal. It
+// returns nil otherwise.
+func compactionEndpoint(rt routed, h http.Header) (protocol, string) {
 	for _, p := range protocols {
-		if p.ClientCompaction(rt, h, nil) {
-			return p
+		if sig := p.ClientCompaction(rt, h, nil); sig != "" {
+			return p, sig
 		}
 	}
-	return nil
+	return nil, ""
 }
 
 // toolCall is one internal call found in an upstream answer.

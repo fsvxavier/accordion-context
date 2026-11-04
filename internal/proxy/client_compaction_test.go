@@ -124,31 +124,31 @@ func TestClientCompactionDetection(t *testing.T) {
 		p    protocol
 		rt   routed
 		h    http.Header
-		want bool
+		want string
 	}{
-		{"anthropic auto", anthropicProtocol{}, routed{path: "/v1/messages"}, claude, true},
-		{"anthropic manual", anthropicProtocol{}, routed{path: "/v1/messages"}, manual, true},
-		{"anthropic reactive", anthropicProtocol{}, routed{path: "/v1/messages"}, reactive, true},
-		{"anthropic request class", anthropicProtocol{}, routed{path: "/v1/messages"}, class, true},
-		{"anthropic via ctx", anthropicProtocol{}, routed{path: "/gw/v1/messages", viaCtx: true}, claude, true},
-		{"anthropic main class", anthropicProtocol{}, routed{path: "/v1/messages"}, mainClass, false},
-		{"anthropic unknown value", anthropicProtocol{}, routed{path: "/v1/messages"}, bogus, false},
-		{"anthropic no header", anthropicProtocol{}, routed{path: "/v1/messages"}, none, false},
-		{"anthropic other path", anthropicProtocol{}, routed{path: "/v1/messages/count_tokens"}, claude, false},
-		{"anthropic gateway prefix without ctx", anthropicProtocol{}, routed{path: "/gw/v1/messages"}, claude, false},
-		{"responses compact", responsesProtocol{}, routed{path: "/v1/responses/compact"}, none, true},
-		{"responses compact via ctx", responsesProtocol{}, routed{path: "/gw/v1/responses/compact", viaCtx: true}, none, true},
-		{"responses compact no ctx prefix", responsesProtocol{}, routed{path: "/gw/v1/responses/compact"}, none, false},
-		{"responses collection", responsesProtocol{}, routed{path: "/v1/responses"}, none, false},
-		{"responses by id", responsesProtocol{}, routed{path: "/v1/responses/resp_1"}, none, false},
-		{"responses ignores claude header", responsesProtocol{}, routed{path: "/v1/responses"}, claude, false},
-		{"openai chat", openaiProtocol{}, routed{path: "/v1/chat/completions"}, claude, false},
-		{"google generate", googleProtocol{}, routed{path: "/v1beta/models/gemini:generateContent"}, claude, false},
+		{"anthropic auto", anthropicProtocol{}, routed{path: "/v1/messages"}, claude, signalClaudeCodeHeader},
+		{"anthropic manual", anthropicProtocol{}, routed{path: "/v1/messages"}, manual, signalClaudeCodeHeader},
+		{"anthropic reactive", anthropicProtocol{}, routed{path: "/v1/messages"}, reactive, signalClaudeCodeHeader},
+		{"anthropic request class", anthropicProtocol{}, routed{path: "/v1/messages"}, class, signalClaudeCodeClass},
+		{"anthropic via ctx", anthropicProtocol{}, routed{path: "/gw/v1/messages", viaCtx: true}, claude, signalClaudeCodeHeader},
+		{"anthropic main class", anthropicProtocol{}, routed{path: "/v1/messages"}, mainClass, ""},
+		{"anthropic unknown value", anthropicProtocol{}, routed{path: "/v1/messages"}, bogus, ""},
+		{"anthropic no header", anthropicProtocol{}, routed{path: "/v1/messages"}, none, ""},
+		{"anthropic other path", anthropicProtocol{}, routed{path: "/v1/messages/count_tokens"}, claude, ""},
+		{"anthropic gateway prefix without ctx", anthropicProtocol{}, routed{path: "/gw/v1/messages"}, claude, ""},
+		{"responses compact", responsesProtocol{}, routed{path: "/v1/responses/compact"}, none, signalCodexCompactPath},
+		{"responses compact via ctx", responsesProtocol{}, routed{path: "/gw/v1/responses/compact", viaCtx: true}, none, signalCodexCompactPath},
+		{"responses compact no ctx prefix", responsesProtocol{}, routed{path: "/gw/v1/responses/compact"}, none, ""},
+		{"responses collection", responsesProtocol{}, routed{path: "/v1/responses"}, none, ""},
+		{"responses by id", responsesProtocol{}, routed{path: "/v1/responses/resp_1"}, none, ""},
+		{"responses ignores claude header", responsesProtocol{}, routed{path: "/v1/responses"}, claude, ""},
+		{"openai chat", openaiProtocol{}, routed{path: "/v1/chat/completions"}, claude, ""},
+		{"google generate", googleProtocol{}, routed{path: "/v1beta/models/gemini:generateContent"}, claude, ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := tc.p.ClientCompaction(tc.rt, tc.h, nil); got != tc.want {
-				t.Fatalf("ClientCompaction(%+v) = %v, want %v", tc.rt, got, tc.want)
+				t.Fatalf("ClientCompaction(%+v) = %q, want %q", tc.rt, got, tc.want)
 			}
 		})
 	}

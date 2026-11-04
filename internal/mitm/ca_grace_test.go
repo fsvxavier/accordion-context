@@ -105,3 +105,21 @@ func mustBundle(t *testing.T, ca *CA) []byte {
 	}
 	return b
 }
+
+func TestStaleLockFileDoesNotBlock(t *testing.T) {
+	dir := t.TempDir()
+	// A crashed process leaves the lock file behind; flock dies with the process.
+	if err := os.WriteFile(filepath.Join(dir, "ca.lock"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { _, err := LoadOrCreateCA(dir, CAOptions{}); done <- err }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("LoadOrCreateCA blocked on a stale lock file")
+	}
+}

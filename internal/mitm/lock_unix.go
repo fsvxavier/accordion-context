@@ -16,7 +16,14 @@ func lockCADir(dir string) (func(), error) {
 	if err != nil {
 		return nil, fmt.Errorf("mitm: open CA lock: %w", err)
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+	var err2 error
+	for {
+		err2 = syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
+		if err2 != syscall.EINTR {
+			break
+		}
+	}
+	if err := err2; err != nil {
 		_ = f.Close()
 		return nil, fmt.Errorf("mitm: lock CA dir: %w", err)
 	}

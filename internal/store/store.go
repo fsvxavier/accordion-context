@@ -25,7 +25,9 @@ import (
 //go:embed schema.sql
 var schemaSQL string
 
-const schemaVersion = 1
+// schemaVersion is the newest schema. schema.sql is the v1 base and stays frozen;
+// each later version is a step in migrate (see migrate.go).
+const schemaVersion = 2
 
 // Store is a single-writer handle over one SQLite database.
 type Store struct {
@@ -138,7 +140,9 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-// migrate applies schema.sql once, tracked by PRAGMA user_version.
+// migrate brings the database to schemaVersion, tracked by PRAGMA user_version.
+// Fresh databases run every step from 0; older ones run only the missing steps.
+// All steps share one transaction, so a failed upgrade leaves the old version.
 func (s *Store) migrate(ctx context.Context) error {
 	var v int
 	if err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&v); err != nil {
@@ -155,8 +159,15 @@ func (s *Store) migrate(ctx context.Context) error {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, schemaSQL); err != nil {
-		return fmt.Errorf("apply schema: %w", err)
+	if v < 1 {
+		if _, err := tx.ExecContext(ctx, schemaSQL); err != nil {
+			return fmt.Errorf("apply schema: %w", err)
+		}
+	}
+	if v < 2 {
+		if err := s.migrateV2(ctx, tx); err != nil {
+			return fmt.Errorf("migrate to v2: %w", err)
+		}
 	}
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); err != nil {
 		return fmt.Errorf("set user_version: %w", err)
@@ -246,6 +257,9 @@ func (s *Store) appendMessage(ctx context.Context, sid string, m NewMessage, wit
 		nullable(m.ToolName), nullable(m.ToolCallID),
 		hash, m.Tokens, time.Now().Unix()); err != nil {
 		return kernel.Message{}, fmt.Errorf("insert message %s: %w", ref, err)
+	}
+	if err := indexTx(ctx, tx, sid, indexKindMessage, ref, m.Text); err != nil {
+		return kernel.Message{}, err
 	}
 	if withIntent && m.Role == kernel.RoleUser && m.Kind == kernel.KindText {
 		if _, err := addIntentTx(ctx, tx, sid, seq, m.Text); err != nil {
@@ -577,10 +591,8 @@ func (s *Store) ApplyCompress(ctx context.Context, sid string, p CompressPlan) e
 				return fmt.Errorf("link source %s of %s: %w", src, b.ID, err)
 			}
 		}
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO search_idx(session_id, kind, key, body) VALUES (?, 'block', ?, ?)`,
-			sid, b.ID, b.Topic+"\n"+b.Summary); err != nil {
-			return fmt.Errorf("index block %s: %w", b.ID, err)
+		if err := indexTx(ctx, tx, sid, indexKindBlock, b.ID, blockBody(b.Topic, b.Summary)); err != nil {
+			return err
 		}
 	}
 
@@ -615,7 +627,7 @@ func (s *Store) ApplyCompress(ctx context.Context, sid string, p CompressPlan) e
 
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE trigger_state
-		SET low_water_tokens = ?, nudge_pending = 0, nudge_shown_at = 0, refusals = 0
+		SET low_water_tokens = ?, nudge_pending = 0, nudge_shown_at = 0, refusals = 0, nudge_forced = 0
 		WHERE session_id = ?`, p.TokensAfter, sid); err != nil {
 		return fmt.Errorf("reset trigger: %w", err)
 	}

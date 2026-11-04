@@ -40,10 +40,23 @@ const (
 	localIDRandSize = 8
 )
 
+// Options tunes ResolveWith.
+type Options struct {
+	// ReadOnly forbids writes. A local project without .acd-ctx/project-id is
+	// not given one; it gets the ID derived from its root path instead.
+	ReadOnly bool
+}
+
 // Resolve finds the project root for cwd. markers are file names (e.g.
 // "go.mod") whose presence marks a project root when no .acd-ctx or .git
 // exists at the same or a closer level.
 func Resolve(cwd string, markers []string) (Resolved, error) {
+	return ResolveWith(cwd, markers, Options{})
+}
+
+// ResolveWith is Resolve with options. With ReadOnly set it never writes to
+// the file system.
+func ResolveWith(cwd string, markers []string, opts Options) (Resolved, error) {
 	dir, err := filepath.EvalSymlinks(cwd)
 	if err != nil {
 		return Resolved{}, fmt.Errorf("resolve cwd: %w", err)
@@ -56,9 +69,12 @@ func Resolve(cwd string, markers []string) (Resolved, error) {
 	for d := dir; ; d = filepath.Dir(d) {
 		localDir := filepath.Join(d, localDirName)
 		if fi, err := os.Stat(localDir); err == nil && fi.IsDir() {
-			id, err := localID(localDir)
+			id, err := localID(localDir, opts.ReadOnly)
 			if err != nil {
 				return Resolved{}, err
+			}
+			if id == "" { // read-only and no project-id yet
+				return globalProject(d, sourceLocalDir), nil
 			}
 			return Resolved{ID: id, Root: d, Storage: storageLocal, Source: sourceLocalDir}, nil
 		}
@@ -80,7 +96,8 @@ func Resolve(cwd string, markers []string) (Resolved, error) {
 
 // localID reads <localDir>/project-id. When the file is missing it is created
 // with a random ID so that the project identity survives moves and renames.
-func localID(localDir string) (string, error) {
+// With readOnly set, a missing file yields "" and nothing is written.
+func localID(localDir string, readOnly bool) (string, error) {
 	path := filepath.Join(localDir, projectIDName)
 	b, err := os.ReadFile(path)
 	if err == nil {
@@ -92,6 +109,9 @@ func localID(localDir string) (string, error) {
 	}
 	if !errors.Is(err, fs.ErrNotExist) {
 		return "", fmt.Errorf("read project id: %w", err)
+	}
+	if readOnly {
+		return "", nil
 	}
 	buf := make([]byte, localIDRandSize)
 	if _, err := rand.Read(buf); err != nil {

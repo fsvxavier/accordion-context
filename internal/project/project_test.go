@@ -253,3 +253,37 @@ func TestResolveMissingCwdErrors(t *testing.T) {
 		t.Error("expected error for missing cwd")
 	}
 }
+
+func TestResolveWithReadOnlyNeverWritesProjectID(t *testing.T) {
+	root := t.TempDir()
+	localDir := mkdir(t, filepath.Join(root, ".acd-ctx"))
+	cwd := mkdir(t, filepath.Join(root, "a"))
+
+	res, err := ResolveWith(cwd, defaultMarkers, Options{ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(localDir, projectIDName)); !os.IsNotExist(err) {
+		t.Fatalf("read-only resolve created project-id (stat err %v)", err)
+	}
+	if res.Storage != storageGlobal || res.ID == "" {
+		t.Fatalf("read-only fallback = %+v, want global hash id", res)
+	}
+
+	// Without ReadOnly the same directory gets a local identity, as before.
+	rw, err := Resolve(cwd, defaultMarkers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rw.Storage != storageLocal || rw.ID == res.ID {
+		t.Fatalf("writable resolve = %+v", rw)
+	}
+	if _, err := os.Stat(filepath.Join(localDir, projectIDName)); err != nil {
+		t.Fatalf("writable resolve did not create project-id: %v", err)
+	}
+	// Once the ID exists, ReadOnly reads it.
+	again, err := ResolveWith(cwd, defaultMarkers, Options{ReadOnly: true})
+	if err != nil || again.ID != rw.ID {
+		t.Fatalf("read-only after create = %+v, %v; want id %s", again, err, rw.ID)
+	}
+}

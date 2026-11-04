@@ -44,22 +44,69 @@ var (
 // HandleCompress accepts.
 const RecentKeep = recentKeep
 
+// Options are the per-session settings that the configuration supplies. A zero
+// field takes its default; a zero Kernel (StepBase 0) means kernel.DefaultConfig.
+type Options struct {
+	Kernel           kernel.Config // trigger thresholds (§8)
+	MinCompressRange int           // smallest range or fold in tokens (§10.2)
+	MinSummaryChars  int           // shortest accepted summary in characters (§10.2)
+	RecentKeep       int           // trailing messages no compress call may touch (§10.2)
+}
+
+// withDefaults fills the zero fields of o with the spec defaults.
+func (o Options) withDefaults() Options {
+	if o.Kernel.StepBase == 0 {
+		o.Kernel = kernel.DefaultConfig()
+	}
+	if o.MinCompressRange <= 0 {
+		o.MinCompressRange = defaults.MinCompressRange
+	}
+	if o.MinSummaryChars <= 0 {
+		o.MinSummaryChars = defaults.MinSummaryChars
+	}
+	if o.RecentKeep <= 0 {
+		o.RecentKeep = recentKeep
+	}
+	return o
+}
+
 // Session binds one store session id to the orchestration steps.
 type Session struct {
-	mu  sync.Mutex
-	st  *store.Store
-	sid string
-	cfg kernel.Config
+	mu   sync.Mutex
+	st   *store.Store
+	sid  string
+	opts Options
 	// hinted remembers the recall hints already logged for a user turn
 	// (keyed by the turn's last user seq), so a tool loop that calls Plan on
 	// every request logs each hint once. Hints are still returned every time.
 	hinted map[string]bool
 }
 
-// New wraps an existing store session. The caller creates the session row
-// (store.CreateSession) before calling New.
+// New wraps an existing store session with the spec defaults. The caller creates
+// the session row (store.CreateSession) before calling New.
 func New(st *store.Store, sid string) *Session {
-	return &Session{st: st, sid: sid, cfg: kernel.DefaultConfig()}
+	return NewWithOptions(st, sid, Options{})
+}
+
+// NewWithOptions wraps an existing store session with opts (zero fields take
+// their defaults). See New for the session row.
+func NewWithOptions(st *store.Store, sid string, opts Options) *Session {
+	return &Session{st: st, sid: sid, opts: opts.withDefaults()}
+}
+
+// Settings returns the effective options of the session.
+func (s *Session) Settings() Options {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.opts
+}
+
+// SetOptions replaces the options of a live session. The proxy calls it with the
+// configuration of the session's project, which may change between requests.
+func (s *Session) SetOptions(opts Options) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.opts = opts.withDefaults()
 }
 
 // Ingest appends the messages that the store does not have yet. msgs is the
@@ -102,6 +149,10 @@ type Plan struct {
 	LowWater int
 	Visible  []kernel.Message
 	Hints    []kernel.RecallHint
+	// Before is the trigger state before this Plan, and After the state it wrote.
+	// DeferNudge uses them to undo the change without losing a later one.
+	Before kernel.TriggerState
+	After  kernel.TriggerState
 }
 
 // Plan updates the low-water mark for tokenCount, asks the kernel whether to
@@ -118,15 +169,16 @@ func (s *Session) Plan(ctx context.Context, tokenCount int) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
+	before := trig
 	trig.LowWater = kernel.UpdateLowWater(trig.LowWater, tokenCount)
 
 	d := kernel.DecideNudge(kernel.TriggerInput{
 		TokenCount:   tokenCount,
 		ContextLimit: snap.ContextLimit,
 		ReadDensity:  readDensity(snap),
-		Pending:      pending(snap),
+		Pending:      pending(snap, s.opts.RecentKeep),
 		Trigger:      trig,
-	}, s.cfg)
+	}, s.opts.Kernel)
 
 	hints := kernel.DetectRecall(snap)
 	var turnSeq int64
@@ -171,7 +223,33 @@ func (s *Session) Plan(ctx context.Context, tokenCount int) (Plan, error) {
 	if err := s.st.SetTrigger(ctx, s.sid, trig); err != nil {
 		return Plan{}, err
 	}
-	return Plan{Decision: d, LowWater: trig.LowWater, Visible: kernel.Render(snap), Hints: hints}, nil
+	return Plan{
+		Decision: d, LowWater: trig.LowWater, Visible: kernel.Render(snap), Hints: hints,
+		Before: before, After: trig,
+	}, nil
+}
+
+// ErrNudgeStale reports that the trigger state moved after the Plan, so a
+// deferral cannot be undone without also discarding that later change.
+var ErrNudgeStale = errors.New("nudge undo: trigger state changed after plan")
+
+// DeferNudge undoes the trigger change of p for a nudge that the cache gate
+// deferred (spec §9.3). The nudge never reached the client, so it counts as
+// neither shown nor refused. The undo runs under the session lock. It fails with
+// ErrNudgeStale when another change came after p; the caller then keeps the nudge.
+func (s *Session) DeferNudge(ctx context.Context, p Plan) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cur, err := s.st.GetTrigger(ctx, s.sid)
+	if err != nil {
+		return err
+	}
+	if cur != p.After {
+		return ErrNudgeStale
+	}
+	restore := p.Before
+	restore.LowWater = p.LowWater
+	return s.st.SetTrigger(ctx, s.sid, restore)
 }
 
 // DecompressResult reports what a decompress call expanded.
@@ -277,7 +355,7 @@ func (s *Session) HandleCompress(ctx context.Context, args CompressArgs) (Compre
 			return CompressResult{}, fmt.Errorf("range %d: %s after %s", i, r.StartRef, r.EndRef)
 		}
 		summary := stripForgedMarkers(r.Summary)
-		if err := checkSummary(summary); err != nil {
+		if err := checkSummary(summary, s.opts.MinSummaryChars); err != nil {
 			return CompressResult{}, fmt.Errorf("range %d: %w", i, err)
 		}
 		if hasSystemMessage(snap.Messages, start.Seq, end.Seq) {
@@ -286,7 +364,7 @@ func (s *Session) HandleCompress(ctx context.Context, args CompressArgs) (Compre
 		if firstUser != 0 && start.Seq <= firstUser && firstUser <= end.Seq {
 			return CompressResult{}, fmt.Errorf("range %d: covers the pinned first user message", i)
 		}
-		if end.Seq > last-recentKeep {
+		if end.Seq > last-int64(s.opts.RecentKeep) {
 			return CompressResult{}, fmt.Errorf("range %d: %s is inside the protected recent zone", i, r.EndRef)
 		}
 		if start.Kind == kernel.KindToolResult {
@@ -308,8 +386,8 @@ func (s *Session) HandleCompress(ctx context.Context, args CompressArgs) (Compre
 		}
 
 		src := sourceTokens(snap.Messages, start.Seq, end.Seq)
-		if src < defaults.MinCompressRange {
-			return CompressResult{}, fmt.Errorf("range %d: covers %d tokens, minimum is %d", i, src, defaults.MinCompressRange)
+		if src < s.opts.MinCompressRange {
+			return CompressResult{}, fmt.Errorf("range %d: covers %d tokens, minimum is %d", i, src, s.opts.MinCompressRange)
 		}
 		sum := estimateTokens(summary)
 		if sum >= src {
@@ -326,7 +404,7 @@ func (s *Session) HandleCompress(ctx context.Context, args CompressArgs) (Compre
 	}
 
 	for i, f := range args.Folds {
-		if !s.cfg.TiersEnabled {
+		if !s.opts.Kernel.TiersEnabled {
 			return CompressResult{}, errors.New("fold: tiers are disabled")
 		}
 		if f.Tier != 2 && f.Tier != 3 {
@@ -336,7 +414,7 @@ func (s *Session) HandleCompress(ctx context.Context, args CompressArgs) (Compre
 		if err != nil {
 			return CompressResult{}, fmt.Errorf("fold %d: %w", i, err)
 		}
-		if tp.EndSeq > last-recentKeep {
+		if tp.EndSeq > last-int64(s.opts.RecentKeep) {
 			return CompressResult{}, fmt.Errorf("fold %d: %s..%s reaches the protected recent zone", i, kernel.FormatRef(tp.StartSeq), kernel.FormatRef(tp.EndSeq))
 		}
 		if firstUser != 0 && tp.StartSeq <= firstUser && firstUser <= tp.EndSeq {
@@ -349,11 +427,11 @@ func (s *Session) HandleCompress(ctx context.Context, args CompressArgs) (Compre
 		}
 		// The raw tokens are the messages in the span, whatever the tier of the
 		// sources: a T3 fold's sources carry only their summary tokens.
-		if raw := sourceTokens(snap.Messages, tp.StartSeq, tp.EndSeq); raw < defaults.MinCompressRange {
-			return CompressResult{}, fmt.Errorf("fold %d: covers %d tokens, minimum is %d", i, raw, defaults.MinCompressRange)
+		if raw := sourceTokens(snap.Messages, tp.StartSeq, tp.EndSeq); raw < s.opts.MinCompressRange {
+			return CompressResult{}, fmt.Errorf("fold %d: covers %d tokens, minimum is %d", i, raw, s.opts.MinCompressRange)
 		}
 		summary := stripForgedMarkers(f.Summary)
-		if err := checkSummary(summary); err != nil {
+		if err := checkSummary(summary, s.opts.MinSummaryChars); err != nil {
 			return CompressResult{}, fmt.Errorf("fold %d: %w", i, err)
 		}
 		sum := estimateTokens(summary)
@@ -430,13 +508,13 @@ func (s *Session) Recall(ctx context.Context, ref string) (string, error) {
 
 // checkSummary applies the non-empty and MinSummaryChars rules of spec §10.2 to a
 // summary whose forged markers are already stripped.
-func checkSummary(summary string) error {
+func checkSummary(summary string, minChars int) error {
 	t := strings.TrimSpace(summary)
 	if t == "" {
 		return errors.New("empty summary")
 	}
-	if n := utf8.RuneCountInString(t); n < defaults.MinSummaryChars {
-		return fmt.Errorf("summary has %d characters, minimum is %d", n, defaults.MinSummaryChars)
+	if n := utf8.RuneCountInString(t); n < minChars {
+		return fmt.Errorf("summary has %d characters, minimum is %d", n, minChars)
 	}
 	return nil
 }
@@ -598,12 +676,12 @@ func covered(blocks []kernel.Block, seq int64) bool {
 // pending is the compressible tokens per tier. Tier 1 is the uncovered,
 // non-system, non-pinned messages outside the recent zone. Tiers 2 and 3 are the
 // best foldable run of active blocks one tier below (kernel.FoldablePending).
-func pending(snap kernel.Snapshot) map[int]int {
+func pending(snap kernel.Snapshot, keep int) map[int]int {
 	p := map[int]int{}
 	first := firstUserSeq(snap)
 	last := lastSeq(snap)
 	for _, m := range snap.Messages {
-		if m.Role == kernel.RoleSystem || m.Seq == first || m.Seq > last-recentKeep {
+		if m.Role == kernel.RoleSystem || m.Seq == first || m.Seq > last-int64(keep) {
 			continue
 		}
 		if covered(snap.Blocks, m.Seq) {

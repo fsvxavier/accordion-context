@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fsvxavier/accordion-context/internal/store"
 )
@@ -362,5 +363,20 @@ func TestCleanDockerRejectsPathArgument(t *testing.T) {
 	}
 	if len(rec.calls) != 0 {
 		t.Fatalf("docker ran: %v", rec.calls)
+	}
+}
+
+// A day count that overflows time.Duration must be refused: wrapped around, it
+// could put the cutoff in the future and select every session.
+func TestParseAgeRejectsOverflow(t *testing.T) {
+	for _, in := range []string{"9999999999d", "106752000d", "0d", "-3d", "abc", "0s"} {
+		if d, err := parseAge(in); err == nil {
+			t.Errorf("parseAge(%q) = %v, want error", in, d)
+		}
+	}
+	for in, want := range map[string]time.Duration{"30d": 30 * 24 * time.Hour, "12h": 12 * time.Hour, "106751d": 106751 * 24 * time.Hour} {
+		if d, err := parseAge(in); err != nil || d != want {
+			t.Errorf("parseAge(%q) = %v, %v", in, d, err)
+		}
 	}
 }

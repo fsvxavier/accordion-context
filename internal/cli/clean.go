@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -275,7 +276,9 @@ func parseAge(s string) (time.Duration, error) {
 	var d time.Duration
 	if strings.HasSuffix(s, "d") {
 		n, err := strconv.Atoi(strings.TrimSuffix(s, "d"))
-		if err != nil || n <= 0 {
+		// A huge n would overflow Duration and could wrap to a negative age,
+		// which puts the cutoff in the future and deletes everything.
+		if err != nil || n <= 0 || n > int(math.MaxInt64/int64(24*time.Hour)) {
 			return 0, fmt.Errorf("invalid --older-than %q (want 30d, 12h, ...)", s)
 		}
 		d = time.Duration(n) * 24 * time.Hour

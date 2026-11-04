@@ -3,11 +3,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
@@ -16,6 +18,8 @@ import (
 	"syscall"
 
 	"github.com/fsvxavier/accordion-context/internal/cli"
+	"github.com/fsvxavier/accordion-context/internal/plugin"
+	"github.com/fsvxavier/accordion-context/internal/project"
 	"github.com/fsvxavier/accordion-context/internal/proxy"
 	"github.com/fsvxavier/accordion-context/internal/store"
 )
@@ -58,6 +62,7 @@ func serve(args []string, stderr io.Writer) int {
 	allow := fs.String("allow", "", "comma-separated origins reachable through /ctx/<url>/ (default: the --upstream origin)")
 	configPath := fs.String("config", "", "global config file (default: the user config path, spec §18.1)")
 	markers := fs.String("markers", "", "comma-separated project root markers (default: go.mod,package.json,pyproject.toml,composer.json,Cargo.toml)")
+	pluginTokenFile := fs.String("plugin-token-file", "", "file that receives the plugin bearer token, mode 0600 (default ~/.local/share/acd-ctx/plugin.token)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -96,6 +101,13 @@ func serve(args []string, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "acd-ctx serve: create db directory:", err)
 		return 1
 	}
+	tokenPath := *pluginTokenFile
+	if tokenPath == "" {
+		// Without a home directory the plugin protocol stays off (see below).
+		if home, err := os.UserHomeDir(); err == nil {
+			tokenPath = filepath.Join(home, ".local", "share", "acd-ctx", "plugin.token")
+		}
+	}
 	logger := slog.New(slog.NewJSONHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
 	st, err := store.Open(path)
@@ -113,10 +125,51 @@ func serve(args []string, stderr io.Writer) int {
 		return 1
 	}
 
+	// The plugin protocol (spec §19.4) shares the store and is mounted by prefix,
+	// without stripping it. It is optional: when its setup fails, the proxy keeps
+	// serving alone (fail-open, spec §19.7).
+	root := http.Handler(h)
+	if ph, err := func() (*plugin.Handler, error) {
+		if tokenPath == "" {
+			return nil, errors.New("no token path: set --plugin-token-file")
+		}
+		token, err := plugin.NewToken()
+		if err != nil {
+			return nil, err
+		}
+		if err := plugin.WriteTokenFile(tokenPath, token); err != nil {
+			return nil, fmt.Errorf("write token file: %w", err)
+		}
+		cwd, err := os.Getwd()
+		if err != nil {
+			return nil, err
+		}
+		projMarkers := rootMarkers
+		if projMarkers == nil {
+			projMarkers = proxy.ProjectMarkers()
+		}
+		proj, err := project.ResolveWith(cwd, projMarkers, project.Options{ReadOnly: true})
+		if err != nil {
+			return nil, err
+		}
+		return plugin.New(plugin.Config{Store: st, Project: proj, Token: token, ListenHost: listenHost,
+			Version: version, Logger: logger})
+	}(); err != nil {
+		logger.Warn("plugin protocol disabled; serving the proxy only", "err", err)
+	} else {
+		root = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, "/__acd-ctx/plugin/") {
+				ph.ServeHTTP(w, r)
+				return
+			}
+			h.ServeHTTP(w, r)
+		})
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	logger.Info("serving", "listen", *listen, "upstream_host", up.Host, "db", path)
-	if err := proxy.Run(ctx, *listen, h); err != nil {
+	logger.Info("serving", "listen", *listen, "upstream_host", up.Host, "db", path, "plugin_token_file", tokenPath)
+	if err := proxy.Run(ctx, *listen, root); err != nil {
 		logger.Error("serve", "err", err)
 		return 1
 	}

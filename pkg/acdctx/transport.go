@@ -70,6 +70,7 @@ func newProxy(base http.RoundTripper, opts Options) (*Proxy, error) {
 		return nil, errors.New("acdctx: Options.DBPath is required")
 	}
 	origins := map[string]bool{}
+	var allow []string
 	var first *url.URL
 	for _, raw := range opts.Upstreams {
 		u, err := url.Parse(strings.TrimSpace(raw))
@@ -77,6 +78,7 @@ func newProxy(base http.RoundTripper, opts Options) (*Proxy, error) {
 			return nil, fmt.Errorf("acdctx: upstream %q must be an absolute http(s) origin", raw)
 		}
 		origins[originKey(u)] = true
+		allow = append(allow, originKey(u)) // the proxy allowlist is strict: hand it the same spelling as the inner /ctx/ path
 		if first == nil {
 			first = u
 		}
@@ -94,7 +96,7 @@ func newProxy(base http.RoundTripper, opts Options) (*Proxy, error) {
 		Logger:        opts.Logger,
 		Transport:     base,
 		GlobalPath:    opts.ConfigPath,
-		UpstreamAllow: opts.Upstreams,
+		UpstreamAllow: allow,
 		ListenHost:    opts.ListenHost,
 	}
 	srv, err := proxy.New(cfg)
@@ -161,6 +163,7 @@ func (p *Proxy) roundTrip(req *http.Request) (*http.Response, error) {
 		Scheme:   "http",
 		Host:     "127.0.0.1",
 		Path:     "/ctx/" + originKey(req.URL) + req.URL.Path,
+		RawPath:  rawCtxPath(req.URL),
 		RawQuery: req.URL.RawQuery,
 	}
 	inner.Host = "127.0.0.1"
@@ -253,6 +256,24 @@ func (b *cancelBody) Close() error {
 }
 
 // originKey is the allowlist key of a URL: lower-case scheme://host[:port].
+// A default port (:443 for https, :80 for http) is dropped so both spellings match.
 func originKey(u *url.URL) string {
-	return strings.ToLower(u.Scheme) + "://" + strings.ToLower(u.Host)
+	scheme := strings.ToLower(u.Scheme)
+	host := strings.ToLower(u.Hostname())
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	port := u.Port()
+	if port != "" && !(scheme == "https" && port == "443") && !(scheme == "http" && port == "80") {
+		host += ":" + port
+	}
+	return scheme + "://" + host
+}
+
+// rawCtxPath is the escaped form of the inner /ctx/ path, "" when the request path has no escapes.
+func rawCtxPath(u *url.URL) string {
+	if u.RawPath == "" {
+		return ""
+	}
+	return "/ctx/" + originKey(u) + u.EscapedPath()
 }

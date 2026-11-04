@@ -117,6 +117,17 @@ func InspectFile(ctx context.Context, path string) (FileInfo, error) {
 		return FileInfo{}, fmt.Errorf("integrity check failed: %s", strings.Join(firstN(checks, 3), "; "))
 	}
 
+	// Every content must hash to its key, so a damaged or forged row is caught
+	// by the dry run as well as by the restore itself.
+	cc, err := newContentChecker()
+	if err != nil {
+		return FileInfo{}, err
+	}
+	defer cc.close()
+	if err := checkAllContents(ctx, db, cc); err != nil {
+		return FileInfo{}, err
+	}
+
 	rows, err := db.QueryContext(ctx, `SELECT id, root_path, storage FROM projects ORDER BY id`)
 	if err != nil {
 		return FileInfo{}, fmt.Errorf("read projects: %w", err)
@@ -317,6 +328,20 @@ func (s *Store) RestoreDumps(ctx context.Context, items []RestoreItem, replace, 
 	if len(rep.Conflicts) > 0 {
 		sort.Strings(rep.Conflicts)
 		return rep, fmt.Errorf("%w: %s", ErrRestoreConflict, strings.Join(rep.Conflicts, "; "))
+	}
+
+	// Every content of every dump is verified before the first insert.
+	cc, err := newContentChecker()
+	if err != nil {
+		return rep, err
+	}
+	defer cc.close()
+	dumps := make([]ProjectDump, 0, len(items))
+	for _, it := range items {
+		dumps = append(dumps, it.Dump)
+	}
+	if err := checkDumpContents(ctx, tx, cc, dumps...); err != nil {
+		return rep, fmt.Errorf("restore refused, nothing written: %w", err)
 	}
 
 	for _, it := range items {

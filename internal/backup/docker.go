@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 )
 
 // containerName follows Docker's own rule: alphanumerics, '_', '.' and '-',
@@ -95,6 +96,33 @@ type DockerRestoreOptions struct {
 	To      string
 	Yes     bool
 	DryRun  bool
+	// MaxBytes caps the stream on this side and is forwarded as --max-size, so
+	// the container enforces the same cap. Zero sends no cap.
+	MaxBytes int64
+}
+
+// probeReader forwards at most max+1 bytes of r and records whether the stream
+// was longer than max.
+type probeReader struct {
+	r    io.Reader
+	max  int64
+	n    int64
+	over bool
+}
+
+func (p *probeReader) Read(b []byte) (int, error) {
+	if p.n > p.max {
+		return 0, io.EOF
+	}
+	if rem := p.max + 1 - p.n; int64(len(b)) > rem {
+		b = b[:rem]
+	}
+	n, err := p.r.Read(b)
+	p.n += int64(n)
+	if p.n > p.max {
+		p.over = true
+	}
+	return n, err
 }
 
 // DockerRestore pipes the backup stream into "acd-ctx restore --stdin" inside
@@ -111,11 +139,27 @@ func DockerRestore(ctx context.Context, r Runner, container string, in io.Reader
 	if opts.DryRun {
 		acdArgs = append(acdArgs, "--dry-run")
 	}
+	// The default cap is left implicit, so an older container without the
+	// flag still takes the default restore.
+	if opts.MaxBytes > 0 && opts.MaxBytes != DefaultMaxRestoreBytes {
+		acdArgs = append(acdArgs, "--max-size", strconv.FormatInt(opts.MaxBytes, 10))
+	}
 	args, err := dockerArgs(container, acdArgs...)
 	if err != nil {
 		return err
 	}
+	// The probe forwards one byte past the cap, so the container sees the
+	// overflow and refuses it. Truncating here would make a too-long stream
+	// look like a complete backup.
+	var probe *probeReader
+	if opts.MaxBytes > 0 && in != nil {
+		probe = &probeReader{r: in, max: opts.MaxBytes}
+		in = probe
+	}
 	if err := r.Run(ctx, "docker", args, in, stdout, stderr); err != nil {
+		if probe != nil && probe.over {
+			return fmt.Errorf("docker restore: %w (%d bytes)", ErrRestoreTooLarge, opts.MaxBytes)
+		}
 		return fmt.Errorf("docker restore: %w", err)
 	}
 	return nil

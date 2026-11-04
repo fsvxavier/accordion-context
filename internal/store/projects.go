@@ -261,6 +261,15 @@ func (s *Store) ImportProject(ctx context.Context, d ProjectDump, dst ImportTarg
 	}
 	defer tx.Rollback()
 
+	cc, err := newContentChecker()
+	if err != nil {
+		return nil, err
+	}
+	defer cc.close()
+	if err := checkDumpContents(ctx, tx, cc, d); err != nil {
+		return nil, fmt.Errorf("import of %s refused, nothing written: %w", dst.ProjectID, err)
+	}
+
 	now := time.Now().Unix()
 	created, ok := srcProject["created_at"].(int64)
 	if !ok {

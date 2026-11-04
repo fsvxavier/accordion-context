@@ -25,6 +25,13 @@ const (
 	StorageLocal  = "local"
 )
 
+// DefaultMaxRestoreBytes caps the backup a restore accepts. The source is
+// copied to a temporary file, so an unbounded stream could fill the disk.
+const DefaultMaxRestoreBytes int64 = 2 << 30
+
+// ErrRestoreTooLarge reports a backup stream longer than the restore cap.
+var ErrRestoreTooLarge = errors.New("backup: stream exceeds the restore size cap")
+
 // ErrNeedYes reports a replace without explicit confirmation.
 var ErrNeedYes = errors.New("backup: replace deletes the target project's data; pass --yes to confirm")
 
@@ -46,6 +53,8 @@ type RestoreRequest struct {
 	// Source is the backup file contents. A scratch copy is made, so the source
 	// is only read.
 	Source io.Reader
+	// MaxBytes caps the size of Source. Zero means DefaultMaxRestoreBytes.
+	MaxBytes int64
 	// ProjectID restricts the restore to one project of the backup. Empty means
 	// every project in it (local destinations need exactly one).
 	ProjectID string
@@ -82,6 +91,13 @@ func Restore(ctx context.Context, req RestoreRequest) (RestoreResult, error) {
 	if req.Source == nil {
 		return RestoreResult{}, errors.New("backup: restore needs a source")
 	}
+	max := req.MaxBytes
+	if max == 0 {
+		max = DefaultMaxRestoreBytes
+	}
+	if max < 0 {
+		return RestoreResult{}, fmt.Errorf("backup: restore cap %d must be positive", max)
+	}
 
 	work, err := os.MkdirTemp("", "acd-ctx-restore-*")
 	if err != nil {
@@ -90,7 +106,7 @@ func Restore(ctx context.Context, req RestoreRequest) (RestoreResult, error) {
 	defer os.RemoveAll(work)
 
 	copyPath := filepath.Join(work, "source.db")
-	if err := copyStream(copyPath, req.Source); err != nil {
+	if err := copyStream(copyPath, req.Source, max); err != nil {
 		return RestoreResult{}, err
 	}
 	info, err := store.InspectFile(ctx, copyPath)
@@ -186,15 +202,50 @@ func selectProjects(all []store.FileProject, want, storage string) ([]store.File
 	return all, nil
 }
 
-// copyStream writes r to path with mode 0600.
-func copyStream(path string, r io.Reader) error {
+// copyStream writes at most max bytes of r to path with mode 0600. A longer
+// stream fails with ErrRestoreTooLarge; the caller removes the partial file.
+func copyStream(path string, r io.Reader, max int64) error {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_EXCL, fileMode)
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(f, r); err != nil {
+	if _, err := io.Copy(f, NewCapReader(r, max)); err != nil {
 		f.Close()
+		if errors.Is(err, ErrRestoreTooLarge) {
+			return fmt.Errorf("%w (%d bytes)", ErrRestoreTooLarge, max)
+		}
 		return fmt.Errorf("read backup: %w", err)
 	}
 	return f.Close()
 }
+
+// CapReader reads at most max bytes from r. It reads one byte past the cap to
+// detect a longer stream, and then returns ErrRestoreTooLarge instead of data.
+// Exceeded reports whether that happened.
+type CapReader struct {
+	lr       io.Reader
+	max, n   int64
+	exceeded bool
+}
+
+// NewCapReader returns a reader that enforces max bytes on r.
+func NewCapReader(r io.Reader, max int64) *CapReader {
+	return &CapReader{lr: io.LimitReader(r, max+1), max: max}
+}
+
+// Read implements io.Reader. The bytes before the cap are returned in full.
+func (c *CapReader) Read(p []byte) (int, error) {
+	if c.exceeded {
+		return 0, ErrRestoreTooLarge
+	}
+	n, err := c.lr.Read(p)
+	c.n += int64(n)
+	if c.n > c.max {
+		c.exceeded = true
+		return n - int(c.n-c.max), ErrRestoreTooLarge
+	}
+	return n, err
+}
+
+// Exceeded reports whether the stream was longer than the cap.
+func (c *CapReader) Exceeded() bool { return c.exceeded }

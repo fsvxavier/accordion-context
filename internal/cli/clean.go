@@ -27,9 +27,11 @@ import (
 var cleanStdinIsTerminal = stdinIsTerminal
 
 const cleanUsage = `usage: clean (--project <id|path|.> | --session <id> | --older-than <dur> [--project <id|path|.>] | --all)
-             [--dry-run] [--yes] [--backup <file.db>] [--vacuum] [--exports] [--keep-config] [--docker <container>]
+             [--dry-run] [--yes] [--backup <file.db>] [--vacuum] [--exports] [--keep-config] [--include-local] [--docker <container>]
   <dur> is 30d, 12h, 90m or any Go duration. The confirmation word is the project ID for
-  --project, the session ID for --session, and the word delete for --all and --older-than.`
+  --project, the session ID for --session, and the word delete for --all and --older-than.
+  --include-local also cleans the current directory's .acd-ctx database when --all or
+  --older-than has no --project; without it that database is listed as skipped.`
 
 // cleanFlags are the parsed flags of clean.
 type cleanFlags struct {
@@ -38,6 +40,7 @@ type cleanFlags struct {
 	backup                      string
 	vacuum, exports             bool
 	keepConfig                  bool
+	includeLocal                bool
 	docker                      string
 }
 
@@ -109,7 +112,7 @@ func runClean(args []string, s IO) int {
 	if f.docker != "" {
 		return cleanDocker(s, f)
 	}
-	plan, paths, err := resolveClean(s, f)
+	plan, paths, skipped, err := resolveClean(s, f)
 	if err != nil {
 		return fail(s, err)
 	}
@@ -130,6 +133,9 @@ func runClean(args []string, s IO) int {
 	}
 	var total store.Report
 	var totalExports int
+	for _, p := range skipped {
+		fmt.Fprintf(s.Stdout, "skipped (use --include-local): %s\n", p)
+	}
 	for _, t := range found {
 		fmt.Fprintf(s.Stdout, "would delete from %s: %s\n", t.path, formatReport(t.report))
 		if f.exports {
@@ -244,6 +250,7 @@ func parseCleanFlags(args []string) (cleanFlags, error) {
 	fset.BoolVar(&f.vacuum, "vacuum", false, "compact the database files after deleting")
 	fset.BoolVar(&f.exports, "exports", false, "also remove exported block files this tool created for the removed sessions")
 	fset.BoolVar(&f.keepConfig, "keep-config", true, "never delete configuration, the CA or the plugin token (always true)")
+	fset.BoolVar(&f.includeLocal, "include-local", false, "with --all or --older-than and no --project, also clean the local .acd-ctx database of the current directory")
 	fset.StringVar(&f.docker, "docker", "", "run the clean inside this container")
 	pos, err := parseFlags(fset, args)
 	if err != nil {
@@ -292,10 +299,13 @@ func parseAge(s string) (time.Duration, error) {
 	return d, nil
 }
 
-// resolveClean turns the flags into a plan and the databases it applies to.
-// A project given by path resolves to one database and one project ID. A
-// project ID, or no project, applies to every database this command knows.
-func resolveClean(s IO, f cleanFlags) (cleanPlan, []string, error) {
+// resolveClean turns the flags into a plan, the databases it applies to, and
+// the databases it skips. A project given by path resolves to one database and
+// one project ID. A project ID, or no project, applies to every database this
+// command knows. Without --project, --all and --older-than leave the current
+// directory's local database out unless --include-local is given: it is
+// returned in skipped, so the report can name it.
+func resolveClean(s IO, f cleanFlags) (cleanPlan, []string, []string, error) {
 	var plan cleanPlan
 	switch {
 	case f.all:
@@ -308,7 +318,7 @@ func resolveClean(s IO, f cleanFlags) (cleanPlan, []string, error) {
 	case f.olderThan != "":
 		d, err := parseAge(f.olderThan)
 		if err != nil {
-			return plan, nil, err
+			return plan, nil, nil, err
 		}
 		plan.mode = modeOlder
 		plan.cutoff = time.Now().Add(-d)
@@ -317,7 +327,7 @@ func resolveClean(s IO, f cleanFlags) (cleanPlan, []string, error) {
 		plan.mode = modeProject
 	}
 
-	var paths []string
+	var paths, skipped []string
 	if f.project != "" {
 		isDir := func(p string) bool {
 			if !filepath.IsAbs(p) {
@@ -335,10 +345,10 @@ func resolveClean(s IO, f cleanFlags) (cleanPlan, []string, error) {
 			sub.Cwd = dir
 			sc, err := resolveScope(sub)
 			if err != nil {
-				return plan, nil, err
+				return plan, nil, nil, err
 			}
 			if !fileExists(sc.dbPath) {
-				return plan, nil, fmt.Errorf("no database for the project at %s", dir)
+				return plan, nil, nil, fmt.Errorf("no database for the project at %s", dir)
 			}
 			plan.projectID = sc.res.ID
 			paths = []string{sc.dbPath}
@@ -350,19 +360,38 @@ func resolveClean(s IO, f cleanFlags) (cleanPlan, []string, error) {
 		}
 	}
 	if plan.mode == modeProject && plan.projectID == "" {
-		return plan, nil, errors.New("clean --project needs a project")
+		return plan, nil, nil, errors.New("clean --project needs a project")
 	}
 	if paths == nil {
-		var err error
-		paths, err = purgeCandidates(s)
+		all, err := purgeCandidates(s)
 		if err != nil {
-			return plan, nil, err
+			return plan, nil, nil, err
+		}
+		if f.project == "" && (plan.mode == modeAll || plan.mode == modeOlder) && !f.includeLocal {
+			// purgeCandidates lists the global database first and the local one
+			// only when it is not the same file.
+			globalPath, err := globalDBPath(s.LookupEnv)
+			if err != nil {
+				return plan, nil, nil, err
+			}
+			for _, p := range all {
+				if p == globalPath {
+					paths = append(paths, p)
+				} else {
+					skipped = append(skipped, p)
+				}
+			}
+		} else {
+			paths = all
 		}
 	}
 	if len(paths) == 0 {
-		return plan, nil, errors.New("no database to clean")
+		if len(skipped) > 0 {
+			return plan, nil, skipped, errors.New("nothing to clean outside the local database: pass --include-local to clean it")
+		}
+		return plan, nil, nil, errors.New("no database to clean")
 	}
-	return plan, paths, nil
+	return plan, paths, skipped, nil
 }
 
 // exportTag is the part of an export file name that identifies its session.
@@ -519,6 +548,9 @@ func cleanArgs(f cleanFlags, dry, yes bool) []string {
 	if f.vacuum {
 		a = append(a, "--vacuum")
 	}
+	if f.includeLocal {
+		a = append(a, "--include-local")
+	}
 	if f.exports {
 		a = append(a, "--exports")
 	}
@@ -544,13 +576,14 @@ func backupPath(s IO, name string, i, n int) string {
 	return strings.TrimSuffix(name, ext) + "-" + strconv.Itoa(i+1) + ext
 }
 
-// typedEquals reads one line and reports whether it is exactly want.
+// typedEquals reads one line and reports whether it is exactly want, with only
+// the trailing newline removed. Surrounding spaces make it a mismatch.
 func typedEquals(in io.Reader, want string) bool {
 	line, err := bufio.NewReader(in).ReadString('\n')
 	if err != nil && !(errors.Is(err, io.EOF) && line != "") {
 		return false
 	}
-	return strings.TrimSpace(line) == want
+	return strings.TrimSuffix(line, "\n") == want
 }
 
 // stdinIsTerminal reports whether r is a character device, such as a terminal.

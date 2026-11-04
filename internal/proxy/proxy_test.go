@@ -148,7 +148,7 @@ func TestPlainTurn(t *testing.T) {
 		t.Fatalf("internal headers must not be forwarded")
 	}
 	var tools []map[string]any
-	if err := json.Unmarshal(up.request(0)["tools"], &tools); err != nil || len(tools) != 2 {
+	if err := json.Unmarshal(up.request(0)["tools"], &tools); err != nil || len(tools) != 4 {
 		t.Fatalf("tools not injected: %v %s", err, up.request(0)["tools"])
 	}
 	if string(up.request(0)["system"]) != `"be brief"` {

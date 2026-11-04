@@ -11,15 +11,24 @@ import (
 	"github.com/fsvxavier/accordion-context/internal/session"
 )
 
-// Internal tool names (spec §16). Every dialect exposes the same two tools under
-// the same names; only their declaration and wire shape differ.
+// Internal tool names (spec §16). Every dialect exposes the same four tools under
+// the same names, in this order; only their declaration and wire shape differ.
+// The names are the wire package constants, which the codecs check as well.
 const (
 	toolCompress   = "compress"
 	toolDecompress = "decompress"
+	toolSearch     = "search_context"
+	toolRetrieve   = "retrieve"
 )
 
+// isInternal reports whether a call is one of the proxy's tools. Its calls are
+// run by the proxy and never reach the client.
 func isInternal(name string) bool {
-	return name == toolCompress || name == toolDecompress
+	switch name {
+	case toolCompress, toolDecompress, toolSearch, toolRetrieve:
+		return true
+	}
+	return false
 }
 
 // protocol is one API dialect the proxy compacts (spec §19.1). An adapter wraps
@@ -36,7 +45,8 @@ type protocol interface {
 	Meta(path, rawQuery string, body []byte) (model string, stream bool, err error)
 	// Decode parses the client request into ledger messages.
 	Decode(body []byte) (request, []kernel.Message, error)
-	// InjectTools adds the compress and decompress tools in the dialect's format.
+	// InjectTools adds the four internal tools in the dialect's format, in the fixed
+	// order compress, decompress, search_context, retrieve.
 	InjectTools(body []byte) ([]byte, error)
 	// AppendNudge adds text to the newest user turn of an encoded body.
 	AppendNudge(body []byte, text string) ([]byte, error)
@@ -107,9 +117,13 @@ type toolArgs struct {
 	ranges       []session.CompressRange // compress
 	folds        []session.FoldRange     // compress: folds of tier 2 and 3 (§12)
 	closeIntents []int64                 // compress: open intents the ranges complete (§11.3)
-	block        string                  // decompress: block id
+	block        string                  // decompress and retrieve: block id
 	mode         string
 	query        string
+	ref          string // retrieve: message ref
+	rng          string // retrieve: optional message range
+	scope        string // search_context: session or project
+	limit        int    // search_context: requested hits, 0 when none
 }
 
 // usage is the prompt size of one upstream call, as the cache ledger counts it.

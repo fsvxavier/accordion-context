@@ -99,6 +99,18 @@ func (responsesProtocol) ParseTool(name string, input []byte) (toolArgs, error) 
 			return toolArgs{}, err
 		}
 		return toolArgs{block: args.BlockID, mode: args.Mode, query: args.Query}, nil
+	case toolSearch:
+		args, err := responses.ParseSearchArgs(input)
+		if err != nil {
+			return toolArgs{}, err
+		}
+		return toolArgs{query: args.Query, limit: args.Limit, scope: args.Scope}, nil
+	case toolRetrieve:
+		args, err := responses.ParseRetrieveArgs(input)
+		if err != nil {
+			return toolArgs{}, err
+		}
+		return toolArgs{ref: args.Ref, block: args.BlockID, rng: args.Range}, nil
 	}
 	return toolArgs{}, fmt.Errorf("unknown tool %q", name)
 }

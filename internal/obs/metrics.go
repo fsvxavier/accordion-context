@@ -51,6 +51,8 @@ type Metrics struct {
 	RequestSeconds *prometheus.HistogramVec // acd_ctx_request_duration_seconds{protocol}
 	// UpstreamSeconds is the latency of each upstream call.
 	UpstreamSeconds prometheus.Histogram // acd_ctx_upstream_duration_seconds
+	// ToolCalls counts the internal tool calls the proxy ran, by tool and outcome.
+	ToolCalls *prometheus.CounterVec // acd_ctx_tool_calls_total{tool,outcome}
 }
 
 // NewMetrics builds the collectors and registers them in a new private registry.
@@ -104,13 +106,17 @@ func NewMetrics() *Metrics {
 			Help:    "Latency of an upstream call.",
 			Buckets: prometheus.DefBuckets,
 		}),
+		ToolCalls: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "acd_ctx_tool_calls_total",
+			Help: "Internal tool calls run by the proxy, by tool and outcome.",
+		}, []string{"tool", "outcome"}),
 	}
 	reg.MustRegister(
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 		m.ContextTokens, m.CompressTotal, m.CompressRatio, m.CacheReadRatio,
 		m.FoldCacheCost, m.RecallHints, m.CalibFactor, m.Requests,
-		m.RequestSeconds, m.UpstreamSeconds,
+		m.RequestSeconds, m.UpstreamSeconds, m.ToolCalls,
 	)
 	m.prime()
 	return m
@@ -131,6 +137,11 @@ func (m *Metrics) prime() {
 	}
 	for _, kind := range []string{"cost", "benefit"} {
 		m.FoldCacheCost.WithLabelValues(kind)
+	}
+	for _, tool := range []string{"compress", "decompress", "search_context", "retrieve"} {
+		for _, outcome := range []string{OutcomeAccepted, OutcomeRejected} {
+			m.ToolCalls.WithLabelValues(tool, outcome)
+		}
 	}
 }
 

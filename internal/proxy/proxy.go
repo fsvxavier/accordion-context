@@ -561,6 +561,7 @@ func writeSSEError(w http.ResponseWriter, data []byte) {
 func (s *Server) runTool(t *turn, c toolCall) toolResult {
 	res := toolResult{id: c.id, name: c.name}
 	text, err := s.execTool(t, c)
+	s.countTool(c.name, err != nil)
 	if err != nil {
 		res.text = "error: " + err.Error()
 		res.isErr = true
@@ -581,6 +582,10 @@ func (s *Server) execTool(t *turn, c toolCall) (string, error) {
 		return s.compress(t, args)
 	case toolDecompress:
 		return s.decompress(t, args)
+	case toolSearch:
+		return s.search(t, args)
+	case toolRetrieve:
+		return s.retrieve(t, args)
 	}
 	return "", fmt.Errorf("unknown tool %q", c.name)
 }

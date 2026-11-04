@@ -212,6 +212,21 @@ func (s *Server) countRequest(protocol, outcome string) {
 	s.telemetry.m.Requests.WithLabelValues(protocol, outcome).Inc()
 }
 
+// countTool counts one internal tool call. The label is the tool name, or
+// "unknown" for anything outside the closed set, so the series stay bounded.
+func (s *Server) countTool(tool string, failed bool) {
+	switch tool {
+	case toolCompress, toolDecompress, toolSearch, toolRetrieve:
+	default:
+		tool = "unknown"
+	}
+	outcome := obs.OutcomeAccepted
+	if failed {
+		outcome = obs.OutcomeRejected
+	}
+	s.telemetry.m.ToolCalls.WithLabelValues(tool, outcome).Inc()
+}
+
 // loopbackClient reports whether the peer of a request is a loopback address.
 func loopbackClient(remote string) bool {
 	host, _, err := net.SplitHostPort(remote)

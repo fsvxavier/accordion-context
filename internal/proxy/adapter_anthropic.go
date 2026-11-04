@@ -80,6 +80,18 @@ func (anthropicProtocol) ParseTool(name string, input []byte) (toolArgs, error) 
 			return toolArgs{}, fmt.Errorf("decompress args: %w", err)
 		}
 		return toolArgs{block: a.BlockID, mode: a.Mode, query: a.Query}, nil
+	case toolSearch:
+		args, err := anthropic.ParseSearchArgs(input)
+		if err != nil {
+			return toolArgs{}, err
+		}
+		return toolArgs{query: args.Query, limit: args.Limit, scope: args.Scope}, nil
+	case toolRetrieve:
+		args, err := anthropic.ParseRetrieveArgs(input)
+		if err != nil {
+			return toolArgs{}, err
+		}
+		return toolArgs{ref: args.Ref, block: args.BlockID, rng: args.Range}, nil
 	}
 	return toolArgs{}, fmt.Errorf("unknown tool %q", name)
 }

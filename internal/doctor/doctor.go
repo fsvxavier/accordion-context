@@ -187,11 +187,11 @@ func checkDatabase(ctx context.Context, path string) Check {
 	sessions := 0
 	var broken []string
 	for _, p := range projects {
-		dump, err := st.ExportProject(ctx, p.ID)
+		ids, err := st.ListSessionIDs(ctx, p.ID)
 		if err != nil {
-			return Check{name, Fail, fmt.Sprintf("export %s: %v", p.ID, err)}
+			return Check{name, Fail, fmt.Sprintf("list sessions of %s: %v", p.ID, err)}
 		}
-		for _, sid := range dump.SessionIDs() {
+		for _, sid := range ids {
 			sessions++
 			if err := st.CheckInvariants(ctx, sid); err != nil {
 				broken = append(broken, sid)
@@ -319,12 +319,19 @@ func checkCAKey(dir string) Check {
 		return Check{name, Fail, "ca.key is not an ECDSA key"}
 	}
 	cdata, err := os.ReadFile(filepath.Join(dir, "ca.crt"))
-	if err == nil {
-		if cb, _ := pem.Decode(cdata); cb != nil {
-			if cert, err := x509.ParseCertificate(cb.Bytes); err == nil && !key.PublicKey.Equal(cert.PublicKey) {
-				return Check{name, Fail, "ca.key does not match ca.crt"}
-			}
-		}
+	if err != nil {
+		return Check{name, Warn, "ca.key present but ca.crt unreadable; cannot confirm they match"}
+	}
+	cb, _ := pem.Decode(cdata)
+	if cb == nil {
+		return Check{name, Fail, "ca.crt is not PEM; cannot confirm the key matches"}
+	}
+	cert, err := x509.ParseCertificate(cb.Bytes)
+	if err != nil {
+		return Check{name, Fail, "ca.crt does not parse; cannot confirm the key matches"}
+	}
+	if !key.PublicKey.Equal(cert.PublicKey) {
+		return Check{name, Fail, "ca.key does not match ca.crt"}
 	}
 	return Check{name, Pass, "private key matches the certificate, mode 0600"}
 }
@@ -437,7 +444,15 @@ func checkNoProxy(vars map[string]string, profiles []launcher.Profile) Check {
 		}
 		host := strings.ToLower(u.Hostname())
 		for _, e := range strings.Split(strings.ToLower(noProxy), ",") {
-			e = strings.TrimSpace(strings.TrimPrefix(e, "*"))
+			e = strings.TrimSpace(e)
+			if e == "*" {
+				hit = append(hit, host)
+				continue
+			}
+			e = strings.TrimPrefix(e, "*")
+			if i := strings.LastIndex(e, ":"); i >= 0 && !strings.Contains(e[i:], "]") {
+				e = e[:i] // an entry with a port still names the host
+			}
 			if e != "" && (e == host || strings.HasSuffix(host, "."+strings.TrimPrefix(e, "."))) {
 				hit = append(hit, host)
 			}

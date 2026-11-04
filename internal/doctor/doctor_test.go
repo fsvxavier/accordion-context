@@ -310,3 +310,40 @@ func TestWriteJSONAndSummaryExitCodes(t *testing.T) {
 		t.Fatalf("text output: %s", text.String())
 	}
 }
+
+func TestNoProxyWildcardAndPortWarn(t *testing.T) {
+	for _, np := range []string{"*", "api.anthropic.com:443", "localhost,*"} {
+		o := base(t)
+		o.Env = []string{"NO_PROXY=" + np}
+		r, _ := Run(context.Background(), o)
+		if c := find(t, r, "no-proxy"); c.Status != Warn {
+			t.Fatalf("NO_PROXY=%q: %+v, want WARN", np, c)
+		}
+	}
+}
+
+func TestCAKeyWithoutCertIsNotPass(t *testing.T) {
+	o := base(t)
+	if _, err := mitm.LoadOrCreateCA(o.CADir, mitm.CAOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(o.CADir, "ca.crt")); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := Run(context.Background(), o)
+	if c := find(t, r, "ca-key"); c.Status == Pass {
+		t.Fatalf("ca-key = %+v, want not PASS without ca.crt", c)
+	}
+}
+
+func TestReportNeverEchoesBaseURLCredentials(t *testing.T) {
+	o := base(t)
+	o.Env = []string{"ANTHROPIC_BASE_URL=https://user:s3cr3tpw@gw.example/v1?key=s3cr3tkey", "NO_PROXY=x"}
+	r, _ := Run(context.Background(), o)
+	var buf bytes.Buffer
+	Write(&buf, r)
+	_ = WriteJSON(&buf, r)
+	if strings.Contains(buf.String(), "s3cr3t") {
+		t.Fatalf("report leaks a credential:\n%s", buf.String())
+	}
+}

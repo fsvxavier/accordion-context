@@ -270,6 +270,25 @@ var dumpTables = []struct {
 	{"search_idx", `session_id IN (` + projectSessions + `)`},
 }
 
+// ListSessionIDs returns the session ids of a project without loading their
+// rows, for read-only health checks.
+func (s *Store) ListSessionIDs(ctx context.Context, projectID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id FROM sessions WHERE project_id = ?1 ORDER BY id`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 // ExportProject reads every row of a project in one read transaction. It
 // returns ErrProjectNotFound when the project does not exist.
 func (s *Store) ExportProject(ctx context.Context, id string) (ProjectDump, error) {

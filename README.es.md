@@ -249,6 +249,7 @@ Los clientes están en `middleware/python` (paquete `acd_ctx`, solo biblioteca e
 ## Notas de seguridad
 
 - **Solo loopback.** `serve` rechaza un `--listen` que no sea de loopback. El proxy transporta credenciales de API.
+- **Sin autenticación en el listener de base URL.** Cualquier proceso local puede enviar peticiones a `/ctx/<host de la lista permitida>/...` en el puerto de loopback (solo el `CONNECT` del MITM y el plugin exigen token). El proxy reenvía las credenciales del propio llamante y nunca añade las suyas, así que es un relay hacia hosts de la lista permitida, no una fuga de claves. Úsalo en un ordenador de un solo usuario.
 - **Guardia de Host.** Las peticiones solo se aceptan cuando la cabecera `Host` nombra `localhost`, `127.0.0.1`, `::1` o el host de escucha. Otros nombres reciben HTTP 403, lo que bloquea el DNS rebinding.
 - **Acceso desde el navegador.** Las peticiones de preflight CORS reciben HTTP 403. Los endpoints de control bajo `/__acd-ctx/` rechazan cualquier petición que lleve cabecera `Origin`.
 - **Token del plugin.** Los endpoints de plugins exigen un token bearer, comparado en tiempo constante. Se regenera en cada ejecución de `serve` y se guarda en un fichero con modo `0600`.

@@ -19,8 +19,8 @@ import (
 var updateGolden = flag.Bool("update", false, "rewrite testdata/traces golden files instead of comparing")
 
 // e2eWindow is the context window the proxy uses for the scenario models. The
-// configuration has no window key (only the model-prefix table in builtinWindows
-// sets it), so the scenarios pick the smallest built-in window: gpt-4o*, 128000.
+// scenarios pick the smallest built-in window (gpt-4o*, 128000); the window.*
+// config keys are covered in internal/proxy/window_test.go.
 const e2eWindow = 128_000
 
 // configYAML is the global configuration of the scenarios. The values are the

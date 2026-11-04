@@ -14,11 +14,3 @@ func TestE2EAnthropicMainPath(t *testing.T) {
 		golden:    true,
 	})
 }
-
-// TODO(e2e): the config file cannot set the context window. Only the model-prefix
-// table (builtinWindows) and the Go API (proxy.Config.ContextLimit, not wired by
-// serve) set it. A context_limit or window key would let the scenarios use a
-// small window without a model-name workaround. Remove the skip once it exists.
-func TestConfigCannotSetContextWindow(t *testing.T) {
-	t.Skip("TODO: config has no context_limit/window key (internal/config specs); serve does not wire ContextLimit")
-}

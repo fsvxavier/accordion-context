@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	toml "github.com/pelletier/go-toml/v2"
 	"gopkg.in/yaml.v3"
 )
 
@@ -46,6 +47,39 @@ func TestMergeYAML(t *testing.T) {
 	api := got["api"].(map[string]any)
 	if got["model"] != "m" || api["base_url"] != "http://u" || api["timeout"] != 5 {
 		t.Fatalf("merged = %v", got)
+	}
+}
+
+func TestMergeTOMLSetsNestedKeyAndKeepsOthers(t *testing.T) {
+	src := []byte("model = \"m-1\"\n# dropped on merge\n[api]\ntimeout = 30\n")
+	orig := append([]byte(nil), src...)
+	out, err := MergeConfig("toml", src, "api.base_url", "http://127.0.0.1:9/p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := toml.Unmarshal(out, &got); err != nil {
+		t.Fatalf("output not toml: %v\n%s", err, out)
+	}
+	api := got["api"].(map[string]any)
+	if got["model"] != "m-1" || api["base_url"] != "http://127.0.0.1:9/p" || api["timeout"] != int64(30) {
+		t.Fatalf("merged = %v\n%s", got, out)
+	}
+	if string(src) != string(orig) {
+		t.Fatal("MergeConfig modified its source")
+	}
+	if _, err := MergeConfig("toml", []byte("api = 1\n"), "api.base_url", "x"); err == nil {
+		t.Fatal("non-table parent accepted")
+	}
+	if _, err := MergeConfig("toml", []byte("api = [\n"), "api.base_url", "x"); err == nil {
+		t.Fatal("malformed toml accepted")
+	}
+	out, err = MergeConfig("toml", nil, "base_url", "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := toml.Unmarshal(out, &got); err != nil || got["base_url"] != "x" {
+		t.Fatalf("empty source = %q, %v", out, err)
 	}
 }
 
@@ -92,7 +126,7 @@ func TestMergeINI(t *testing.T) {
 }
 
 func TestMergeConfigRejectsUnknownFormat(t *testing.T) {
-	if _, err := MergeConfig("toml", []byte("a = 1\n"), "a", "b"); err == nil {
-		t.Fatal("toml merge accepted")
+	if _, err := MergeConfig("xml", []byte("<a/>"), "a", "b"); err == nil {
+		t.Fatal("xml merge accepted")
 	}
 }

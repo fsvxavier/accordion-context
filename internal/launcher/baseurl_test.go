@@ -106,7 +106,6 @@ func TestValidateFlagAndTempConfigShapes(t *testing.T) {
 		"no content":               "    temp_config: {path_env: C, format: json}\n",
 		"two contents":             "    temp_config: {path_env: C, format: json, template: '{url}', merge_from: /x.json, key: a}\n",
 		"template without url":     "    temp_config: {path_env: C, format: json, template: 'hello'}\n",
-		"merge toml unsupported":   "    temp_config: {path_env: C, format: toml, merge_from: /x.toml, key: a}\n",
 		"merge without key":        "    temp_config: {path_env: C, format: json, merge_from: /x.json}\n",
 		"key with template":        "    temp_config: {path_env: C, format: json, template: '{url}', key: a}\n",
 		"bad env key":              "    temp_config: {path_env: C, format: env, merge_from: /x.env, key: 1BAD}\n",

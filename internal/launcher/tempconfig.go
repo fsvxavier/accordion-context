@@ -7,19 +7,23 @@ import (
 	"slices"
 	"strings"
 
+	toml "github.com/pelletier/go-toml/v2"
 	"gopkg.in/yaml.v3"
 )
 
 // MergeConfig returns src with key set to value, in the given format. src is
 // only read: the caller passes a copy of the user's file and writes the result
 // to a temporary file. Comments and unrelated lines of env and ini files are
-// kept as they are. json and yaml are re-marshalled, so their layout changes.
+// kept as they are. json, yaml and toml are re-marshalled, so their layout
+// changes and every comment in them is lost; only the values are kept.
 func MergeConfig(format string, src []byte, key, value string) ([]byte, error) {
 	switch format {
 	case "json":
 		return mergeJSON(src, key, value)
 	case "yaml":
 		return mergeYAML(src, key, value)
+	case "toml":
+		return mergeTOML(src, key, value)
 	case "env":
 		return mergeEnv(src, key, value), nil
 	case "ini":
@@ -64,6 +68,26 @@ func mergeYAML(src []byte, key, value string) ([]byte, error) {
 	out, err := yaml.Marshal(doc)
 	if err != nil {
 		return nil, fmt.Errorf("launcher: merge_from yaml: %w", err)
+	}
+	return out, nil
+}
+
+// mergeTOML parses src with go-toml and sets the dotted key. Re-marshalling
+// drops the comments and the original ordering of the file.
+func mergeTOML(src []byte, key, value string) ([]byte, error) {
+	doc := map[string]any{}
+	if err := toml.Unmarshal(src, &doc); err != nil {
+		return nil, fmt.Errorf("launcher: merge_from toml: %w", err)
+	}
+	if doc == nil {
+		doc = map[string]any{}
+	}
+	if err := setPath(doc, key, value); err != nil {
+		return nil, err
+	}
+	out, err := toml.Marshal(doc)
+	if err != nil {
+		return nil, fmt.Errorf("launcher: merge_from toml: %w", err)
 	}
 	return out, nil
 }

@@ -73,7 +73,7 @@ type TempConfig struct {
 	// with the base URL set at Key.
 	MergeFrom string `yaml:"merge_from"`
 	// Key is the base URL key used with MergeFrom: a dotted path for json,
-	// yaml and toml, "section.name" for ini, and the variable name for env.
+	// yaml and toml (toml merges drop comments), "section.name" for ini, and the variable name for env.
 	Key string `yaml:"key"`
 }
 
@@ -320,9 +320,6 @@ func validateTempConfig(t TempConfig) error {
 			return errors.New("key is only used with merge_from")
 		}
 		return nil
-	}
-	if t.Format == "toml" {
-		return errors.New("merge_from is not supported for toml; use a template")
 	}
 	if t.Key == "" {
 		return errors.New("merge_from needs key")

@@ -108,9 +108,9 @@ func TestPlanCompressRenderRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 30 messages plus the open-intents block (§11.3).
-	if len(plan.Visible) != 31 {
-		t.Fatalf("pre-compress visible=%d, want 31", len(plan.Visible))
+	// 30 messages; no intents block before the first fold (§11.3).
+	if len(plan.Visible) != 30 {
+		t.Fatalf("pre-compress visible=%d, want 30", len(plan.Visible))
 	}
 	if lw, _ := st.GetTrigger(ctx, "s1"); lw.LowWater != 3000 {
 		t.Fatalf("low-water=%d, want 3000", lw.LowWater)
@@ -151,8 +151,8 @@ func TestPlanCompressRenderRoundTrip(t *testing.T) {
 	if plan.Visible[0].Ref != "m00001" {
 		t.Fatalf("first visible=%q, want pinned m00001", plan.Visible[0].Ref)
 	}
-	if last := plan.Visible[len(plan.Visible)-1]; last.Ref != "m00029" {
-		t.Fatalf("last visible=%q, want m00029 (last user)", last.Ref)
+	if last := plan.Visible[len(plan.Visible)-1]; last.Ref != "m00030" {
+		t.Fatalf("last visible=%q, want m00030 (natural order, last user at m00029)", last.Ref)
 	}
 
 	orig, err := s.Recall(ctx, "m00005")

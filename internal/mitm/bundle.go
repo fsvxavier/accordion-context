@@ -19,12 +19,14 @@ var SystemBundlePaths = []string{
 	"/etc/ssl/cert.pem",
 }
 
-// Bundle returns the CA certificate as PEM, optionally followed by the system
+// Bundle returns the CA certificate as PEM, followed by the previous CA
+// certificate while it is inside its grace period, then optionally the system
 // roots. Use it for SSL_CERT_FILE, NODE_EXTRA_CA_CERTS, REQUESTS_CA_BUNDLE and
 // CURL_CA_BUNDLE, scoped to the client process. Including the system roots keeps
 // the client trusting other hosts, because these variables replace its store.
 func (ca *CA) Bundle(withSystemRoots bool) ([]byte, error) {
 	out := slices.Clone(ca.certPEM)
+	out = append(out, ca.prevPEM...)
 	if !withSystemRoots {
 		return out, nil
 	}

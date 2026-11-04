@@ -4,6 +4,7 @@
 package mitm
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -29,11 +30,18 @@ const (
 	defaultLeafCacheSize = 256
 	leafValidity         = 24 * time.Hour
 
+	// PrevCAGrace is how long a replaced CA certificate stays in the bundle
+	// (as ca.prev.crt) after regeneration, so clients that loaded the old
+	// bundle keep working while they restart. The old key is overwritten.
+	PrevCAGrace = 7 * 24 * time.Hour
+
 	dirMode    os.FileMode = 0o700
 	keyMode    os.FileMode = 0o600
 	certMode   os.FileMode = 0o644
 	caCertName             = "ca.crt"
 	caKeyName              = "ca.key"
+	caPrevName             = "ca.prev.crt"
+	caLockName             = "ca.lock"
 )
 
 // CAOptions configures LoadOrCreateCA.
@@ -56,13 +64,19 @@ type CA struct {
 	key     *ecdsa.PrivateKey
 	domains []string // sorted name constraints, empty when unconstrained
 	leaves  *leafCache
+	prevPEM []byte // previous CA certificate inside PrevCAGrace, may be nil
 }
 
 // LoadOrCreateCA loads the CA stored in dir, or generates a new one. A stored
 // CA is replaced when its key is missing or inconsistent, when it is within
 // validity/12 of expiry, or when its name constraints differ from opts.Domains.
-// The directory is kept at 0700 and the key file at 0600. Nothing is installed
-// in the system trust store.
+// On replacement the previous certificate is kept as ca.prev.crt for
+// PrevCAGrace and is included in Bundle. The directory is kept at 0700 and the
+// key file at 0600. Nothing is installed in the system trust store.
+//
+// The whole load-check-generate-persist sequence runs under an exclusive lock
+// on dir/ca.lock, so concurrent processes never interleave key and certificate
+// writes.
 func LoadOrCreateCA(dir string, opts CAOptions) (*CA, error) {
 	if dir == "" {
 		return nil, errors.New("mitm: CA directory is empty")
@@ -74,10 +88,18 @@ func LoadOrCreateCA(dir string, opts CAOptions) (*CA, error) {
 	if err := ensureDir(dir); err != nil {
 		return nil, err
 	}
+	unlock, err := lockCADir(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+
 	now := time.Now()
 	if ca, err := loadCA(dir, opts.LeafCacheSize); err == nil && ca.usable(domains, now) {
+		ca.prevPEM = freshPrevious(dir, now)
 		return ca, nil
 	}
+	old, _ := os.ReadFile(filepath.Join(dir, caCertName))
 	validity := opts.Validity
 	if validity <= 0 {
 		validity = DefaultCAValidity
@@ -89,7 +111,37 @@ func LoadOrCreateCA(dir string, opts CAOptions) (*CA, error) {
 	if err := persistCA(dir, ca); err != nil {
 		return nil, err
 	}
+	if isCertPEM(old) && !bytes.Equal(old, ca.certPEM) {
+		if err := writeFileAtomic(filepath.Join(dir, caPrevName), old, certMode); err != nil {
+			return nil, err
+		}
+	}
+	ca.prevPEM = freshPrevious(dir, now)
 	return ca, nil
+}
+
+// freshPrevious returns the previous CA certificate when it was written within
+// PrevCAGrace (by its modification time). A stale file is removed.
+func freshPrevious(dir string, now time.Time) []byte {
+	path := filepath.Join(dir, caPrevName)
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return nil
+	}
+	if now.Sub(info.ModTime()) > PrevCAGrace {
+		_ = os.Remove(path)
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || !isCertPEM(data) {
+		return nil
+	}
+	return data
+}
+
+func isCertPEM(data []byte) bool {
+	b, _ := pem.Decode(data)
+	return b != nil && b.Type == "CERTIFICATE"
 }
 
 // Certificate returns the CA certificate. Callers must not modify it.

@@ -42,10 +42,40 @@ The proxy recognizes four API dialects on `POST`:
 |---|---|---|
 | Anthropic Messages | `/v1/messages` | Streaming is relayed as it arrives. |
 | OpenAI Chat Completions | `/v1/chat/completions` | Each upstream round is read in full before it is sent. |
-| OpenAI Responses | `/v1/responses` | HTTP requests are stateless: `previous_response_id` or `conversation` requests are forwarded unchanged. WebSocket upgrades are compacted per `response.create` frame. |
+| OpenAI Responses | `/v1/responses` | HTTP requests are stateless: `previous_response_id` or `conversation` requests are forwarded unchanged. WebSocket upgrades are compacted per `response.create` frame. Input items of other types, such as `compaction` or `local_shell_call`, are kept as opaque items and sent back unchanged instead of failing the request. |
 | Google Gemini | `.../models/<model>:generateContent`, and `:streamGenerateContent` with `alt=sse` | Streams are buffered per round. Without `alt=sse` the request is forwarded unchanged. |
 
 Other paths, and other methods, are passed through to the upstream without compaction.
+
+## Client compaction commands
+
+Coding clients also compact their own history: `/compact` in Claude Code, Codex, OpenCode, Kilo Code and Cline, `/compress` in Gemini CLI, and automatic compaction near the limit. Each one sends a request that asks the model to summarize the transcript. acd-ctx recognises that request and forwards it unchanged: no ingest, no injected tools and no nudge, so the client summarizes its real transcript.
+
+The request is counted as outcome `client_compaction` and in the metric `acd_ctx_client_compactions_total{protocol,signal}`, where `signal` names the rule that matched. It is logged at INFO, not as a fail-open warning. If the session already exists, a `client_compaction` event is recorded on it. Within one hour of the compaction, the next new session of the same project, or the next request that carries `x-claude-code-context-compacted`, gets a `client_compaction_parent` event that links it to the compacted session. No message is copied into the new session; the old messages stay in SQLite and can be found with `search_context` at project scope.
+
+| Client | Signal | Default | Confidence |
+|---|---|---|---|
+| Claude Code | Header `x-claude-code-compaction` (`auto`, `manual` or `reactive`), or `x-claude-code-request-class: compaction` | On. The `claude` launcher sets `CLAUDE_CODE_GATEWAY_HINT_HEADERS=1`; other setups must set it themselves | High. The header is documented. No text rule, because the prompt text is not published |
+| Codex, OpenAI and Azure providers, HTTP and WebSocket | Last input item is `compaction_trigger` | On | High in the source; no wire capture |
+| Codex, legacy builds | `POST /v1/responses/compact` | On | High for those builds |
+| Codex, other providers (local compaction) | Last user message starts with "You are performing a CONTEXT CHECKPOINT COMPACTION." | `strong` | Medium to high. A custom `compact_prompt` is missed |
+| Gemini CLI | Non-streaming `generateContent` with a system instruction, no `tools` and no `generationConfig` (the shape). The system text "distilling chat history into a structured XML <state_snapshot>" is also matched, with the shape | On | High for the text. The shape alone is structural and can match a plain SDK call with a system instruction, no tools and no `generationConfig` |
+| OpenCode v1 and Kilo Code (`compaction.txt` prompt) | System text "You are a context summarization agent. You are given a conversation between a user and an agent.", and a last user message containing "Create a new anchored summary from the conversation history in the <conversation> tags above" | `strong` | High |
+| Kilo Code, Kilo gateway provider | Header `x-kilocode-mode: compaction` | On | High. Also set on Kilo's plan hand-over summary, which is benign |
+| OpenCode v2 | Last user message starts with "You MUST summarize the conversation above into a structured summary", or with "Update the existing checkpoint in the conversation above" | `all` only | Medium to high. A user who quotes the text is a false positive |
+| Cline SDK | System text "Summarize the provided coding session into a concise continuation note with detailed next steps.", and a last user message starting with "Summarize this session for continuation. Be concise and factual." | `strong` | High |
+| Cline classic | Last user message contains `<explicit_instructions type="summarize_task">` or `type="condense"` | `strong` | High. In the classic client this is an ordinary turn, so the whole turn is forwarded unchanged |
+| Copilot CLI, Cursor, Windsurf | None | n/a | Not detected |
+
+`compaction.text_rules` (global file only) selects the text rules: `strong` (default) enables the rules marked `strong` above, `all` also enables the OpenCode v2 rules, and `off` disables every text rule. The header, item, path, Kilo header and Gemini shape signals do not depend on it.
+
+Every rule text was read from the clients' source code at the commits listed in [docs/compaction-commands.md](docs/compaction-commands.md). None has been checked on the wire or against a real client, and a client release can change any of them. OpenCode v2 and Cline are detected by text only.
+
+Known limits:
+- Codex `custom_tool_call`, `local_shell_call` and every other input item type the codec does not model are opaque barriers: kept in place, sent back unchanged, never compressed, and no compression range may cover one.
+- The Gemini shape rule can match a plain SDK call that has a system instruction, no `tools` and no `generationConfig`.
+- The parent link goes to any new session of the project within one hour. It is kept in memory only, so a restart drops it.
+- If the session does not exist yet, the request is counted and logged, but no event is recorded.
 
 ## Installation
 
@@ -140,7 +170,7 @@ Client status comes from [docs/integrations.md](docs/integrations.md), which lis
 
 | Client | How to integrate | Status |
 |---|---|---|
-| Claude Code CLI | Built-in launcher `acd-ctx claude`, which sets `ANTHROPIC_BASE_URL`. | Implemented; not run against the real CLI. |
+| Claude Code CLI | Built-in launcher `acd-ctx claude`, which sets `ANTHROPIC_BASE_URL` and `CLAUDE_CODE_GATEWAY_HINT_HEADERS=1`. | Implemented; not run against the real CLI. |
 | Claude Code IDE chat (VS Code) | Manual: set `ANTHROPIC_BASE_URL` in `claudeCode.environmentVariables`, or in the `env` block of `~/.claude/settings.json`. JetBrains path not verified. | Documented; unverified. |
 | OpenCode | Launcher `acd-ctx opencode`, which writes a temp config and points `OPENCODE_CONFIG` at it. `opencode-openai` is reached through a link or wrapper with that name. | Implemented; unverified with OpenCode. |
 | Kilo Code (VS Code extension) | Manual: Settings, Providers, Custom provider. Paste `http://127.0.0.1:8787/p/<id>/ctx/<upstream>` as the Base URL. | Documented; unverified. Kilo CLI has no profile. |
@@ -196,6 +226,7 @@ The real keys, with their defaults (`config show --effective` prints the same li
 | `recall.assist`, `recall.min_accept_rate` | yes | `true`, `0.05` |
 | `storage` | yes | `global` |
 | `window.context_limit`, `window.models` | yes | `0` (derived from the model), empty map |
+| `compaction.text_rules` | no | `strong` (also `all`, `off`) |
 
 Keys with the prefixes `upstream.`, `credentials.`, `listen.` and `tools.external_summary.` are reserved. They are ignored with a warning, in the global and the local file.
 
@@ -245,6 +276,7 @@ acd-ctx project purge <id> [--yes]       # delete all data of a project
 | `ACD_CTX_MAX_RESTORE_BYTES` | `restore` | Size cap for a backup, when `--max-size` is not given. Default 2GiB. |
 | `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `HOME` | paths | Base directories. `serve` ignores `XDG_DATA_HOME`. |
 | `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `GOOGLE_GEMINI_BASE_URL` | your client | Point the client at the proxy in base-URL mode. Set by the launchers. |
+| `CLAUDE_CODE_GATEWAY_HINT_HEADERS` | `acd-ctx claude` | Set to `1` for Claude Code, so that it sends the `x-claude-code-*` hint headers that mark its compaction calls. |
 | `HTTPS_PROXY`, `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE` | `attach` (MITM degree) | Set for that client process only, so it trusts the local CA. |
 | `ACD_CTX_URL`, `ACD_CTX_TOKEN`, `ACD_CTX_TOKEN_FILE`, `ACD_CTX_CONVERSATION` | `middleware/` clients | Locate and authenticate against the plugin protocol. |
 
@@ -256,7 +288,7 @@ Control endpoints (`/__acd-ctx/` refuses any request with an `Origin` header; `m
 |---|---|---|
 | `/__acd-ctx/health` | any allowed Host | `{"ok":true}` |
 | `/__acd-ctx/status` | any allowed Host | JSON: `status`, `version`, `uptime_seconds`, `upstream_host`, `context_limit`, `max_loop`, `sessions_loaded`, `projects_seen`, `default_project_requests`, `protocols`. |
-| `/__acd-ctx/metrics` | loopback peers only | Prometheus text. Families: `acd_ctx_requests_total`, `acd_ctx_request_duration_seconds`, `acd_ctx_upstream_duration_seconds`, `acd_ctx_context_tokens`, `acd_ctx_compress_total`, `acd_ctx_compress_ratio`, `acd_ctx_cache_read_ratio`, `acd_ctx_fold_cache_cost_tokens`, `acd_ctx_recall_hint_total`, `acd_ctx_token_calib_factor`, `acd_ctx_tool_calls_total{tool,outcome}` (`tool` is one of the four internal tool names or `unknown`; `outcome` is `accepted` or `rejected`). Labels are a closed set: no session, project or message IDs. |
+| `/__acd-ctx/metrics` | loopback peers only | Prometheus text. Families: `acd_ctx_requests_total`, `acd_ctx_request_duration_seconds`, `acd_ctx_upstream_duration_seconds`, `acd_ctx_context_tokens`, `acd_ctx_compress_total`, `acd_ctx_compress_ratio`, `acd_ctx_cache_read_ratio`, `acd_ctx_fold_cache_cost_tokens`, `acd_ctx_recall_hint_total`, `acd_ctx_token_calib_factor`, `acd_ctx_tool_calls_total{tool,outcome}` (`tool` is one of the four internal tool names or `unknown`; `outcome` is `accepted` or `rejected`), `acd_ctx_client_compactions_total{protocol,signal}` (client compactions forwarded unchanged). Labels are a closed set: no session, project or message IDs. |
 | `/__acd-ctx/sessions/{id}/status` | loopback peers only | Counts, trigger state, window size, blocks, open intents and recent decisions (`?decisions=N`). No message or block text. |
 | `/__acd-ctx/sessions/{id}/trace.jsonl` | loopback peers only | Session trace in JSON lines. `?anonymize=1` replaces texts with their length and SHA-256. Replay it with `acd-ctx replay`. |
 
@@ -282,6 +314,12 @@ The proxy also injects these four tools into the model's request, in every diale
 The clients live in `middleware/python` (package `acd_ctx`, standard library only) and `middleware/node` (package `acd-ctx`, ESM, Node.js 18.13 or later, no dependencies). Both read `ACD_CTX_URL` (default `http://127.0.0.1:8787`), `ACD_CTX_TOKEN` or the file in `ACD_CTX_TOKEN_FILE` (default `~/.local/share/acd-ctx/plugin.token`), and `ACD_CTX_CONVERSATION`. On any client error, continue without compression.
 
 `conformance/vectors/*.json` are language-neutral vectors, replayed by `go test ./conformance/...` and by the Python and Node suites. `docs/compatibility.md` is generated by `go run ./scripts/gen-compat-matrix`, and CI fails when it is stale.
+
+## Storage
+
+The database is at schema version 4, tracked by `PRAGMA user_version`. Version 4 adds the message kind `opaque`, which holds a Responses input item that the codec does not model (see [Supported protocols](#supported-protocols)). The migration runs on open, inside one transaction, and a failed upgrade leaves the old version in place. Older builds refuse a version 4 database and report that it is newer than they support.
+
+SQLite normally uses WAL mode. When the file system cannot open the WAL files, the store logs a warning and falls back to the rollback journal (`journal_mode = DELETE`). This happens on WSL drives under `/mnt/<drive>` (DrvFs) and on some network mounts. A stale process that still holds the database in WAL mode blocks opening it, so stop that process first. Prefer a native Linux path for the database, such as one under `~/.local/share`.
 
 ## Backup and restore
 
@@ -335,6 +373,7 @@ acd-ctx clean --all --docker acd-ctx --dry-run
 ## Development
 
 ```sh
+go test -race -count=1 ./...                 # mandatory before every commit
 go test ./...                                  # full suite
 go test ./internal/kernel -run TestName        # one test
 go test -fuzz=FuzzParseToolArguments ./internal/wire/openai
@@ -343,6 +382,8 @@ go test ./conformance/...                      # plugin protocol vectors
 (cd middleware/node && node --test)
 go run ./scripts/gen-compat-matrix             # prints docs/compatibility.md
 ```
+
+Run `go test -race -count=1 ./...` over the whole module before every commit. It is mandatory: CI runs it, and it catches races that a plain `go test` misses.
 
 `CLAUDE.md` is in English. The design spec `compactacao-contexto-go-sqlite.md` (Portuguese) is the source of truth; §N in code comments refers to it.
 
@@ -381,6 +422,8 @@ Validated by automated tests, with no network access beyond loopback. `go test .
 - Proxy tests against fake upstreams (`httptest` on loopback) for the four dialects, including streaming and the Responses WebSocket mode. Launchers, `attach` and MITM run with stand-in client binaries.
 - End-to-end tests (`e2e/`) run the real binary against a fake upstream for Anthropic Messages and OpenAI Chat Completions: 80 turns past twice a 128K window, folds and a decompress round trip, invariants checked after the run, and a proxy restart mid-run.
 - Plugin conformance vectors, replayed by Go, Python and Node.
+- Client compaction detection, with synthetic fixtures built from the text of the clients' source code (`compaction_rules_test.go`, `client_compaction_test.go`, `gemini_shape_test.go`).
+- Schema v4 migration (`migrate_v4_test.go`), the WAL fallback (`wal_fallback_test.go`) and opaque Responses items (`opaque_test.go`).
 - The proxy's internal tools `search_context` and `retrieve`, on the HTTP and WebSocket paths, with the hit, snippet and token caps.
 - Dependencies updated with `go get -u`; the suite passes on them.
 - The Docker image was built and run once locally in an earlier step. It was not re-verified for this revision.
@@ -390,6 +433,7 @@ Not validated:
 - The real provider APIs (Anthropic, OpenAI, Google): wire details, streaming edge cases, `usage` values, cache behavior and prices.
 - The live OpenAI Responses WebSocket endpoint.
 - The real agent clients (Claude Code, Codex, Gemini CLI, OpenCode) running through the proxy, MITM, system proxy or transparent mode.
+- The client compaction rules on the real clients and on the wire. Every rule text was read from the clients' source code (see [docs/compaction-commands.md](docs/compaction-commands.md)); none has been captured from a run.
 - `attach --system-proxy` and `--transparent`, the watchdog, the nftables and iptables redirects, and the macOS and Windows system-proxy backends, on real systems. The transparent and watchdog paths have only been run against fake runners.
 - A GitHub Actions run of the CI workflow (including its Docker job) and of the release workflow: GoReleaser builds, draft releases, and the image push to ghcr.io. `goreleaser check` has not been run.
 - Summary quality in long real sessions.
@@ -398,6 +442,7 @@ Not implemented:
 
 - A watchdog helper killed with SIGKILL: the redirect stays until `attach --restore` is run by hand. `doctor` reports it.
 - IPv6 redirect when `[::1]` is not free on the redirect port: IPv6 then bypasses acd-ctx, and the attach output says so.
+- Client compaction detection for Copilot CLI, Cursor and Windsurf: no documented signal, so no rule exists.
 
 ## Limitations and risks
 

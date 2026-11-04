@@ -1,0 +1,4 @@
+.acd-ctx/
+*.db
+*.db-wal
+*.db-shm

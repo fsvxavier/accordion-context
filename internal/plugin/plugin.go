@@ -89,6 +89,7 @@ type Handler struct {
 
 	mu       sync.Mutex
 	sessions map[string]*session.Session // by store session id
+	epoch    int64                       // store epoch the sessions map was built at (epoch.go)
 }
 
 // New validates cfg, ensures the project row and builds the handler.
@@ -154,6 +155,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "missing or invalid token")
 		return
 	}
+	h.syncEpoch(r.Context())
 	switch r.URL.Path {
 	case pathManifest:
 		h.onlyMethod(w, r, http.MethodGet, h.handleManifest)

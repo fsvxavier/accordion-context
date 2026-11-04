@@ -96,6 +96,11 @@ func validate(c Config) []problem {
 			add([]string{"window.models"}, "window for %q must be >= %d tokens, got %d", m, minWindow, n)
 		}
 	}
+	switch c.CompactionTextRules {
+	case "strong", "all", "off":
+	default:
+		add([]string{"compaction.text_rules"}, "must be \"strong\", \"all\" or \"off\", got %q", c.CompactionTextRules)
+	}
 	if c.Storage != "global" && c.Storage != "local" {
 		add([]string{"storage"}, "must be \"global\" or \"local\", got %q", c.Storage)
 	}

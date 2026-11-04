@@ -155,6 +155,12 @@ type pipeEvent struct {
 // restoreWatchdog runs the verified restore, then removes the state file. A
 // failed restore keeps the state file, so attach --restore can finish the job.
 func restoreWatchdog(r Runner, statePath string, st *State) error {
+	// The state file is the commit point: the owner removes it only after its
+	// own verified restore. Without it there is nothing left to restore, and a
+	// newer run may already own a table of the same name that is not ours to delete.
+	if _, err := os.Lstat(statePath); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
 	ctx, cancel := RestoreContext()
 	defer cancel()
 	if _, err := restoreFirewall(ctx, r, st); err != nil {
@@ -190,10 +196,16 @@ func WatchdogMain(args []string, stderr io.Writer) int {
 	fset.SetOutput(stderr)
 	statePath := fset.String("state", "", "state file of the transparent run")
 	parent := fset.Int("parent-pid", 0, "pid of the run that owns the redirect")
-	if err := fset.Parse(args); err != nil || *statePath == "" || *parent <= 0 {
+	if err := fset.Parse(args); err != nil || fset.NArg() != 0 || *statePath == "" || !filepath.IsAbs(*statePath) || *parent <= 0 {
 		return 2
 	}
+	// Descriptor 3 must be the owner's pipe. Anything else (closed, a file, a
+	// terminal) means the helper was not started by ExecSpawner; it acts on nothing.
 	pipe := os.NewFile(watchdogPipeFD, "acd-ctx-watchdog")
+	if fi, err := pipe.Stat(); err != nil || fi.Mode()&os.ModeNamedPipe == 0 {
+		fmt.Fprintln(stderr, "acd-ctx: watchdog: descriptor 3 is not the owner's pipe")
+		return 2
+	}
 	ctx, stop := signalContext()
 	defer stop()
 	e := Env{GOOS: runtime.GOOS, Geteuid: os.Geteuid, Runner: ExecRunner{}}

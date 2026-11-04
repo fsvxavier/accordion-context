@@ -119,6 +119,8 @@ type Server struct {
 
 	telemetry *telemetry // metrics and recall-hint tracking (obs.go)
 
+	compactionLinks compactionLinks // last client compaction per project (client_compaction.go)
+
 	wsMu       sync.Mutex
 	wsSessions map[*wsSession]struct{} // live WebSocket sessions (ws.go)
 }
@@ -238,6 +240,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.compactTurn(w, r, rt, p)
 			return
 		}
+		if p, sig := compactionEndpoint(rt, r.Header); p != nil {
+			s.clientCompaction(w, r, rt, p, nil, sig)
+			return
+		}
 	}
 	s.passthrough(w, r, rt, nil)
 }
@@ -275,6 +281,12 @@ func (s *Server) compactTurn(w http.ResponseWriter, r *http.Request, rt routed, 
 		return
 	}
 
+	// The client's own compaction call is checked before Meta and Decode, so a body
+	// that this codec cannot decode is still a client compaction, not a fail-open.
+	if sig := s.compactionSignal(r, rt, p, body); sig != "" {
+		s.clientCompaction(w, r, rt, p, body, sig)
+		return
+	}
 	model, stream, err := p.Meta(rt.path, r.URL.RawQuery, body)
 	if err != nil {
 		s.passthrough(w, r, rt, body)
@@ -292,6 +304,11 @@ func (s *Server) compactTurn(w http.ResponseWriter, r *http.Request, rt routed, 
 		s.failOpen(w, r, rt, body, stage, err)
 		return
 	}
+	// The first request of a new session after a client compaction is linked to the
+	// compacted session, as is a request marked by the client itself.
+	if r.Header.Get(headerContextCompacted) != "" || t.fresh {
+		s.linkCompactionParent(ctx, t)
+	}
 	t.stream = stream
 	s.runTurns(w, r, t)
 	s.countRequest(p.Name(), obs.OutcomeCompact)
@@ -303,7 +320,11 @@ func (s *Server) compactTurn(w http.ResponseWriter, r *http.Request, rt routed, 
 func (s *Server) prepareTurn(ctx context.Context, r *http.Request, rt routed, p protocol, model string, req request, msgs []kernel.Message) (*turn, string, error) {
 	s.syncEpoch(ctx)
 	for i := range msgs {
-		msgs[i].Tokens = kernel.EstimateTokens(msgs[i].Text)
+		// A codec may size a message itself (an opaque item's text is only a
+		// fingerprint), so only messages without a size are estimated from text.
+		if msgs[i].Tokens == 0 {
+			msgs[i].Tokens = kernel.EstimateTokens(msgs[i].Text)
+		}
 	}
 
 	proj := s.resolveProject(r, rt.project)
@@ -311,7 +332,7 @@ func (s *Server) prepareTurn(ctx context.Context, r *http.Request, rt routed, p 
 	base := sessionID(proj.ID, r.Header.Get(headerConv), msgs)
 	// The walk never returns a session whose ledger differs from the transcript:
 	// an edited or colliding transcript gets its own fork (see fork.go).
-	sid, sess, fk, err := s.resolveLedger(ctx, proj, base, msgs, model, s.contextWindow(model, cfg))
+	sid, sess, fk, fresh, err := s.resolveLedger(ctx, proj, base, msgs, model, s.contextWindow(model, cfg))
 	if err != nil {
 		return nil, "session", err
 	}
@@ -392,7 +413,7 @@ func (s *Server) prepareTurn(ctx context.Context, r *http.Request, rt routed, p 
 
 	t := &turn{
 		ctx: ctx, sess: sess, sid: sid, proto: p, up: rt.up, path: rt.path, body: out,
-		estTokens: sumTokens(window), proj: proj.ID,
+		estTokens: sumTokens(window), proj: proj.ID, fresh: fresh,
 	}
 	s.cfg.Logger.Debug("compaction turn", "protocol", p.Name(), "project", proj.ID, "session", sid,
 		"rule", plan.Decision.Row, "nudge", plan.Decision.Nudge, "tokens", tokenCount, "est_tokens", t.estTokens)
@@ -415,6 +436,7 @@ type turn struct {
 	estTokens int    // local estimate of the body sent this round, raw (before calibration)
 	compress  int    // successful compress calls so far in this request
 	foldsSeen int    // compress calls already reflected in a ledger row
+	fresh     bool   // the session had no messages before this request (see resolveLedger)
 }
 
 // grow adds what a finished round appends to the body: the call arguments and

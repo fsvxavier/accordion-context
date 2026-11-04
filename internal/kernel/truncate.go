@@ -69,7 +69,10 @@ func EmergencyTruncateWith(window []Message, limit, keep int, tokensOf func(Mess
 		return Truncation{Window: slices.Clone(window)}
 	}
 
-	raw := func(i int) bool { return window[i].Ref != "" && window[i].Role != RoleSystem }
+	// An opaque item is never dropped: it is not raw, so no unit may contain it.
+	raw := func(i int) bool {
+		return window[i].Ref != "" && window[i].Role != RoleSystem && window[i].Kind != KindOpaque
+	}
 
 	pinned := -1
 	lastUser := len(window)

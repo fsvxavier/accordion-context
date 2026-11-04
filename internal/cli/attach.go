@@ -30,13 +30,9 @@ func (r *repeated) Set(v string) error {
 // nft, ...). Tests replace it, so they never change the machine.
 var sysRunner sysproxy.Runner = sysproxy.ExecRunner{}
 
-// init handles two things before main runs. The hidden watchdog argument starts
-// the redirect's helper process (sysproxy.WatchdogMain), which never reaches the
-// CLI. doctor's firewall probes get the same runner as the system degrees.
+// init gives doctor's firewall probes the same runner as the system degrees. The
+// hidden watchdog argument is dispatched explicitly by cmd/acd-ctx, not here.
 func init() {
-	if len(os.Args) > 1 && os.Args[1] == sysproxy.WatchdogArg {
-		os.Exit(sysproxy.WatchdogMain(os.Args[2:], os.Stderr))
-	}
 	doctor.SystemRunner = func() sysproxy.Runner { return sysRunner }
 }
 
@@ -59,7 +55,7 @@ func sysEnv(s IO) *sysproxy.Env {
 func runAttach(args []string, s IO) int {
 	fset := newFlagSet("attach", s)
 	systemProxy := fset.Bool("system-proxy", false, "degree 6: point the desktop HTTPS proxy at acd-ctx for this run (needs --yes)")
-	transparent := fset.Bool("transparent", false, "degree 7: Linux nftables redirect of TCP 443 for one uid (needs --yes, root or CAP_NET_ADMIN)")
+	transparent := fset.Bool("transparent", false, "degree 7: Linux redirect of TCP 443 for one uid over IPv4 and IPv6 (nftables, or iptables when nft is absent; IPv6 only when [::1] is free) (needs --yes, root or CAP_NET_ADMIN)")
 	yes := fset.Bool("yes", false, "confirm the machine-wide change of --system-proxy or --transparent")
 	apply := fset.Bool("apply", false, "with --transparent: install the rules (without it the rules are only printed)")
 	dryRun := fset.Bool("dry-run", false, "with --transparent: print the rules and change nothing (the default)")

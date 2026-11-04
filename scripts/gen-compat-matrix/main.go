@@ -68,10 +68,11 @@ var allFeatures = []string{"request codec", "compress args", "stream passthrough
 // clientProtocols maps a built-in profile to the protocols its base URL can
 // send. A profile without an entry is an error.
 var clientProtocols = map[string][]string{
-	"claude":   {"anthropic"},
-	"codex":    {"openai", "responses"},
-	"gemini":   {"google"},
-	"opencode": nil, // no base URL variable: needs MITM
+	"claude":          {"anthropic"},
+	"codex":           {"openai", "responses"},
+	"gemini":          {"google"},
+	"opencode":        {"anthropic"},
+	"opencode-openai": {"openai", "responses"},
 }
 
 func main() {
@@ -113,19 +114,23 @@ func generate(w io.Writer) error {
 		if len(names) == 0 {
 			names = []string{"none"}
 		}
-		mode, status := "MITM (spec 19.9, degree 5)", "not launched: no base URL variable"
+		mode, status := "MITM (spec 19.9, degree 5)", "not launched: no base URL variable, flag or temp config"
 		variable := "-"
-		if p.BaseURLEnv != "" {
+		switch {
+		case p.BaseURLEnv != "":
 			mode, status = "base URL (spec 19.9, degree 3)", "supported"
 			variable = "`" + p.BaseURLEnv + "`"
+		case p.TempConfig != nil:
+			mode, status = "temp config (spec 19.9, degree 4)", "supported"
+			variable = "`" + p.TempConfig.PathEnv + "` (temp file)"
 		}
 		b.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s | %s |\n",
 			p.Name, cmd, p.Upstream, strings.Join(names, ", "), mode, variable, status))
 	}
 
 	b.WriteString("\n## Status legend\n\n")
-	b.WriteString("- **supported**: the launcher sets the base URL variable and the protocols above handle the requests.\n")
-	b.WriteString("- **not launched**: the client has no base URL variable, so the base URL launcher refuses it (`launcher.ErrNoBaseURL`).\n")
+	b.WriteString("- **supported**: the launcher points the client at the proxy, through the base URL variable or a temp config file, and the protocols above handle the requests.\n")
+	b.WriteString("- **not launched**: the client has no base URL variable, flag or temp config, so the launcher refuses it (`launcher.ErrNoBaseURL`).\n")
 	_, err := io.WriteString(w, b.String())
 	return err
 }

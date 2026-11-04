@@ -49,6 +49,15 @@ func beginTransparent(e Env, dir string, st *State, p NFTPlan, fw string) (*Acti
 		return nil, err
 	}
 	a := &Active{env: e, mode: ModeTransparent, state: st, path: path, plan: p, fw: fw}
+	// The helper refuses a state file it does not trust, and the owner would not
+	// learn of it. Run the same checks here, so a helper that would exit at once
+	// never lets the redirect be installed unprotected.
+	if _, err := readState(path); err != nil {
+		return nil, a.unapplied(err)
+	}
+	if err := checkWatchdogState(st, st.PID); err != nil {
+		return nil, a.unapplied(err)
+	}
 	dog, err := startWatchdog(e, path, st.PID)
 	if err != nil {
 		return nil, a.unapplied(err)

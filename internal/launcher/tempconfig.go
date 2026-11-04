@@ -3,7 +3,9 @@ package launcher
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 
@@ -30,6 +32,115 @@ func MergeConfig(format string, src []byte, key, value string) ([]byte, error) {
 		return mergeINI(src, key, value), nil
 	}
 	return nil, fmt.Errorf("launcher: merge_from is not supported for format %q", format)
+}
+
+// MergeTemplate returns the rendered template tmpl applied over base, the
+// user's existing config in the same format. Keys set by tmpl win; every other
+// key of base is kept. base is only read. An error means base could not be
+// parsed (or tmpl could not, which a valid profile never does).
+func MergeTemplate(format string, base []byte, tmpl string) ([]byte, error) {
+	switch format {
+	case "json", "yaml", "toml":
+		doc, err := decodeDoc(format, base)
+		if err != nil {
+			return nil, err
+		}
+		over, err := decodeDoc(format, []byte(tmpl))
+		if err != nil {
+			return nil, fmt.Errorf("template: %w", err)
+		}
+		deepSet(doc, over)
+		return encodeDoc(format, doc)
+	case "env":
+		out := base
+		for _, l := range splitLines([]byte(tmpl)) {
+			t := strings.TrimPrefix(strings.TrimSpace(l), "export ")
+			if k, v, ok := strings.Cut(t, "="); ok && k != "" && !strings.HasPrefix(t, "#") {
+				out = mergeEnv(out, k, v)
+			}
+		}
+		return out, nil
+	case "ini":
+		out := base
+		section := ""
+		for _, l := range splitLines([]byte(tmpl)) {
+			t := strings.TrimSpace(l)
+			if h, ok := iniHeader(t); ok {
+				section = h
+				continue
+			}
+			if k, v, ok := strings.Cut(t, "="); ok && strings.TrimSpace(k) != "" && !strings.HasPrefix(t, "#") && !strings.HasPrefix(t, ";") {
+				key := strings.TrimSpace(k)
+				if section != "" {
+					key = section + "." + key
+				}
+				out = mergeINI(out, key, strings.TrimSpace(v))
+			}
+		}
+		return out, nil
+	}
+	return nil, fmt.Errorf("launcher: merge is not supported for format %q", format)
+}
+
+// decodeDoc parses src as a document of format. Empty input is an empty
+// document.
+func decodeDoc(format string, src []byte) (map[string]any, error) {
+	doc := map[string]any{}
+	if len(bytes.TrimSpace(src)) == 0 {
+		return doc, nil
+	}
+	var err error
+	switch format {
+	case "json":
+		dec := json.NewDecoder(bytes.NewReader(src))
+		dec.UseNumber()
+		err = dec.Decode(&doc)
+		if err == nil {
+			if _, trailing := dec.Token(); trailing != io.EOF {
+				err = errors.New("unexpected data after the document")
+			}
+		}
+	case "yaml":
+		err = yaml.Unmarshal(src, &doc)
+	case "toml":
+		err = toml.Unmarshal(src, &doc)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", format, err)
+	}
+	if doc == nil {
+		doc = map[string]any{}
+	}
+	return doc, nil
+}
+
+// encodeDoc marshals doc in format, as mergeJSON, mergeYAML and mergeTOML do.
+func encodeDoc(format string, doc map[string]any) ([]byte, error) {
+	switch format {
+	case "json":
+		out, err := json.MarshalIndent(doc, "", "  ")
+		if err != nil {
+			return nil, fmt.Errorf("launcher: merge json: %w", err)
+		}
+		return append(out, '\n'), nil
+	case "yaml":
+		return yaml.Marshal(doc)
+	}
+	return toml.Marshal(doc)
+}
+
+// deepSet copies src into dst. Objects present in both are merged; any other
+// value of src replaces the one in dst.
+func deepSet(dst, src map[string]any) {
+	for k, v := range src {
+		if sm, ok := v.(map[string]any); ok {
+			if dm, ok := dst[k].(map[string]any); ok {
+				deepSet(dm, sm)
+				continue
+			}
+		}
+		dst[k] = v
+	}
 }
 
 func mergeJSON(src []byte, key, value string) ([]byte, error) {

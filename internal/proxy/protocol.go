@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/fsvxavier/accordion-context/internal/kernel"
@@ -63,6 +64,15 @@ type protocol interface {
 	// Continue appends one round and its tool results to an encoded body. rr.assistant
 	// is the dialect's assistant turn, as Read produced it.
 	Continue(body []byte, rr reply, results []toolResult) ([]byte, error)
+	// ClientCompaction names the signal that marks a POST as the client's own
+	// compaction call (for example /compact in a coding client), or returns "" when
+	// there is none. Such a call is forwarded unchanged: no ingest, no tools, no
+	// nudge. Only deterministic signals count here: a header the client documents, an
+	// endpoint path, or an input item of the request. The text rules of
+	// compaction_rules.go are checked separately, by the server. rt is the routed
+	// request, h its headers and body its raw body (nil when the caller has not read
+	// it). Adapters without such a signal return "".
+	ClientCompaction(rt routed, h http.Header, body []byte) string
 }
 
 // request is a decoded client request that can be rendered again.
@@ -79,22 +89,43 @@ func (f encoderFunc) encode(window []kernel.Message) ([]byte, error) { return f(
 var protocols = []protocol{anthropicProtocol{}, openaiProtocol{}, responsesProtocol{}, googleProtocol{}}
 
 // protocolFor returns the adapter of a routed request, or nil when the path is not
-// a compacted endpoint. Under /ctx/ a gateway prefix is allowed in front of the
-// endpoint, so a suffix that starts at a path segment is tried too.
+// a compacted endpoint.
 func protocolFor(rt routed) protocol {
 	for _, p := range protocols {
-		if p.Detect(rt.path) {
+		if routedTo(rt, p.Detect) {
 			return p
-		}
-		if rt.viaCtx {
-			for i := 1; i < len(rt.path); i++ {
-				if rt.path[i] == '/' && p.Detect(rt.path[i:]) {
-					return p
-				}
-			}
 		}
 	}
 	return nil
+}
+
+// routedTo reports whether the routed path satisfies match. Under /ctx/ a gateway
+// prefix is allowed in front of the endpoint, so a suffix that starts at a path
+// segment is tried too.
+func routedTo(rt routed, match func(path string) bool) bool {
+	if match(rt.path) {
+		return true
+	}
+	if rt.viaCtx {
+		for i := 1; i < len(rt.path); i++ {
+			if rt.path[i] == '/' && match(rt.path[i:]) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// compactionEndpoint returns the first adapter that reports a POST as the client's
+// own compaction call, for paths that no adapter compacts, with the signal. It
+// returns nil otherwise.
+func compactionEndpoint(rt routed, h http.Header) (protocol, string) {
+	for _, p := range protocols {
+		if sig := p.ClientCompaction(rt, h, nil); sig != "" {
+			return p, sig
+		}
+	}
+	return nil, ""
 }
 
 // toolCall is one internal call found in an upstream answer.

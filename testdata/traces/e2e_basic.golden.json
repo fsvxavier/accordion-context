@@ -35,10 +35,10 @@
       ],
       "closedIntents": null,
       "deactivated": null,
-      "tokensAfter": 16332
+      "tokensAfter": 5040
     },
     "ranges": {
-      "b3": "tier=1 seq=285..429"
+      "b3": "tier=1 seq=285..417"
     }
   },
   {
@@ -64,7 +64,7 @@
       "tokensAfter": 91350
     },
     "ranges": {
-      "b4": "tier=1 seq=430..479"
+      "b4": "tier=1 seq=418..479"
     }
   }
 ]

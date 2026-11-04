@@ -16,6 +16,11 @@ const (
 	KindToolCall   Kind = "tool_call"
 	KindToolResult Kind = "tool_result"
 	KindReasoning  Kind = "reasoning"
+	// KindOpaque is an input item of a type the codec does not model (for example
+	// a Responses compaction item). It is kept in place and sent back unchanged. It
+	// is never summarized, dropped by truncation, or joined to a block: see
+	// CompressibleSpans, EmergencyTruncateWith and Render.
+	KindOpaque Kind = "opaque"
 )
 
 // Message is the protocol-independent normalized view.

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"regexp"
 
@@ -40,6 +41,51 @@ func (googleProtocol) Meta(path, rawQuery string, _ []byte) (string, bool, error
 		}
 	}
 	return m[1], stream, nil
+}
+
+// ClientCompaction marks the client's internal call with the shape of Gemini CLI's
+// history compression: a non-streaming :generateContent request with a
+// systemInstruction, no tools and no generationConfig (docs/compaction-commands.md,
+// second pass). It is not a turn of the conversation, so it passes through
+// untouched. The owner narrowed this to that shape: other utility calls carry a
+// generationConfig and stay ordinary turns, as do all streaming or tool-carrying
+// turns. compactionSignal prefers the text rule's name when the snapshot text matches.
+func (googleProtocol) ClientCompaction(rt routed, _ http.Header, body []byte) string {
+	if !routedTo(rt, googleProtocol{}.Detect) {
+		return ""
+	}
+	if !geminiCompressionShape(rt.path, body) {
+		return ""
+	}
+	return signalGeminiUtility
+}
+
+// geminiHasNoTools reports whether a generateContent body has a systemInstruction
+// or contents and no tool declarations. An unreadable body is not a match.
+func geminiHasNoTools(body []byte) bool {
+	var v map[string]json.RawMessage
+	if json.Unmarshal(body, &v) != nil {
+		return false
+	}
+	t := bytes.TrimSpace(v["tools"])
+	return len(t) == 0 || string(t) == "null" || string(t) == "[]"
+}
+
+// geminiCompressionShape reports the structure of Gemini CLI's history compression
+// call: non-streaming, a systemInstruction, no tools and no generationConfig (the
+// chat-compression-* aliases do not extend the base config, defaultModelConfigs.ts
+// 23-43 against 292-325 at the commit of the doc). It only corroborates the text rule.
+func geminiCompressionShape(path string, body []byte) bool {
+	if m := googleEndpoint.FindStringSubmatch(path); m == nil || m[2] == "stream" {
+		return false
+	}
+	var v map[string]json.RawMessage
+	if json.Unmarshal(body, &v) != nil {
+		return false
+	}
+	_, hasCfg := v["generationConfig"]
+	_, hasSys := v["systemInstruction"]
+	return hasSys && !hasCfg && geminiHasNoTools(body)
 }
 
 func (googleProtocol) Decode(body []byte) (request, []kernel.Message, error) {

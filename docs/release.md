@@ -40,8 +40,9 @@ jobs run only when the ref is a `v*` tag.
 
 ## Installing from source
 
-`go install` works only after the tag exists, because the Go module proxy
-serves tagged versions:
+`go install` with a version works only after the tag exists, because the Go
+module proxy serves tagged versions. No tag exists yet, so `@latest` does not
+resolve either:
 
 ```sh
 go install github.com/fsvxavier/accordion-context/cmd/acd-ctx@v1.2.3

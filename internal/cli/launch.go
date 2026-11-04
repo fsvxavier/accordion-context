@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"sync"
 
 	"github.com/fsvxavier/accordion-context/internal/launcher"
 	"github.com/fsvxavier/accordion-context/internal/plugin"
@@ -39,7 +41,21 @@ func runGeneric(args []string, s IO) int {
 	return launch(s, args, prof)
 }
 
+// lockedWriter serialises writes: the client and the proxy started for it both
+// copy their stderr into the same writer from separate goroutines.
+type lockedWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (l *lockedWriter) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.w.Write(p)
+}
+
 func launch(s IO, args []string, prof *launcher.Profile) int {
+	errw := &lockedWriter{w: s.Stderr}
 	code, err := launcher.Run(s.Ctx, launcher.Options{
 		Args:     args,
 		Profile:  prof,
@@ -47,8 +63,8 @@ func launch(s IO, args []string, prof *launcher.Profile) int {
 		Version:  s.Version,
 		Stdin:    s.Stdin,
 		Stdout:   s.Stdout,
-		Stderr:   s.Stderr,
-		ProxyLog: s.Stderr,
+		Stderr:   errw,
+		ProxyLog: errw,
 	})
 	if err != nil {
 		fmt.Fprintf(s.Stderr, "acd-ctx: %v\n", err)

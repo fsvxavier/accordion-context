@@ -15,6 +15,7 @@ type fakeIpt struct {
 	chains map[string][]string // "<bin> <chain>" -> rules, as -S lines
 	jumps  map[string][]string // bin -> OUTPUT rules, as argument strings
 	cmds   []string
+	noNat  map[string]bool // bin -> the nat table is unavailable
 }
 
 func newFakeIpt() *fakeIpt {
@@ -41,6 +42,12 @@ func (f *fakeIpt) Run(_ context.Context, c Command) (string, error) {
 	key := func(chain string) string { return c.Name + " " + chain }
 	switch op {
 	case "-S":
+		if rest[0] == "OUTPUT" { // builtin chain: present unless the nat table is missing
+			if f.noNat[c.Name] {
+				return "", &ExitError{Command: c, Code: 3, Output: "can't initialize ip6tables table `nat': Table does not exist"}
+			}
+			return "-P OUTPUT ACCEPT\n", nil
+		}
 		rules, ok := f.chains[key(rest[0])]
 		if !ok {
 			return "", miss
@@ -397,4 +404,71 @@ func TestUnknownFirewallRefused(t *testing.T) {
 	if len(f.cmds) != 0 {
 		t.Fatalf("unknown tool ran commands: %v", f.cmds)
 	}
+}
+
+// ip6tables without a nat table (no ip6table_nat) is refused with a clear
+// message before any command changes IPv4 or IPv6: nothing is half applied.
+func TestIptablesIPv6WithoutNatTableChangesNothing(t *testing.T) {
+	f := newFakeIpt()
+	f.noNat = map[string]bool{"ip6tables": true}
+	dir := t.TempDir()
+	_, err := StartTransparent(context.Background(), linuxEnv(f, 0), dir, iptPlan(t, false, true), FirewallIptables)
+	if err == nil || !strings.Contains(err.Error(), "ip6table_nat") {
+		t.Fatalf("err = %v, want a message naming ip6table_nat", err)
+	}
+	if f.present("iptables") || f.present("ip6tables") || len(f.chains) != 0 || len(f.jumps["iptables"]) != 0 {
+		t.Fatalf("something was installed: %v %v", f.chains, f.jumps)
+	}
+	for _, c := range f.cmds {
+		if strings.Contains(c, " -N ") || strings.Contains(c, " -I ") {
+			t.Fatalf("a change was attempted: %v", f.cmds)
+		}
+	}
+	if left, _ := listStates(dir); len(left) != 0 {
+		t.Fatalf("state kept: %v", left)
+	}
+}
+
+// The jump is the last command of each family and the chain is filled first, so
+// no failure can leave a jump into an empty (or missing) chain.
+func TestIptablesJumpInsertedAfterChainIsFilled(t *testing.T) {
+	for _, v6 := range []bool{false, true} {
+		cmds := iptPlan(t, false, true).iptScript(v6)
+		last := cmds[len(cmds)-1].String()
+		if !strings.Contains(last, " -I OUTPUT 1 ") {
+			t.Fatalf("v6=%v: last command is %q, want the jump", v6, last)
+		}
+		for _, c := range cmds[:len(cmds)-1] {
+			if strings.Contains(c.String(), " OUTPUT ") {
+				t.Fatalf("v6=%v: OUTPUT touched before the chain is filled: %s", v6, c)
+			}
+		}
+	}
+}
+
+// Any listing that iptOwned accepts is exactly the chain line plus tagged rules.
+func FuzzIptOwned(f *testing.F) {
+	f.Add("-N ACD_CTX_OUT\n-A ACD_CTX_OUT -m comment --comment \"acd-ctx\" -j RETURN\n")
+	f.Add("-N ACD_CTX_OUT\n-A ACD_CTX_OUT -j ACCEPT\n")
+	f.Add("-N FOO\n")
+	f.Fuzz(func(t *testing.T, s string) {
+		if !iptOwned(s) {
+			return
+		}
+		saw := false
+		for _, line := range strings.Split(s, "\n") {
+			line = strings.TrimSpace(line)
+			switch {
+			case line == "":
+			case line == "-N "+iptChain:
+				saw = true
+			case strings.HasPrefix(line, "-A "+iptChain+" ") && strings.Contains(line, OwnerTag):
+			default:
+				t.Fatalf("accepted a foreign line %q in %q", line, s)
+			}
+		}
+		if !saw {
+			t.Fatalf("accepted a listing without the chain line: %q", s)
+		}
+	})
 }

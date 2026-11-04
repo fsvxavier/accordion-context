@@ -166,9 +166,11 @@ func TestRunStartsOwnProxyOnVersionMismatchAndStopsIt(t *testing.T) {
 	}
 }
 
-func TestRunRefusesClientWithoutBaseURLVariable(t *testing.T) {
+func TestRunRefusesClientWithoutBaseURL(t *testing.T) {
+	bare := Profile{Name: "bare", Upstream: "https://api.example.com"}
 	code, err := Run(context.Background(), Options{
-		Args:     []string{"opencode"},
+		Args:     []string{"bare"},
+		Profile:  &bare,
 		Cwd:      t.TempDir(),
 		ServeExe: "/nonexistent/acd-ctx",
 		Stderr:   io.Discard,

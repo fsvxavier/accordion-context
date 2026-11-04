@@ -184,6 +184,12 @@ func RestoreStale(ctx context.Context, dir string, e Env) ([]string, error) {
 			errs = append(errs, err.Error())
 			continue
 		}
+		// Without privilege the nft and iptables list probes fail like an absent
+		// table, which would drop the state of a redirect that is still in place.
+		if st.Mode == ModeTransparent && !e.Privileged() {
+			errs = append(errs, fmt.Sprintf("%s: restoring a transparent redirect needs root or CAP_NET_ADMIN; state kept", l.Path))
+			continue
+		}
 		n, err := restoreState(ctx, r, e, st)
 		notes = append(notes, n...)
 		if err != nil {

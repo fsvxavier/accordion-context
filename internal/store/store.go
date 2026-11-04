@@ -27,7 +27,7 @@ var schemaSQL string
 
 // schemaVersion is the newest schema. schema.sql is the v1 base and stays frozen;
 // each later version is a step in migrate (see migrate.go).
-const schemaVersion = 3
+const schemaVersion = 4
 
 // Store is a single-writer handle over one SQLite database.
 type Store struct {
@@ -154,6 +154,15 @@ func (s *Store) migrate(ctx context.Context) error {
 	if v == schemaVersion {
 		return nil
 	}
+	// The v4 rebuild of messages drops and renames a table that other tables
+	// reference. SQLite ignores foreign_keys inside a transaction, so it is turned
+	// off here, and foreign_key_check runs before the commit.
+	if v < 4 {
+		if _, err := s.db.ExecContext(ctx, "PRAGMA foreign_keys = OFF"); err != nil {
+			return fmt.Errorf("foreign_keys off: %w", err)
+		}
+		defer func() { _, _ = s.db.ExecContext(ctx, "PRAGMA foreign_keys = ON") }()
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -172,6 +181,11 @@ func (s *Store) migrate(ctx context.Context) error {
 	if v < 3 {
 		if err := s.migrateV3(ctx, tx); err != nil {
 			return fmt.Errorf("migrate to v3: %w", err)
+		}
+	}
+	if v < 4 {
+		if err := s.migrateV4(ctx, tx); err != nil {
+			return fmt.Errorf("migrate to v4: %w", err)
 		}
 	}
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); err != nil {

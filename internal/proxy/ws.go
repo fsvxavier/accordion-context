@@ -161,6 +161,14 @@ func (ws *wsSession) run(ctx context.Context) error {
 func (ws *wsSession) handle(ctx context.Context, frame []byte) error {
 	s := ws.srv
 	p := responsesProtocol{}
+	// The client's own compaction request is forwarded unchanged, as over HTTP: no
+	// ingest, tools or nudge. Its signal is read from the frame, which has the body's shape.
+	if typ, _ := responses.EventType(frame); typ == "response.create" {
+		if sig := s.compactionSignal(ws.req, ws.rt, p, frame); sig != "" {
+			s.noteClientCompaction(context.WithoutCancel(ctx), ws.req, ws.rt, p, frame, sig)
+			return ws.passthrough(ctx, frame)
+		}
+	}
 	req, msgs, err := ws.codec.ReadCreate(frame)
 	if errors.Is(err, responses.ErrNotCreate) {
 		return ws.send(ctx, frame)

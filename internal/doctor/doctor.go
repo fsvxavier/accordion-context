@@ -608,6 +608,9 @@ func checkSystemLeftovers(dbPath, procRoot string, r sysproxy.Runner) Check {
 		state := "stale (owner pid " + strconv.Itoa(l.PID) + " is gone)"
 		if l.Alive {
 			state = "active (owner pid " + strconv.Itoa(l.PID) + " is running)"
+			if l.Mode == sysproxy.ModeTransparent && len(sysproxy.WatchdogPIDs(procRoot, l.Path)) == 0 {
+				state += ", but no watchdog is running: a crash would leave the redirect in place"
+			}
 		} else if l.Mode == sysproxy.ModeTransparent {
 			if pids := sysproxy.WatchdogPIDs(procRoot, l.Path); len(pids) > 0 {
 				state += ", watchdog pid " + strconv.Itoa(pids[0]) + " is still running and restores it"

@@ -30,29 +30,31 @@ type fork struct {
 // keyed by the transcript up to the first divergent message. The key depends
 // only on the transcript, so the walk is the same across turns and restarts,
 // and no state is kept in memory. A fork is returned when the session reached
-// is new and must inherit the parent's blocks.
-func (s *Server) resolveLedger(ctx context.Context, p projectRef, base string, msgs []kernel.Message, model string, limit int) (string, *session.Session, *fork, error) {
+// is new and must inherit the parent's blocks. The last result reports that the
+// session reached had no messages before this transcript, which links it to a
+// client compaction.
+func (s *Server) resolveLedger(ctx context.Context, p projectRef, base string, msgs []kernel.Message, model string, limit int) (string, *session.Session, *fork, bool, error) {
 	sid := base
 	var f *fork
 	for depth := 0; depth < maxForkDepth; depth++ {
 		sess, err := s.session(ctx, p, sid, model, limit)
 		if err != nil {
-			return "", nil, nil, err
+			return "", nil, nil, false, err
 		}
 		snap, err := s.cfg.Store.Snapshot(ctx, sid)
 		if err != nil {
-			return "", nil, nil, err
+			return "", nil, nil, false, err
 		}
 		d := divergence(snap.Messages, msgs)
 		if d < 0 {
 			// Reached through a fork: the caller inherits until it succeeds.
-			return sid, sess, f, nil
+			return sid, sess, f, len(snap.Messages) == 0, nil
 		}
 		s.cfg.Logger.Warn("ledger diverges from transcript", "session", sid, "at", d)
 		f = &fork{parent: sid, common: d}
 		sid = forkSessionID(sid, msgs[:min(d+1, len(msgs))])
 	}
-	return "", nil, nil, errors.New("proxy: session fork depth exceeded")
+	return "", nil, nil, false, errors.New("proxy: session fork depth exceeded")
 }
 
 // divergence returns the index of the first message where the stored ledger and

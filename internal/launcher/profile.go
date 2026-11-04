@@ -30,9 +30,9 @@ type Profile struct {
 	// prefix the SDK expects (e.g. https://api.openai.com/v1). Required when
 	// any base URL degree is declared.
 	Upstream string `yaml:"upstream"`
-	// BaseURLEnv receives the proxy base URL (degree base-url-env). Empty means
-	// the client has no base URL variable; Run refuses such clients with
-	// ErrNoBaseURL.
+	// BaseURLEnv receives the proxy base URL (degree base-url-env). Run uses
+	// the first of BaseURLEnv, BaseURLFlag and TempConfig that is set; a
+	// profile with none of them is refused with ErrNoBaseURL.
 	BaseURLEnv string `yaml:"base_url_env"`
 	// BaseURLFlag is a command-line option template that receives the proxy
 	// base URL through {url}, e.g. "--api-base {url}" (degree base-url-flag).
@@ -111,9 +111,10 @@ type ModelInfo struct {
 	MaxOutput     string `yaml:"max_output"`
 }
 
-// ErrNoBaseURL reports a client whose profile has no base URL variable. Such
-// clients need the MITM mode (§19.3, item 3), which this package does not do.
-var ErrNoBaseURL = errors.New("launcher: client has no base URL variable; the MITM mode is required")
+// ErrNoBaseURL reports a client whose profile has no base URL variable, base
+// URL flag or temp config. Such clients need the MITM mode (§19.3, item 3),
+// which this package does not do.
+var ErrNoBaseURL = errors.New("launcher: client has no base URL variable, base URL flag or temp config")
 
 var (
 	envNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -128,6 +129,9 @@ var builtinProfiles = []Profile{
 		Match:      []string{"claude"},
 		Upstream:   "https://api.anthropic.com",
 		BaseURLEnv: "ANTHROPIC_BASE_URL",
+		// Claude Code sends its compaction hint headers only on a custom base URL
+		// when this is set. acd uses them to detect client compaction.
+		Env: map[string]string{"CLAUDE_CODE_GATEWAY_HINT_HEADERS": "1"},
 	},
 	{
 		Name:       "codex",
@@ -142,10 +146,39 @@ var builtinProfiles = []Profile{
 		BaseURLEnv: "GOOGLE_GEMINI_BASE_URL",
 	},
 	{
-		// OpenCode has no documented base URL variable; its providers are set
-		// in its own config. Launching it needs the MITM mode.
-		Name:  "opencode",
-		Match: []string{"opencode"},
+		// OpenCode has no base URL variable. Its providers come from its own
+		// config, and OPENCODE_CONFIG loads an extra file that sets the
+		// Anthropic provider's baseURL. The template carries one provider, so
+		// each provider has its own profile.
+		Name:     "opencode",
+		Match:    []string{"opencode"},
+		Upstream: "https://api.anthropic.com/v1",
+		Detect: Detect{
+			Binaries:    []string{"opencode"},
+			ConfigPaths: []string{"~/.config/opencode/opencode.json"},
+		},
+		Integration: Integration{Prefer: []string{"temp_config"}},
+		TempConfig: &TempConfig{
+			PathEnv:  "OPENCODE_CONFIG",
+			Format:   "json",
+			Template: `{"provider":{"anthropic":{"options":{"baseURL":"{url}"}}}}`,
+		},
+	},
+	{
+		// Same binary as opencode. The match name is opencode-openai, so the
+		// profile is reached through a wrapper or symlink with that name.
+		Name:     "opencode-openai",
+		Match:    []string{"opencode-openai"},
+		Upstream: "https://api.openai.com/v1",
+		Detect: Detect{
+			Binaries: []string{"opencode"},
+		},
+		Integration: Integration{Prefer: []string{"temp_config"}},
+		TempConfig: &TempConfig{
+			PathEnv:  "OPENCODE_CONFIG",
+			Format:   "json",
+			Template: `{"provider":{"openai":{"options":{"baseURL":"{url}"}}}}`,
+		},
 	},
 }
 

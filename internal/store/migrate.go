@@ -137,3 +137,49 @@ func (s *Store) migrateV3(ctx context.Context, tx *sql.Tx) error {
 	}
 	return nil
 }
+
+// migrateV4 runs inside migrate's transaction, with foreign keys off (see
+// migrate). The kind CHECK of messages gains 'opaque', the kind of a Responses
+// input item the codec does not model. SQLite cannot alter a CHECK, so the table
+// is rebuilt with the same columns, keys and indexes, and every row is copied.
+// foreign_key_check then fails the migration if a reference was lost.
+func (s *Store) migrateV4(ctx context.Context, tx *sql.Tx) error {
+	for _, q := range []string{
+		`CREATE TABLE messages_v4 (
+		   session_id   TEXT NOT NULL REFERENCES sessions(id),
+		   seq          INTEGER NOT NULL,
+		   ref          TEXT NOT NULL,
+		   role         TEXT NOT NULL CHECK (role IN ('system','user','assistant','tool')),
+		   kind         TEXT NOT NULL CHECK (kind IN ('text','tool_call','tool_result','reasoning','opaque')),
+		   tool_name    TEXT,
+		   tool_call_id TEXT,
+		   content_hash TEXT NOT NULL REFERENCES contents(hash),
+		   tokens       INTEGER NOT NULL,
+		   ccr_stored   INTEGER NOT NULL DEFAULT 0,
+		   created_at   INTEGER NOT NULL,
+		   PRIMARY KEY (session_id, seq),
+		   UNIQUE (session_id, ref)
+		 )`,
+		`INSERT INTO messages_v4 (session_id, seq, ref, role, kind, tool_name, tool_call_id,
+		   content_hash, tokens, ccr_stored, created_at)
+		 SELECT session_id, seq, ref, role, kind, tool_name, tool_call_id,
+		   content_hash, tokens, ccr_stored, created_at FROM messages`,
+		`DROP TABLE messages`,
+		`ALTER TABLE messages_v4 RENAME TO messages`,
+		`CREATE INDEX idx_msgs_tool ON messages(session_id, tool_call_id)`,
+		`CREATE INDEX idx_messages_content ON messages(content_hash)`,
+	} {
+		if _, err := tx.ExecContext(ctx, q); err != nil {
+			return fmt.Errorf("v4 %.40s: %w", q, err)
+		}
+	}
+	rows, err := tx.QueryContext(ctx, "PRAGMA foreign_key_check")
+	if err != nil {
+		return fmt.Errorf("v4 foreign_key_check: %w", err)
+	}
+	defer rows.Close()
+	if rows.Next() {
+		return fmt.Errorf("v4 foreign_key_check: references broken")
+	}
+	return rows.Err()
+}

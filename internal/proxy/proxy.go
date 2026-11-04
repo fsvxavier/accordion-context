@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/fsvxavier/accordion-context/internal/kernel"
+	"github.com/fsvxavier/accordion-context/internal/obs"
 	"github.com/fsvxavier/accordion-context/internal/project"
 	"github.com/fsvxavier/accordion-context/internal/session"
 	"github.com/fsvxavier/accordion-context/internal/store"
@@ -83,6 +84,10 @@ type Config struct {
 	// UpstreamAllow lists the origins (scheme://host[:port]) reachable through the
 	// /ctx/<upstream>/ prefix. Default: the origin of Upstream only.
 	UpstreamAllow []string
+	// AllowedHosts, when non-empty, is the exact set of Host names the guard
+	// accepts (replacing the loopback defaults and ListenHost). Set by serve for
+	// non-loopback listening; see CheckListen.
+	AllowedHosts []string
 }
 
 // Server is the http.Handler of the proxy.
@@ -104,6 +109,8 @@ type Server struct {
 	roots    map[string]string       // project id -> root_path last seen
 	tunes    map[string]*tune        // per session: calibration, cache gate state (tune.go)
 	cfgs     map[string]cachedConfig // project root ("" = global only) -> configuration
+
+	telemetry *telemetry // metrics and recall-hint tracking (obs.go)
 }
 
 // New validates cfg and builds the handler.
@@ -144,12 +151,13 @@ func New(cfg Config) (*Server, error) {
 	}
 	srv := &Server{
 		cfg: cfg, client: client, started: time.Now(), allow: allow, hosts: hosts,
-		sessions: map[string]*session.Session{},
-		ensured:  map[string]bool{},
-		roots:    map[string]string{},
-		tunes:    map[string]*tune{},
-		cfgs:     map[string]cachedConfig{},
-		windows:  mergedWindows(cfg.ContextWindows),
+		sessions:  map[string]*session.Session{},
+		ensured:   map[string]bool{},
+		roots:     map[string]string{},
+		tunes:     map[string]*tune{},
+		cfgs:      map[string]cachedConfig{},
+		windows:   mergedWindows(cfg.ContextWindows),
+		telemetry: newTelemetry(),
 	}
 	srv.inherit = srv.inheritBlocks
 	return srv, nil
@@ -191,6 +199,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case pathStatus:
 		s.status(w)
 		return
+	case pathMetrics:
+		s.metricsEndpoint(w, r)
+		return
+	}
+	if rest, ok := strings.CutPrefix(r.URL.Path, pathSessions); ok {
+		s.sessionEndpoint(w, r, rest)
+		return
 	}
 	rt, status, msg := s.route(r.URL.Path)
 	if status != 0 {
@@ -230,6 +245,8 @@ func (s *Server) status(w http.ResponseWriter) {
 
 // compactTurn runs the compaction pipeline for one request of a dialect p.
 func (s *Server) compactTurn(w http.ResponseWriter, r *http.Request, rt routed, p protocol) {
+	started := time.Now()
+	defer func() { s.telemetry.m.RequestSeconds.WithLabelValues(p.Name()).Observe(time.Since(started).Seconds()) }()
 	ctx := context.WithoutCancel(r.Context())
 	body, err := readLimited(r.Body)
 	if err != nil {
@@ -287,11 +304,23 @@ func (s *Server) compactTurn(w http.ResponseWriter, r *http.Request, rt routed, 
 	// Its calibrated size is the TokenCount of the trigger (spec §15).
 	rendered := reduceWindow(kernel.Render(snap), cfg.CCRThresholdTokens, cfg.CrushEnabled)
 	tokenCount := s.calibrate(sid, sumTokens(rendered))
+	s.telemetry.m.ContextTokens.WithLabelValues(p.Name()).Observe(float64(tokenCount))
+	// The turn event carries what replay needs to repeat this Plan (spec §17.2 item 4).
+	opts := sess.Settings()
+	if err := s.cfg.Store.AppendEvent(ctx, sid, "turn", obs.TurnEvent{
+		Tokens: tokenCount, Messages: len(snap.Messages), ContextLimit: snap.ContextLimit,
+		Settings: obs.SettingsOf(opts.Kernel, opts.RecentKeep, opts.MinCompressRange, opts.MinSummaryChars),
+	}); err != nil {
+		s.failOpen(w, r, rt, body, "turn", err)
+		return
+	}
 	plan, err := sess.Plan(ctx, tokenCount)
 	if err != nil {
 		s.failOpen(w, r, rt, body, "plan", err)
 		return
 	}
+	s.telemetry.turnHints(sid, plan.Hints)
+	s.observeTurn(ctx, sid, sess, snap, plan, tokenCount, cfg)
 	window := reduceWindow(plan.Visible, cfg.CCRThresholdTokens, cfg.CrushEnabled)
 	encoded, err := req.encode(window)
 	if err != nil {
@@ -337,6 +366,7 @@ func (s *Server) compactTurn(w http.ResponseWriter, r *http.Request, rt routed, 
 	s.cfg.Logger.Debug("compaction turn", "protocol", p.Name(), "project", proj.ID, "session", sid,
 		"rule", plan.Decision.Row, "nudge", plan.Decision.Nudge, "tokens", tokenCount, "est_tokens", t.estTokens)
 	s.runTurns(w, r, t)
+	s.countRequest(p.Name(), obs.OutcomeCompact)
 }
 
 // turn is the per-client-request state of the server-side tool loop.
@@ -525,9 +555,11 @@ func (s *Server) execTool(t *turn, c toolCall) (string, error) {
 }
 
 func (s *Server) compress(t *turn, args toolArgs) (string, error) {
-	res, err := t.sess.HandleCompress(t.ctx, session.CompressArgs{
+	cargs := session.CompressArgs{
 		Ranges: args.ranges, Folds: args.folds, CloseIntents: args.closeIntents,
-	})
+	}
+	res, err := t.sess.HandleCompress(t.ctx, cargs)
+	s.observeCompress(t.ctx, t.sid, cargs, res, err)
 	if err != nil {
 		return "", err
 	}
@@ -572,6 +604,7 @@ func (s *Server) decompress(t *turn, args toolArgs) (string, error) {
 			return "", err
 		}
 		s.holdSpan(t.sid, blk.StartSeq, blk.EndSeq)
+		s.telemetry.markActed(t.sid, args.block)
 		return fmt.Sprintf("Expanded %s into %s; reactivated: %s. Their messages are visible again.",
 			args.block, res.Target, strings.Join(res.Reactivated, ", ")), nil
 	}
@@ -623,12 +656,16 @@ func (s *Server) recordCache(t *turn, u usage) {
 	}
 	// The sample pairs the raw estimate with the reported input (spec §15).
 	s.observeUsage(t.sid, t.estTokens, u.input, folded)
+	s.observeCache(t.sid, u)
 }
 
 // failOpen forwards the untouched client body. Compaction problems must never
 // break the agent's traffic.
 func (s *Server) failOpen(w http.ResponseWriter, r *http.Request, rt routed, body []byte, stage string, err error) {
 	s.cfg.Logger.Warn("compaction bypassed", "stage", stage, "err", err)
+	if p := protocolFor(rt); p != nil {
+		s.countRequest(p.Name(), obs.OutcomeFailOpen)
+	}
 	s.passthrough(w, r, rt, body)
 }
 
@@ -675,7 +712,9 @@ func (s *Server) upstreamCall(r *http.Request, up *url.URL, path string, body []
 			req.Header.Add(k, v)
 		}
 	}
+	started := time.Now()
 	resp, err := s.client.Do(req)
+	s.observeUpstream(time.Since(started))
 	if err != nil {
 		// url.Error embeds the full URL, query string included (API keys travel
 		// there for some providers). Keep it out of logs and error strings.

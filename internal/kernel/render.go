@@ -8,7 +8,9 @@ import (
 )
 
 // Render builds the visible window (spec §11.1): system messages, pinned first
-// user message, history envelopes, intents, raw recent zone, last user message last.
+// user message, history envelopes, intents (as of the last fold), then the raw
+// zone in natural order. The last user message keeps its natural position, so it
+// never lands after a tool round it started (§11.4).
 // shortcut: no emergencyTruncate (I8) and no recent-zone protection, arrive with §10.
 func Render(s Snapshot) []Message {
 	byseq := make(map[int64]Message, len(s.Messages))
@@ -38,13 +40,12 @@ func Render(s Snapshot) []Message {
 		return false
 	}
 
-	var firstUser, lastUser *Message
+	var firstUser *Message
 	for i := range s.Messages {
 		if s.Messages[i].Role == RoleUser && s.Messages[i].Kind == KindText {
 			if firstUser == nil {
 				firstUser = &s.Messages[i]
 			}
-			lastUser = &s.Messages[i]
 		}
 	}
 
@@ -64,18 +65,29 @@ func Render(s Snapshot) []Message {
 				"Para recuperar o original: decompress(%q).\n\n%s\n</history>",
 			b.ID, b.Tier, ref(b.StartSeq), ref(b.EndSeq), b.ID, b.Summary)})
 	}
-	if t := renderIntents(s.Intents); t != "" {
+	// Intents are rendered as of the last fold: newer user messages are already
+	// literal in the raw zone, so the block is byte-stable between folds and the
+	// prompt-cache prefix before the raw zone does not shift each turn.
+	var maxEnd int64
+	for _, b := range active {
+		if b.EndSeq > maxEnd {
+			maxEnd = b.EndSeq
+		}
+	}
+	var folded []Intent
+	for _, in := range s.Intents {
+		if len(active) > 0 && in.OriginSeq <= maxEnd {
+			folded = append(folded, in)
+		}
+	}
+	if t := renderIntents(folded); t != "" {
 		out = append(out, Message{Role: RoleUser, Kind: KindText, Text: t})
 	}
 	for _, m := range s.Messages {
-		if m.Role == RoleSystem || covered(m.Seq) || (firstUser != nil && m.Seq == firstUser.Seq) ||
-			(lastUser != nil && m.Seq == lastUser.Seq) {
+		if m.Role == RoleSystem || covered(m.Seq) || (firstUser != nil && m.Seq == firstUser.Seq) {
 			continue
 		}
 		out = append(out, m)
-	}
-	if lastUser != nil && (firstUser == nil || lastUser.Seq != firstUser.Seq) && !covered(lastUser.Seq) {
-		out = append(out, *lastUser)
 	}
 	return out
 }

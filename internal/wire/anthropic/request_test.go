@@ -167,18 +167,19 @@ func TestEncodeMergesAndKeepsPairing(t *testing.T) {
 	if err := json.Unmarshal(out, &body); err != nil {
 		t.Fatal(err)
 	}
-	// Expect: user[text, carrier-text] , assistant[thinking-dropped? no: kept text, tool_use], user[tool_result, text]
-	if len(body.Messages) != 3 {
-		t.Fatalf("want 3 messages, got %d: %s", len(body.Messages), out)
+	// Expect: user[pinned], user[carrier-text], assistant[thinking-dropped? no: kept text, tool_use], user[tool_result, text]
+	if len(body.Messages) != 4 {
+		t.Fatalf("want 4 messages, got %d: %s", len(body.Messages), out)
 	}
-	if body.Messages[0].Role != "user" || len(body.Messages[0].Content) != 2 {
-		t.Errorf("first message not merged: %s", out)
+	if body.Messages[0].Role != "user" || len(body.Messages[0].Content) != 1 ||
+		body.Messages[1].Role != "user" || len(body.Messages[1].Content) != 1 {
+		t.Errorf("pinned message must stay its own wire message: %s", out)
 	}
-	asst := body.Messages[1]
+	asst := body.Messages[2]
 	if asst.Role != "assistant" || len(asst.Content) != 3 || asst.Content[2].Type != "tool_use" || asst.Content[2].ID != "toolu_1" {
 		t.Errorf("assistant message wrong: %s", out)
 	}
-	last := body.Messages[2]
+	last := body.Messages[3]
 	if last.Role != "user" || len(last.Content) != 2 || last.Content[0].Type != "tool_result" || last.Content[0].ToolUseID != "toolu_1" {
 		t.Errorf("tool_result must lead the user message: %s", out)
 	}
@@ -236,7 +237,8 @@ func assertPairsValid(t *testing.T, name string, out []byte) {
 		if len(m.Content) == 0 {
 			t.Errorf("%s: message %d empty", name, i)
 		}
-		if i > 0 && body.Messages[i-1].Role == m.Role {
+		// The pinned first user message is its own wire message, so index 1 may be a user too.
+		if i > 1 && body.Messages[i-1].Role == m.Role {
 			t.Errorf("%s: consecutive %s messages at %d", name, m.Role, i)
 		}
 		// Every tool_use must be answered by the immediately following user message.

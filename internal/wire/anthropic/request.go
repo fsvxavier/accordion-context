@@ -279,6 +279,12 @@ func Encode(req *Request, window []kernel.Message) ([]byte, error) {
 			items = append(items, it)
 		}
 	}
+	if len(items) > 0 && items[0].role == roleUser && items[0].kind == kernel.KindText {
+		// The pinned first user message stays its own wire message (spec §11.1):
+		// history and intents follow it as a separate user message, so its bytes
+		// never change between requests. The API accepts adjacent user messages.
+		items[0].pinned = true
+	}
 	runs := assemble(items)
 	if len(runs) == 0 {
 		return nil, errors.New("anthropic: encode: window has no sendable messages")
@@ -314,12 +320,16 @@ type item struct {
 	kind kernel.Kind
 	id   string
 	raw  json.RawMessage
+	// pinned marks the pinned first user message; it is never merged with neighbours.
+	pinned bool
 }
 
 // run is a maximal sequence of items sharing one API role.
 type run struct {
 	role  string
 	items []item
+	// pinned is set on the run holding only the pinned first user message.
+	pinned bool
 }
 
 func (r *Request) blockFor(m kernel.Message) (item, bool) {
@@ -422,10 +432,10 @@ func inputObject(s string) string {
 func assemble(items []item) []run {
 	var runs []run
 	for _, it := range items {
-		if n := len(runs); n > 0 && runs[n-1].role == it.role {
+		if n := len(runs); n > 0 && runs[n-1].role == it.role && !runs[n-1].pinned && !it.pinned {
 			runs[n-1].items = append(runs[n-1].items, it)
 		} else {
-			runs = append(runs, run{role: it.role, items: []item{it}})
+			runs = append(runs, run{role: it.role, items: []item{it}, pinned: it.pinned})
 		}
 	}
 
@@ -474,7 +484,7 @@ func assemble(items []item) []run {
 		if len(r.items) == 0 {
 			continue
 		}
-		if n := len(out); n > 0 && out[n-1].role == r.role {
+		if n := len(out); n > 0 && out[n-1].role == r.role && !out[n-1].pinned && !r.pinned {
 			out[n-1].items = append(out[n-1].items, r.items...)
 			continue
 		}

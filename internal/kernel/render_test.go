@@ -15,7 +15,7 @@ func msgs() []Message {
 	}
 }
 
-func TestRenderFoldsAndKeepsLastUserLast(t *testing.T) {
+func TestRenderFoldsAndKeepsLastUserInPlace(t *testing.T) {
 	s := Snapshot{Messages: msgs(), Blocks: []Block{{ID: "b1", Tier: 1, Summary: "sum", StartSeq: 2, EndSeq: 3, Active: true}}}
 	out := Render(s)
 	if out[0].Text != "first" {
@@ -24,8 +24,8 @@ func TestRenderFoldsAndKeepsLastUserLast(t *testing.T) {
 	if !strings.Contains(out[1].Text, `covers="m00002..m00003"`) {
 		t.Fatalf("missing envelope: %q", out[1].Text)
 	}
-	if got := out[len(out)-1].Text; got != "last" {
-		t.Fatalf("last user not last: %q", got)
+	if out[2].Text != "last" || out[3].Text != "c" {
+		t.Fatalf("last user must keep its natural position before later raw messages: %v", texts(out))
 	}
 	for _, m := range out {
 		if m.Text == "a" || m.Text == "b" {
@@ -143,5 +143,62 @@ func TestRenderIntentsCapsLongText(t *testing.T) {
 	}
 	if strings.Contains(out, "second line") {
 		t.Fatal("done intent must render one line")
+	}
+}
+
+func texts(ms []Message) []string {
+	var o []string
+	for _, m := range ms {
+		o = append(o, m.Text)
+	}
+	return o
+}
+
+func TestRenderKeepsTurnOrderWithToolRound(t *testing.T) {
+	s := Snapshot{Messages: []Message{
+		{Seq: 1, Ref: "m00001", Role: RoleUser, Kind: KindText, Text: "first"},
+		{Seq: 2, Ref: "m00002", Role: RoleAssistant, Kind: KindText, Text: "a"},
+		{Seq: 3, Ref: "m00003", Role: RoleUser, Kind: KindText, Text: "last"},
+		{Seq: 4, Ref: "m00004", Role: RoleAssistant, Kind: KindToolCall, ToolCallID: "c1", Text: "call"},
+		{Seq: 5, Ref: "m00005", Role: RoleUser, Kind: KindToolResult, ToolCallID: "c1", Text: "res"},
+	}}
+	got := texts(Render(s))
+	want := []string{"first", "a", "last", "call", "res"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("order = %v, want %v", got, want)
+	}
+}
+
+func intentsOf(out []Message) string {
+	for _, m := range out {
+		if strings.HasPrefix(m.Text, "<intents>") {
+			return m.Text
+		}
+	}
+	return ""
+}
+
+func TestRenderIntentsStableWithoutFold(t *testing.T) {
+	ms := msgs()
+	in := []Intent{{ID: 1, OriginSeq: 1, Text: "first", Status: "open"}}
+	if got := intentsOf(Render(Snapshot{Messages: ms, Intents: in})); got != "" {
+		t.Fatalf("no active blocks must render no intents, got %q", got)
+	}
+	in = append(in, Intent{ID: 2, OriginSeq: 4, Text: "last", Status: "open"})
+	if got := intentsOf(Render(Snapshot{Messages: ms, Intents: in})); got != "" {
+		t.Fatalf("new user turn without fold must not add intents, got %q", got)
+	}
+}
+
+func TestRenderIntentsAsOfLastFold(t *testing.T) {
+	b := []Block{{ID: "b1", Tier: 1, Summary: "sum", StartSeq: 2, EndSeq: 3, Active: true}}
+	in := []Intent{{ID: 1, OriginSeq: 1, Text: "first", Status: "done"}, {ID: 2, OriginSeq: 4, Text: "last", Status: "open"}}
+	got := intentsOf(Render(Snapshot{Messages: msgs(), Blocks: b, Intents: in}))
+	if !strings.Contains(got, "#1") || strings.Contains(got, "#2") {
+		t.Fatalf("intents after fold = %q", got)
+	}
+	in = append(in, Intent{ID: 3, OriginSeq: 5, Text: "later", Status: "open"})
+	if again := intentsOf(Render(Snapshot{Messages: msgs(), Blocks: b, Intents: in})); again != got {
+		t.Fatalf("intents changed between folds: %q vs %q", again, got)
 	}
 }

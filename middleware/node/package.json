@@ -1,0 +1,22 @@
+{
+  "name": "acd-ctx",
+  "version": "0.1.0",
+  "description": "Accordion Context client for the plugin protocol (spec section 19.4). No dependencies.",
+  "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs"
+  },
+  "files": [
+    "index.mjs",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18.13"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}

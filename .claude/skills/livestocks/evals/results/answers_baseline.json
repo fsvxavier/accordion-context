@@ -1,0 +1,98 @@
+[
+ {
+  "id": 25,
+  "answer": "Ganho total = 380-200 = 180 kg. Dias = 180/0,6 = 300 dias = 10 meses (30 d/mês). 1 arroba = 15 kg: 15/0,6 = 25 dias por @ ganha (se contar arroba de carcaça com rendimento ~50%, seriam ~50 dias de peso vivo por @)."
+ },
+ {
+  "id": 26,
+  "answer": "Diária = 90.000/1.500 cab = R$60/cab/mês; /30 = R$2,00/cab/dia. Produção = 0,6 kg/dia ÷ 15 kg = 0,04 @/dia. Custo operacional da @ = 2,00/0,04 = R$50/@. Diferença para o preço = 300-50 = R$250/@ de margem sobre o custo operacional (antes de custo do bezerro/capital). Premissa: arroba = 15 kg de ganho."
+ },
+ {
+  "id": 27,
+  "answer": "Custo total = 2.200 + 300×1,50 = R$2.650. Se arroba = 15 kg de PV: 420/15 = 28 @ → 2.650/28 = R$94,64/@. Se usar carcaça com rendimento 50%: 210 kg = 14 @ → R$189,29/@. Não sei qual convenção o material adota; a mais realista de mercado é a de carcaça (~R$189/@)."
+ },
+ {
+  "id": 28,
+  "answer": "Não tenho certeza da convenção. Com arroba viva de 30 kg (rend. 50%): bezerro = 200/30 = 6,67 @; preço pago = 2.400/6,67 = R$360/@; ágio = 360-280 = R$80/@; total a diluir = 80×6,67 = R$533,33. Para compensar: 533,33/280 = 1,9 @ (~28,6 kg PV a 15 kg/@) ÷ 250 dias ≈ 0,11 kg/dia a mais (ou ~R$2,13/dia)."
+ },
+ {
+  "id": 29,
+  "answer": "Boi = 20×310 = R$6.200. Bezerro = 2.480/310 = 8 @. Relação de troca = 6.200/2.480 = 2,5 bezerros por boi gordo (ou 20/8 = 2,5). Diz quanto poder de compra de reposição o boi vendido dá: quanto maior, mais favorável ao invernista/recriador; 2,5 é um nível razoável a favorável (historicamente ~1,3–1,6 é desfavorável)."
+ },
+ {
+  "id": 30,
+  "answer": "Por kg: 0,70×1,50 = 1,05; 0,20×2,50 = 0,50; 0,10×6,00 = 0,60. Total R$2,15/kg (base na matéria natural). Saco de 30 kg = 30×2,15 = R$64,50. Batida de 1.000 kg = R$2.150."
+ },
+ {
+  "id": 31,
+  "answer": "Não lembro com certeza qual equação o material usa para cruzados. Estimativa: CMS em confinamento ≈ 2,0–2,3% do PV, ou seja 450×0,022 ≈ 9,9 kg MS/dia (faixa 9–10,4 kg). Não sei o valor exato da equação."
+ },
+ {
+  "id": 32,
+  "answer": "1 UA = 450 kg. 380/450 = 0,844 UA/cab. 300×0,844 = 253,3 UA. Lotação = 253,3/110 = 2,30 UA/ha. Em cabeças: 300/110 = 2,73 cab/ha."
+ },
+ {
+  "id": 33,
+  "answer": "Heterose (%) = (F1 - média dos pais)/média dos pais ×100 = (210-180)/180 = 16,7%, ou 30 kg a mais no desmame."
+ },
+ {
+  "id": 34,
+  "answer": "Não sei exatamente os percentuais do material. Estimativa: FGTS 8% + INSS/outras entidades ~5,8% + 13º 8,33% + férias com 1/3 11,11% = 33,2% → custo ≈ R$3.000×1,332 ≈ R$3.997/mês; fator ≈ 1,33. Fazenda de 2.000 cab: 2 funcionários (1/1.000) → ≈ R$7.994/mês (se não incluir INSS terceiros: fator 1,2744, R$3.823 e R$7.646)."
+ },
+ {
+  "id": 35,
+  "answer": "Rio com 40 m (10–50 m): APP de 50 m em cada margem. Nascente: raio de 50 m. Reserva legal: 35% no cerrado dentro da Amazônia Legal; 20% nas demais regiões (Código Florestal, Lei 12.651/2012)."
+ },
+ {
+  "id": 36,
+  "answer": "Pedilúvio: passar o gado 2 a 3 vezes/semana (diário em surto), solução de sulfato de cobre 5% ou formol 3–5%, trocando a solução após ~200–300 passagens. Vermifugação (corte): estratégica, 3 doses na época seca (ex.: maio, julho, setembro) em bezerros/recria. Leite: não tenho calendário exato; guiar por OPG/FAMACHA, priorizando bezerras e novilhas, e cuidado com carência no leite."
+ },
+ {
+  "id": 37,
+  "answer": "Não tenho certeza dos números. Transporte: até ~8 h é o limite comum; se passar, parar para descanso, água e alimentação (cerca de 24 h de descanso). Espera no frigorífico: ~12–24 h de descanso (ideal ~16–24 h) para recuperar glicogênio, pH final e cor. Carne DFD: pH final > 5,8–6,0 (em geral ≥ 6,0)."
+ },
+ {
+  "id": 38,
+  "answer": "Não sei com segurança. Memória aproximada (IN 76/77): tanque comunitário com poucos produtores, distância curta (da ordem de 5 km), entrega do leite em até 2 h após a ordenha, coleta a cada 48 h no máximo (24 h ideal), temperatura 4 °C. Não confio nos limites de distância, produtores e volume."
+ },
+ {
+  "id": 39,
+  "answer": "Creep-feeding: concentrado com ~20–22% PB, NDT ~75–80%, milho moído + farelo de soja + núcleo mineral (ou sal mineral limitando consumo). Fornecer ~0,5–1,0 kg/bezerro/dia (≈1% do PV). Cocho ~5–10 cm lineares por bezerro; área de acesso ~ 1 m²/bezerro. Valores aproximados, não tenho certeza."
+ },
+ {
+  "id": 40,
+  "answer": "Aplicar calcário 60–90 dias antes do plantio (idealmente 2–3 meses, na época chuvosa), incorporado. Não sei o ganho exato de MS nem o retorno financeiro citado; ordem de grandeza: +20–40% de MS e retorno positivo (~R$2–4 por R$1 investido), sem certeza."
+ },
+ {
+  "id": 41,
+  "answer": "Inadequado: 96 baias/120 vacas = 0,8 baia/vaca (120 vacas por 100 baias = 125%); o recomendado é ≥1 baia por vaca (≤ 100–110%). Precisa de pelo menos 120 baias ou reduzir o lote em 24 vacas. Para escores de higiene e casco não sei o n exato; a prática é avaliar todas ou uma amostra representativa (~30–50% do lote, mínimo em torno de 50 vacas)."
+ },
+ {
+  "id": 42,
+  "answer": "RL cerrado/AML = 35%×2.000 = 700 ha. Área aproveitável = 2.000-100 (APP)-20 (benfeitorias)-700 (RL) = 1.180 ha. GUT = 900/1.180 = 76,3%. Mínimo = 80% → 944 ha. Não atende; faltam ~44 ha a utilizar. (Premissa: GUT ≥ 80% e RL deduzida; se RL não for deduzida, GUT=900/1.880=47,9% e precisaria de 1.504 ha.)"
+ },
+ {
+  "id": 43,
+  "answer": "Limite da IN 76/77 em 2019 para Sudeste: 500 mil CS/mL, então 450 mil não é infração legal, mas laticínios com bonificação por qualidade (ex.: <200–250 mil) podem penalizar. Perda: não sei o número exato; ordem de grandeza ~5–10% do leite com 450 mil CS. Manejo: CMT, ordenha de vacas sadias primeiro, pré e pós-dipping, linha de ordenha, manutenção da ordenhadeira, terapia da vaca seca, descarte de vacas crônicas, higiene de cama."
+ },
+ {
+  "id": 44,
+  "answer": "Com 5% PB, usar suplemento proteico (proteinado de seca, 30–40% PB, com ureia) com dose ~0,1% PV (0,1–0,2%). 300 kg × 0,1% = 0,3 kg/cab/dia; ×100 = 30 kg/dia = 1 saco de 30 kg por dia. Se 0,2% PV: 0,6 kg/cab → 60 kg = 2 sacos/dia."
+ },
+ {
+  "id": 45,
+  "answer": "Faixas variam conforme a fonte e o sistema. Desmama convencional: 6–8 meses (~180–240 dias, ~7 meses média), é a referência prática no Brasil; 7–9 e 9–11 meses são extensões para pasto/sistemas extensivos ou bezerros leves. Usar ~7 meses (peso mínimo 6–7 @ vivo/ ~180 kg) e antecipar em seca severa ou vaca em mau estado."
+ },
+ {
+  "id": 46,
+  "answer": "O número aceito é 70–90% (alimentação como principal item, em torno de 70–80% do custo operacional/desembolso). Use o número do seu próprio custo real, partindo de ~75% no orçamento. Os 28,67% parecem ser um item específico de um estudo/caso e não devem ser usados como regra geral; não tenho certeza da origem."
+ },
+ {
+  "id": 47,
+  "answer": "Lotação de ovinos: ~5–10 cab/ha (cerca de 6–8 em pastagem manejada, até 10+ em intensivo irrigado). Vermífugo: dose por peso e produto, conforme bula (ex.: ivermectina 0,2 mg/kg; levamisol 5–7,5 mg/kg; albendazol 5 mg/kg), usando FAMACHA/OPG para tratamento seletivo. Não sei a dose única do material."
+ },
+ {
+  "id": 48,
+  "answer": "Gluconato de cálcio 23%: ~500 mL (≈10–11 g de Ca) por vaca de ~600 kg, EV lenta (10–20 min) monitorando coração; opcional metade EV e metade SC. Retornar a ficar em pé em 10–30 min; repetir em 8–12 h se recair. Complementar com Mg se necessário, manter a vaca em decúbito esternal, e prevenir com dieta aniônica pré-parto. Dose exata do material não tenho certeza."
+ }
+]

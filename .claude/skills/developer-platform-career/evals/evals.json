@@ -1,0 +1,365 @@
+{
+  "skill_name": "developer-platform-career",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I'm a backend engineer (6 years, mostly Go and Postgres) at a logistics company and I want to move into platform engineering next year. I've started the Certified Kubernetes Administrator course and I've already booked PlatformCon for next June. The two jobs I'm actually excited about are at Cadenza, a payments infrastructure company where I'd own the public REST API and the partner webhook surface, and at Vellum Labs, where the posting says I'd design the SDKs their customers integrate against. Can you put together a six-month plan to get me ready?",
+      "expected_output": "A plan that first separates the internal-developer-platform meaning of 'platform engineering' from the external/public-API track the user's target jobs actually sit in, then redirects the conference, study and portfolio choices accordingly.",
+      "files": [],
+      "expectations": [
+        "Establishes who the primary consumer of the role's output is - the company's own engineering teams or developers outside the company - before giving a plan",
+        "States that \"platform engineer\" and \"platform engineering\" overwhelmingly mean internal developer platforms elsewhere in the industry: self-service infrastructure, CI/CD, Kubernetes abstractions, golden paths",
+        "Identifies the two target jobs (public REST API, partner webhooks, customer-facing SDKs) as the external/public-API population rather than the internal-developer-platform one",
+        "Names PlatformCon as the internal-developer-platform community and states it does not cover the external-API track",
+        "Redirects the community and conference choice toward apidays rather than PlatformCon",
+        "Warns that Kubernetes/CKA-style internal-infrastructure study does not build the signal these external-API roles screen on",
+        "Names the target role track explicitly as one of API Product Manager, Platform Engineer/Architect, or Partner/Integration Engineer",
+        "Names the target company archetype explicitly as one of infra/API-first, bolt-on public API on an existing product, or enterprise partner/ISV ecosystem",
+        "States that sourcing the wrong population also benchmarks the wrong compensation band (general infra/SRE versus general backend/product engineering with an API-design specialization)",
+        "Recommends API-design portfolio artifacts - RFCs or design docs, shipped API/schema designs, open-source contributions - over infrastructure certifications"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Northwind Signal just made me an offer. Title is \"Staff Software Engineer, API Platform\" - I'd be on the team that owns their public API and the webhook delivery system. I spent the weekend trying to sanity-check the number and got nowhere: searching \"platform engineer\" and \"API product manager\" on the crowdsourced comp sites returns almost nothing, and the two data points I did find were four years apart and 60% different. What should I be asking for?",
+      "expected_output": "A benchmarking method that maps the title onto the company's general engineering ladder instead of chasing a bespoke platform title, with every figure sourced, dated and levelled or flagged for live verification.",
+      "files": [],
+      "expectations": [
+        "States that developer-platform compensation rides the general engineering or product-management ladder rather than a separate, bespoke one",
+        "Instructs the user to benchmark against Northwind Signal's general software-engineering band at the Staff level",
+        "Points out that in \"Staff Software Engineer, API Platform\" the leveling word is the general engineering rung and \"API Platform\" is a team-name qualifier, not a pay scale",
+        "Explains that bespoke platform/API title searches on crowdsourced leveling sites return sparse or no data, which is why the weekend search failed",
+        "Recommends searching crowdsourced leveling sites by the general engineering title plus company, filtered to the platform or API team",
+        "Recommends the company's own published engineering level ladder and comp bands where those are public",
+        "States that no survey-grade compensation dataset exists for this niche",
+        "Presents no specific compensation figure as verified without naming its source, date and level",
+        "Flags any figure it does use as needing live verification before it anchors the negotiation",
+        "Mentions devtools-focused recruiters as an additional channel for a current figure",
+        "Names which company archetype the offer sits in (infra/API-first, bolt-on public API, or enterprise partner/ISV ecosystem)"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Onsite at Perron (card payments, Series C) in nine days for a senior backend role on their API platform team. The recruiter's email lists a \"system design\" interview and, separately, an \"API design\" interview. My plan is to grind the usual distributed systems material for both - sharding strategies, consistency models, cache invalidation, load balancer topologies - since it's the same skill twice really. Also, should I expect a take-home? Give me a nine-day study list.",
+      "expected_output": "Prep that separates the two rounds, treats API design as its own format judged on developer-facing clarity and misuse-resistance, and refuses to assert an SDK/API take-home as confirmed practice.",
+      "files": [],
+      "expectations": [
+        "States that API design is a distinct, separately named interview format from general system design, not the same round twice",
+        "Describes the system design round as testing large-scale distributed-systems architecture",
+        "Describes the API design round as testing the decisions and downstream consequences of shaping an interface that developers consume",
+        "States the API design round is judged on clarity and misuse-resistance rather than raw scale or availability trade-offs",
+        "States the API design round's scope is deliberately smaller than a full system design round, with no full architecture to sketch",
+        "Names Meta as a company running API design as a separate, named interview type",
+        "Uses the payments-API worked example, scoped to card-payment processing, where the \"users\" are developers integrating the API into their own product",
+        "States the bar includes error messages specific enough that an integrating developer can act on them",
+        "Warns that the distributed-systems drill list (sharding, consistency, caching, load balancers) does not prepare the API design round",
+        "Flags a take-home designing an SDK or API surface as plausible by analogy rather than as confirmed practice for this field",
+        "Points the API-design prep at a named framework: Google's AIPs, Microsoft's REST API Guidelines, Zalando's RESTful API Guidelines, or the Richardson Maturity Model"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "I'm a PM at Brightloom Retail - four years, all internal tooling and merchandising features, no developer-facing product. I want to be an API product manager within a year. I've got about 2,000 euros of learning budget to spend before it expires in March. I was going to put it into the apiMasters certification and the Postman certification, and maybe a product-management bootcamp on top. Which of those gets me hired fastest?",
+      "expected_output": "A redirect away from paid credentials toward portfolio and ladder positioning, with apiMasters correctly positioned as informational and the Postman program not endorsed without verification.",
+      "files": [],
+      "expectations": [
+        "States that certifications are largely not meaningful for this field and that none functions as a stated hiring gate",
+        "Identifies apidays' apiMasters as the one real, currently-running credential and positions it as informational at best",
+        "Declines to recommend the Postman certification without first verifying that the program is live and confirming its actual positioning",
+        "States that no dedicated academic degree or bootcamp path exists for this specialization",
+        "States the specialization is layered onto a general software-engineering or product-management base",
+        "Recommends RFC or design-doc writing as the checkable portfolio artifact for this field",
+        "Notes that no public repository of API-design RFC portfolios comparable to a GitHub profile exists, so the equivalent artifact is a design doc from a real employer and is harder to make public",
+        "States that API PM decisions are judged on integration friction and breaking-change cost, not feature adoption alone",
+        "Describes API PM progression as mirroring the general product-management ladder with technical/developer-facing weighting added at every level",
+        "Asks at least one scoping question - target track, target company archetype, deadline, or weekly effort available - before delivering a ranked plan"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Three years at Tessera Health building internal service APIs - our own mobile and web teams are the only consumers. A recruiter told me last week this is the standard on-ramp to public API work and that everyone she places on external platform teams came through internal API work first. I want to be at a company shipping a real public API within 18 months. Confirm the path and tell me what to do next.",
+      "expected_output": "A plan that accepts internal API work as a plausible lower-stakes practice ground but labels the route a hypothesis rather than confirming the recruiter's claim as an established pattern.",
+      "files": [],
+      "expectations": [
+        "Labels the internal-API-to-external-API route as a plausible hypothesis, not an established or practitioner-verified pattern",
+        "States that no named practitioner account of this exact transition is documented",
+        "Does not confirm the recruiter's claim that this is the standard or usual path into external platform teams",
+        "Explains why internal API work is lower-stakes: no public docs, no formal deprecation notice, no external SLA, less external-consumer accountability",
+        "Contrasts the hypothesis with what is evidenced: GitLab's Associate Partner Integration Engineer to Partner Integration Engineer to Manager progression",
+        "Presents that GitLab progression as one concrete sourced example of formal progression inside a company that already has the function, not a generic industry pattern",
+        "States that an open-source contribution history is a named requirement in GitLab's family even at the associate level",
+        "Names Ruby/Rails or Go proficiency as GitLab's stated language requirement for that family",
+        "Recommends confirming whether a target posting means the internal-developer-platform or external-API population before applying to it",
+        "Names both the target role track and the target company archetype for the 18-month goal"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Two offers on the table and a third conversation running. Ardent Pay: payments infrastructure, the API is the whole product, title is Staff Software Engineer, API Platform, team of nine on the platform org. Glenview Logistics: vertical SaaS for freight brokers, they're adding a public API this year, title is Senior Backend Engineer, and the hiring manager said \"you'll own the API end to end\" - there's no platform team, I'd be one of six backend engineers. The third is a recruiter at a large enterprise with a partner engineering team that supports their ISV ecosystem. Base is within 8% across all three. Which do I take?",
+      "expected_output": "A comparison that classifies each option by company archetype, names what a hire is measured on in each, and surfaces the archetype-specific risk rather than deciding on base salary.",
+      "files": [],
+      "expectations": [
+        "Names the three company archetypes explicitly: infra/API-first, bolt-on public API on an existing product, and enterprise partner/ISV ecosystem",
+        "Classifies Ardent Pay as the infra/API-first archetype",
+        "Classifies Glenview Logistics as the bolt-on public API archetype",
+        "Classifies the third conversation as the enterprise partner/ISV ecosystem archetype",
+        "States that at bolt-on companies API design is folded into general backend engineering rather than owned by a dedicated team",
+        "Flags the bolt-on risk that the role may be under-titled or under-levelled relative to actual scope, or pulled back into general backend work",
+        "Flags the infra/API-first trade-off that scope is real and specialized but competition for the role is high",
+        "Flags that the partner-ecosystem role is measured on partner metrics the candidate cannot fully control, such as the partner's own adoption pace",
+        "Cites the finding that 84% of API teams operate in groups of 1-9 people",
+        "Attributes that 84% figure to Postman's State of the API Report",
+        "States that a candidate should expect breadth - API design plus some partner work plus some internal advocacy - rather than a narrowly scoped specialist seat, except at true infra-first companies or large partner-ecosystem enterprises",
+        "States that one archetype's ladder and measurement criteria do not predict another's, so the three offers are not directly comparable on title or base alone"
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "I read Stripe's posting for Staff Software Engineer, API Platform and it wants 12+ years of experience with 5+ in strategic technical leadership. I have six years. I also found GitLab's Associate Partner Integration Engineer description and assumed that's the standard first rung everyone starts on. On top of that, a recruiter is pitching me something called \"Developer Platform Lead\" at a Series B and I can't find that title anywhere else. My read is that I should stay in general backend for another six years until I clear the Stripe bar, then switch. Sanity-check me.",
+      "expected_output": "A correction that treats Stripe's and GitLab's bars as the two concrete sourced examples they are rather than an industry ladder, and tells the candidate not to wait out six years against one company's staff posting.",
+      "files": [],
+      "expectations": [
+        "States that no standardized cross-industry IC ladder exists for API Product Manager or Platform Engineer",
+        "Presents Stripe's 12+ years and 5+ years of strategic technical leadership as one company's staff-level posting, not an entry bar for the track",
+        "Presents GitLab's Partner Integration Engineer ladder as the one concrete sourced example rather than the standard first rung everyone starts on",
+        "Names GitLab's three levels: Associate Partner Integration Engineer, Partner Integration Engineer, and Manager, Partner Integration Engineers",
+        "States that the engineering-side entry bar varies widely, contrasting GitLab's bachelor's-degree-or-equivalent associate bar with Stripe's staff bar",
+        "Notes that Stripe's posting welcomes candidates who have not spent their career in infrastructure, provided they show experience leading engineering teams working on API design, abstractions, frameworks, or client libraries",
+        "Frames the Stripe bar as leadership over API-shaping work rather than tenure in any one stack",
+        "Advises against waiting six more years in general backend before entering the track",
+        "States that \"Developer Platform Lead\" has no standardized title or ladder and is an org-specific label rather than a title with its own external hiring market",
+        "Recommends targeting an archetype whose bar matches the candidate's current level instead of benchmarking against a staff posting at an infra-first company"
+      ]
+    },
+    {
+      "id": 8,
+      "prompt": "I run engineering at Kestrel Compliance, 40 people. We're opening our first dedicated API platform req next quarter and I need to get it right. Draft me the job description, the must-have versus nice-to-have split, and the interview loop with what each stage should test.",
+      "expected_output": "A one-line redirect identifying this as the employer side of the table and pointing at the hiring skill, without producing the job description or loop.",
+      "files": [],
+      "expectations": [
+        "Identifies the request as employer-side hiring rather than candidate-side career planning",
+        "Names samber/developer-platform-skills@developer-platform-hiring as the skill to use instead",
+        "Keeps the redirect to roughly one line rather than delivering a full plan",
+        "Does not produce a finished job description",
+        "Does not produce a finished interview loop or scorecard"
+      ]
+    },
+    {
+      "id": 9,
+      "prompt": "My title at Marrowfield Systems is Integration Engineer - I spend my days on iPaaS flows, message queues and error handling between our ERP, our warehouse system and a couple of third-party carriers. A recruiter just pinged me about a Partner Engineer opening at a large enterprise with a big ISV ecosystem, and honestly it looks like the same job with a nicer name, so I'm inclined to apply with my CV as-is. Problem: every design doc I've written is covered by NDA, so I have nothing public to show. How do I play this?",
+      "expected_output": "A distinction between the two roles on the relationship-facing axis, the partner-facing metrics the target role is measured on, and a portfolio strategy that works around the NDA constraint.",
+      "files": [],
+      "expectations": [
+        "States that Partner Engineer is relationship-facing: the technical liaison between the company and external technology partners or marketplace developers",
+        "States that Integration Engineer is internal and architecture-focused, owning how several services and third-party systems exchange data reliably",
+        "States the two are not the same role renamed, and names the relationship-facing dimension as the difference",
+        "Names GitLab or Uber as a company with the Partner Engineer shape",
+        "Names the partner-facing outcome metrics for the function: partners supported, integrations launched, integration usage, and year-over-year partner-usage growth",
+        "Warns that the partner role is measured partly on the partner's own adoption pace, which the candidate cannot fully control",
+        "States that RFC and design-doc writing is a real, checkable portfolio artifact for this field",
+        "Acknowledges the design-doc artifact is harder to make public than a blog post and offers a way to describe the work without disclosing confidential detail",
+        "Recommends an open-source contribution history as the publicly checkable portfolio signal, noting it is a named requirement in GitLab's partner integration family even at entry level",
+        "Names the enterprise partner/ISV ecosystem archetype as the one the opening sits in"
+      ]
+    }
+  ],
+  "trigger_queries": [
+    { "query": "How do I break into API product management?", "should_trigger": true },
+    {
+      "query": "I want to move from backend engineering onto the team that owns our public API - what's the path?",
+      "should_trigger": true
+    },
+    { "query": "What does a Partner Engineer actually do day to day?", "should_trigger": true },
+    {
+      "query": "Interview next week for a platform engineer role at a payments company, how do I prep?",
+      "should_trigger": true
+    },
+    { "query": "Is the apiMasters certification worth paying for?", "should_trigger": true },
+    {
+      "query": "How should I benchmark a Staff Software Engineer, API Platform offer?",
+      "should_trigger": true
+    },
+    {
+      "query": "Partner Engineer or Integration Engineer - which should I be applying to?",
+      "should_trigger": true
+    },
+    {
+      "query": "I've only ever built internal services. Can I get hired on a team that ships a public SDK?",
+      "should_trigger": true
+    },
+    {
+      "query": "The recruiter says the loop has an API design round separate from system design. What's the difference?",
+      "should_trigger": true
+    },
+    {
+      "query": "What goes in a portfolio when every design doc I've written is confidential?",
+      "should_trigger": true
+    },
+    {
+      "query": "Two offers: one where the API is the product, one where they're bolting an API onto their SaaS. Which?",
+      "should_trigger": true
+    },
+    { "query": "How do I get to staff level on an API platform team?", "should_trigger": true },
+    {
+      "query": "A recruiter pitched me a Developer Platform Lead role - is that even a real title?",
+      "should_trigger": true
+    },
+    { "query": "Do I need a degree to do API product management?", "should_trigger": true },
+    { "query": "What does the ladder look like for partner integration engineers?", "should_trigger": true },
+    {
+      "query": "I'm a PM and they've added a technical round with an engineer. What will they ask me?",
+      "should_trigger": true
+    },
+    {
+      "query": "Should I specialise in webhooks and third-party integrations or stay a generalist backend engineer?",
+      "should_trigger": true
+    },
+    { "query": "How many years do you actually need for a staff API platform role?", "should_trigger": true },
+    { "query": "What salary should I ask for as an API product manager?", "should_trigger": true },
+    {
+      "query": "Help me choose between the developer platform team and the core product team for my next move",
+      "should_trigger": true
+    },
+    { "query": "resume review for a platform engineering application", "should_trigger": true },
+    {
+      "query": "Four years as a solutions architect, I want to own the public API instead. Realistic?",
+      "should_trigger": true
+    },
+    {
+      "query": "Onsite next month where they said I'd be designing a payments API. What are they grading?",
+      "should_trigger": true
+    },
+    {
+      "query": "I'm applying for a role that owns a company's whole public API - what do they screen for?",
+      "should_trigger": true
+    },
+    { "query": "Is it worth publishing RFCs to get noticed for these roles?", "should_trigger": true },
+    {
+      "query": "How do I describe my integration work on a CV without naming clients?",
+      "should_trigger": true
+    },
+    {
+      "query": "Thinking about leaving my backend job. What roles exist around APIs that aren't just more CRUD?",
+      "should_trigger": true
+    },
+    {
+      "query": "My title is Integration Engineer but I want to be partner-facing. How do I switch?",
+      "should_trigger": true
+    },
+    {
+      "query": "Which conferences should I be at if I want a job designing public APIs?",
+      "should_trigger": true
+    },
+    {
+      "query": "Does an open source history actually matter when applying to partner engineering teams?",
+      "should_trigger": true
+    },
+    { "query": "I keep getting rejected from API platform roles, what am I missing?", "should_trigger": true },
+    { "query": "How technical does an API PM need to be?", "should_trigger": true },
+    {
+      "query": "What comes after Senior PM if the product I own is developer-facing?",
+      "should_trigger": true
+    },
+    {
+      "query": "I'm being promoted to manage the partner integrations team - what changes about the job?",
+      "should_trigger": true
+    },
+    {
+      "query": "The comp sites have nothing for \"API product manager\". How do I figure out the band?",
+      "should_trigger": true
+    },
+    {
+      "query": "Interviewing somewhere one person does API design, partner work and the docs. Red flag?",
+      "should_trigger": true
+    },
+    {
+      "query": "Should I take it if the title says Senior Backend Engineer but the job is owning their public API?",
+      "should_trigger": true
+    },
+    { "query": "How do I position myself for developer-facing infrastructure work?", "should_trigger": true },
+    {
+      "query": "I own our entire external API but I'm still levelled as mid. Am I underlevelled?",
+      "should_trigger": true
+    },
+    {
+      "query": "Eighteen month career plan, I want to end up owning an API as a product",
+      "should_trigger": true
+    },
+    {
+      "query": "How do I become a platform engineer working on our internal Kubernetes developer platform?",
+      "should_trigger": false
+    },
+    {
+      "query": "What should I learn to build golden paths with Backstage for our application teams?",
+      "should_trigger": false
+    },
+    {
+      "query": "Is PlatformCon worth attending for an internal developer platform team?",
+      "should_trigger": false
+    },
+    { "query": "Career path from SRE into internal platform engineering", "should_trigger": false },
+    {
+      "query": "What's the salary band for a senior Kubernetes platform engineer in Berlin?",
+      "should_trigger": false
+    },
+    {
+      "query": "Should our internal developer platform team own the CI/CD pipelines too?",
+      "should_trigger": false
+    },
+    { "query": "Design the rate limit policy for our public API", "should_trigger": false },
+    { "query": "Write our API versioning and deprecation policy", "should_trigger": false },
+    { "query": "Review our REST API design before we ship v1", "should_trigger": false },
+    { "query": "How should we structure error codes in our public API?", "should_trigger": false },
+    { "query": "Do we need idempotency keys on our payments endpoints?", "should_trigger": false },
+    { "query": "Which SDK languages should we build official clients for first?", "should_trigger": false },
+    { "query": "Should we build our own app marketplace or list on HubSpot's?", "should_trigger": false },
+    { "query": "Plan the information architecture for our developer portal", "should_trigger": false },
+    { "query": "Design our outbound webhook retry and dead-letter policy", "should_trigger": false },
+    { "query": "Audit our API reference docs for endpoint coverage", "should_trigger": false },
+    { "query": "Should we expose gRPC externally or just publish REST?", "should_trigger": false },
+    { "query": "Set up a sandbox test mode for our API", "should_trigger": false },
+    {
+      "query": "How do we design our OAuth2 authorization server for third-party apps?",
+      "should_trigger": false
+    },
+    { "query": "Build an MCP server for our SaaS product", "should_trigger": false },
+    { "query": "Optimize our Salesforce AppExchange listing", "should_trigger": false },
+    { "query": "What should our API key format and rotation policy be?", "should_trigger": false },
+    { "query": "Design our status page for API incidents", "should_trigger": false },
+    {
+      "query": "Which technology partners should we integrate with next quarter?",
+      "should_trigger": false
+    },
+    {
+      "query": "Which integration surfaces should we build first - REST, GraphQL or bulk export?",
+      "should_trigger": false
+    },
+    { "query": "Write a job description for the API Product Manager we're hiring", "should_trigger": false },
+    { "query": "Design the interview loop for our partner engineering team", "should_trigger": false },
+    { "query": "What should the scorecard be for our first platform engineer hire?", "should_trigger": false },
+    {
+      "query": "We're budgeting headcount for a developer platform team - which titles do we need?",
+      "should_trigger": false
+    },
+    { "query": "How do I become a developer advocate?", "should_trigger": false },
+    {
+      "query": "I'm a community manager for a dev tool, how do I level up my career?",
+      "should_trigger": false
+    },
+    { "query": "What does a DX engineer do in developer relations?", "should_trigger": false },
+    { "query": "Career path for a developer educator", "should_trigger": false },
+    {
+      "query": "Should I take the developer advocate role or stay a product engineer?",
+      "should_trigger": false
+    },
+    { "query": "How do I get my first conference talk accepted?", "should_trigger": false },
+    { "query": "Rewrite my GitHub profile README so recruiters notice me", "should_trigger": false },
+    { "query": "Help me switch careers from teaching into tech", "should_trigger": false },
+    { "query": "How do I negotiate a raise as a data engineer?", "should_trigger": false },
+    {
+      "query": "Prep me for a distributed systems system design interview at a big tech company",
+      "should_trigger": false
+    },
+    { "query": "What's a good roadmap to become an AWS solutions architect?", "should_trigger": false }
+  ]
+}

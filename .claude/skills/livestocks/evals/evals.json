@@ -1,0 +1,582 @@
+[
+  {
+    "id": 1,
+    "type": "retrieval",
+    "question": "Vou começar na recria e engorda a pasto com R$ 1.000.000 de capital. Quanto devo gastar na compra do gado, quanto reservar, e de quanto em quanto tempo troco o gado de piquete no rotacionado? Em que momento do ciclo de preços devo comprar e, se eu for introduzir um suplemento novo, quanto tempo de adaptação preciso?",
+    "expected_facts": [
+      "60% compra / 40% manutenção",
+      "Permanência por piquete geralmente de 2 a 7 dias",
+      "Adaptação a novo suplemento: 2 a 3 semanas",
+      "Comprar nas baixas do mercado"
+    ],
+    "source": "04-nutricao-suplementacao.md"
+  },
+  {
+    "id": 2,
+    "type": "retrieval",
+    "question": "Tenho uma fazenda de cria de 450 ha em MT e produzo 3 @/ha. Como ela é classificada pelo critério de módulos fiscais e como se compara com a média do Brasil? Quantos kg de carcaça por hectare isso representa?",
+    "expected_facts": [
+      "Módulo fiscal nas áreas da abordagem territorial: 80-100 ha",
+      "Médio produtor: 4-15 módulos = 401-1.500 ha",
+      "Média BR 5,57 @/ha",
+      "1 @ = 15 kg de carcaça (3 @/ha = 45 kg de carcaça/ha)"
+    ],
+    "source": "13-sustentabilidade-mercado-certificacao-territorio.md"
+  },
+  {
+    "id": 3,
+    "type": "conflict",
+    "question": "Um laticinista me disse que o limite de CCS do leite cru é pela IN 62, outro disse que é pela IN 7. Qual vale e qual é o limite hoje?",
+    "expected_facts": [
+      "A IN 7/2016 altera a tabela 2 da IN 62 (microbiológicos e CCS)",
+      "S/SE/CO a partir de 01/07/2018: CPP 1,0 × 10^5 UFC/mL e CCS 4,0 × 10^5 CS/mL",
+      "O texto cita IN 62 para 400.000 CCS/mL e IN 51 para crioscopia: mesma família normativa, revogada/alterada ao longo do tempo",
+      "Legislação pode ter mudado; revalidar a norma vigente"
+    ],
+    "source": "08-leite-qualidade-ordenha.md"
+  },
+  {
+    "id": 4,
+    "type": "formula",
+    "question": "Hoje produzo 700 L/dia e pretendo chegar a 900 L/dia no próximo ano. Que capacidade de tanque de expansão devo comprar?",
+    "expected_facts": [
+      "Capacidade do tanque (L) = produção diária atual e futura (L) × 2,5",
+      "900 L × 2,5 = 2.250 L (dimensionar pela produção futura)",
+      "Leite resfriado a 4 °C em até 3 h após a ordenha"
+    ],
+    "source": "formulas.md, 08-leite-qualidade-ordenha.md"
+  },
+  {
+    "id": 5,
+    "type": "conflict",
+    "question": "Quanto de sombra por animal devo prever: 2 m² ou 6 m²? Vi números diferentes em dois manuais.",
+    "expected_facts": [
+      "Sombra >= 2 m²/vaca na sala de espera e ordenha",
+      "Boas práticas de leite recomendam sombra mínima de 6 m²/animal",
+      "Escopos diferentes: sombra de sala de espera/ordenha vs pasto",
+      "Reconhece que os dois valores existem (2 e 6 m²) e que se referem a escopos diferentes, sem escolher um em silêncio"
+    ],
+    "source": "09-conforto-bem-estar-instalacoes-pre-abate.md"
+  },
+  {
+    "id": 6,
+    "type": "formula",
+    "question": "Fazenda de corte: área total 1.000 ha, Reserva Legal 200 ha, APP 50 ha, benfeitorias 10 ha, e 620 ha efetivamente utilizados com pecuária. Calcule o GUT e diga se atende à função social.",
+    "expected_facts": [
+      "Área aproveitável = Área total − (RL + APP + interesse ecológico + área em reforma comprovada + benfeitorias)",
+      "Área aproveitável = 1.000 − (200 + 50 + 10) = 740 ha",
+      "GUT (%) = (Área utilizada / Área aproveitável) × 100 = 620/740 ≈ 83,8%",
+      "Meta GUT >= 80%, portanto atende"
+    ],
+    "source": "11-gestao-economia-financas.md, formulas.md"
+  },
+  {
+    "id": 7,
+    "type": "conflict",
+    "question": "No cálculo do GEE, divide-se o total de UA pelo índice de lotação e depois pela área de pecuária ou pela área aproveitável? Qual usar, e qual a meta do índice?",
+    "expected_facts": [
+      "GEE (%) = (A_eq_pecuária + A_eq_agricultura) / Área aproveitável × 100; meta >= 100%",
+      "Um parágrafo fala em dividir pelo índice de lotação e depois pela área ocupada com pecuária, enquanto a fórmula final divide por área aproveitável",
+      "Usar a fórmula final (a do boxe); conferir com a IN do INCRA vigente"
+    ],
+    "source": "11-gestao-economia-financas.md"
+  },
+  {
+    "id": 8,
+    "type": "application",
+    "question": "Comprei três bezerras: uma de 5 meses, uma de 10 meses e um bezerro macho de 6 meses. Qual vacina de brucelose posso usar em cada um?",
+    "expected_facts": [
+      "B19: fêmeas de 3 a 8 meses, dose única, por veterinário cadastrado",
+      "RB51 permitida para fêmeas > 8 meses e adultas não reagentes",
+      "RB51 proibida em machos de qualquer idade, fêmeas até 8 meses e gestantes",
+      "Marcação a ferro no lado esquerdo da cara com V + último dígito do ano"
+    ],
+    "source": "10-sanidade.md"
+  },
+  {
+    "id": 9,
+    "type": "application",
+    "question": "Em janeiro, 90 de 120 vacas holandesas estão ofegantes e uma delas está com 40,2 °C de temperatura retal. O que fazer e quanto de sombra eu preciso para o lote?",
+    "expected_facts": [
+      "Se >= 70% das vacas mostram sinais há estresse térmico do rebanho: modificar o ambiente",
+      "90/120 = 75% de prevalência, acima do limiar de 70%",
+      "Temperatura retal > 40 °C = estresse severo (agir rápido)",
+      "Área mínima de sombra (m²) = 2 × nº de vacas adultas (240 m² para 120)",
+      "Sombra + ventilação + aspersão é o pacote de maior ganho de leite"
+    ],
+    "source": "09-conforto-bem-estar-instalacoes-pre-abate.md"
+  },
+  {
+    "id": 10,
+    "type": "application",
+    "question": "No confinamento, o lote de 100 animais recebeu 14,72 kg MN/animal/dia. Há 3 dias seguidos, sem chuva, o cocho amanhece cheio (nota 4-5). Qual nota indica o consumo ideal, qual ajuste faço no trato e quanto ele fica?",
+    "expected_facts": [
+      "Notas 4-5 = consumo menor (cocho cheio); nota 3 é o ideal",
+      "Ajustar o trato em aproximadamente 0,5% da quantidade fornecida",
+      "Consumo do lote: 14,72 × 100 = 1.472 kg; novo trato ≈ 1.465 kg",
+      "Comparar com 3 a 5 dias anteriores antes de reduzir (chuva reduz consumo)"
+    ],
+    "source": "05-confinamento-terminacao.md"
+  },
+  {
+    "id": 11,
+    "type": "formula",
+    "question": "Vou confinar novilhos cruzados que entram com 400 kg e devem ganhar 1,2 kg/dia. Qual o CMS estimado pela equação do BR Corte 2016? Se o milho tem 88% de MS e representa 60% da MS da dieta, quantos kg de milho em matéria natural por animal por dia?",
+    "expected_facts": [
+      "CMS (kg/dia) = -0,6273 + 0,06453 x PC^0,75 + 3,871 x GMD - 0,614 x GMD^2",
+      "Para PC 400 e GMD 1,2: CMS ≈ 8,91 kg MS/dia",
+      "Milho em MN por animal = (8,91 × 0,60) ÷ 0,88 ≈ 6,07 kg/dia",
+      "MN do ingrediente = (CMS x %ingrediente na dieta MS) x 100 / %MS do ingrediente"
+    ],
+    "source": "05-confinamento-terminacao.md, formulas.md"
+  },
+  {
+    "id": 12,
+    "type": "retrieval",
+    "question": "Para o manejo reprodutivo do meu rebanho: quanto dura a gestação, qual o ciclo estral, quantas vacas por touro jovem na monta natural e qual a meta de intervalo entre partos?",
+    "expected_facts": [
+      "Gestação média 282 dias (270-290)",
+      "Ciclo estral 19-21 dias; cio dura 12-24 h",
+      "Monta natural: ideal 20-25 vacas por touro",
+      "Intervalo entre partos < 12 meses"
+    ],
+    "source": "02-reproducao-genetica.md"
+  },
+  {
+    "id": 13,
+    "type": "retrieval",
+    "question": "Qual foi a média nacional de maturidade em gestão do conhecimento das fazendas de corte pesquisadas, em que nível ela cai, quantas fazendas responderam e qual dimensão teve a menor nota?",
+    "expected_facts": [
+      "Média 55,9 pontos",
+      "Nível Externalização Experimental (faixa 41-60)",
+      "94 respondentes (29,2%)",
+      "Menor média: Pessoas 2,42 (Aprendizagem e Inovação a maior, 3,34)"
+    ],
+    "source": "14-gestao-conhecimento-inovacao.md"
+  },
+  {
+    "id": 14,
+    "type": "retrieval",
+    "question": "Quanto a pecuária amazônica produzia por hectare comparada a soja e cana, e o que aconteceu com a participação brasileira no mercado de carne da UE em 2008?",
+    "expected_facts": [
+      "Produtividade (kg/ha): pecuária 50; soja 2.800; cana 75.000",
+      "Participação do Brasil na carne da UE: 65% (2006-2007) -> 43% (2008, após embargo)"
+    ],
+    "source": "13-sustentabilidade-mercado-certificacao-territorio.md"
+  },
+  {
+    "id": 15,
+    "type": "retrieval",
+    "question": "No sistema silvipastoril SSPR, qual a lotação e a produção de leite por hectare frente ao extensivo, como é o módulo base e qual o retorno financeiro (VPL e TIR)?",
+    "expected_facts": [
+      "Lotação 3,5 vs 0,75 UA/ha",
+      "Leite 5.794 vs 1.192 L/ha/ano",
+      "Módulo de 5,2 ha dividido em 24 piquetes de 2.167 m2",
+      "VPL R$57.066 em 10 anos a 10% a.a. e TIR 19%"
+    ],
+    "source": "07-sistemas-integrados-silvipastoril.md"
+  },
+  {
+    "id": 16,
+    "type": "retrieval",
+    "question": "Qual a lotação típica do Pantanal, que fração do bioma segue conservada, quantos hectares tinham certificação orgânica em 2014 e quanto custa a sanidade nas fazendas com homeopatia/fitoterapia comparado às convencionais?",
+    "expected_facts": [
+      "Lotação 0,33 cabeça/ha",
+      "86% do bioma conservado",
+      "2014: 140 mil ha certificados",
+      "Custo sanitário R$2,00/cabeça vs R$15,00 em fazendas convencionais"
+    ],
+    "source": "13-sustentabilidade-mercado-certificacao-territorio.md"
+  },
+  {
+    "id": 17,
+    "type": "application",
+    "question": "Quero entrar no protocolo Carne Sustentável no Pantanal, mas uso ureia no sal na seca, queimo o pasto para limpar e trato os bezerros só com vermífugo químico. O que preciso mudar?",
+    "expected_facts": [
+      "Ureia no sal é proibida",
+      "Proibido fogo no manejo de pastagem",
+      "Tratamento veterinário restrito a fitoterápicos e homeopatia",
+      "Exceção: 1 ml de Ivomec no bezerro recém-nascido; vacinações oficiais obrigatórias"
+    ],
+    "source": "13-sustentabilidade-mercado-certificacao-territorio.md"
+  },
+  {
+    "id": 18,
+    "type": "application",
+    "question": "Minha fazenda de cria está com taxa de prenhez de 70% e já estou pensando em montar um confinamento para acelerar o abate. Faz sentido?",
+    "expected_facts": [
+      "Parâmetros mínimos: prenhez >=75%, desmame >160 kg, repetição >=65% em primíparas",
+      "Com prenhez 70%: ainda não intensifique abate/confinamento",
+      "Corrigir primeiro prenhez (>=75%) e peso de desmame (>160 kg)"
+    ],
+    "source": "01-sistemas-producao-intensificacao.md"
+  },
+  {
+    "id": 19,
+    "type": "formula",
+    "question": "Quero dimensionar a adubação nitrogenada de um pasto de capim tanzânia para 18.000 kg MS/ha/ano, com solo de 2% de matéria orgânica. Quanto de N e quanto de ureia por hectare?",
+    "expected_facts": [
+      "N extraído = MS x 1,5% N (18.000 × 1,5% = 270 kg N)",
+      "2% MO fornece 100 kg N: 270 − 100 = 170 kg N/ha.ano",
+      "Ureia = N / 0,45 x 2 (eficiência 50%): 170/0,45 × 2 ≈ 756 kg ureia/ha"
+    ],
+    "source": "06-pastagem-adubacao-forragem.md, formulas.md"
+  },
+  {
+    "id": 20,
+    "type": "retrieval",
+    "question": "Em pasto irrigado de capim, até quantos kg N/ha vale a pena adubar e qual a produção de MS nesse ponto? E qual a produção anual e a estacionalidade da alfafa?",
+    "expected_facts": [
+      "Resposta máxima em 750 kg N/ha (21,04 Mg MS/ha total); a 900 cai",
+      "Alfafa: produção anual 18,4 t/ha",
+      "Estacionalidade da alfafa 36,93%"
+    ],
+    "source": "06-pastagem-adubacao-forragem.md"
+  },
+  {
+    "id": 21,
+    "type": "application",
+    "question": "Minhas vacas de cria chegam à estação de monta com ECC 2,5. O que devo fazer antes da estação e o que esperar de prenhez? E o bezerro que nascer: cuidados ao nascer e como e quando desmamar?",
+    "expected_facts": [
+      "Vaca ECC >=3 para entrar na estação",
+      "Prenhez ECC >=3 = 86,5% vs <3 = 65,9%",
+      "Colostro em até 3 h",
+      "Desmama lado a lado por 3 dias; idade citada de 7 a 9 meses"
+    ],
+    "source": "02-reproducao-genetica.md, 03-cria-bezerros-recria.md"
+  },
+  {
+    "id": 22,
+    "type": "conflict",
+    "question": "Li que a disponibilidade mínima de forragem para B. decumbens é de 2.500 t de MS/ha. Isso está certo?",
+    "expected_facts": [
+      "Disponibilidade mínima de forragem de 2.500 kg MS/ha para B. decumbens",
+      "A fonte escreve 't': erro de escala",
+      "2.500 t/ha seria impossível",
+      "Suplementação funciona mesmo com >4 t MS/ha"
+    ],
+    "source": "04-nutricao-suplementacao.md"
+  },
+  {
+    "id": 23,
+    "type": "counter",
+    "question": "Qual a dose de ivermectina para uma vaca de 450 kg com carrapato e quantas aplicações devo fazer?",
+    "expected_facts": [
+      "As referências não trazem dose de ivermectina para controle de carrapato em adultos",
+      "Única menção: exceção de 1 ml de Ivomec no bezerro recém-nascido no protocolo orgânico do Pantanal",
+      "Skill não substitui veterinário/agrônomo para dose, diagnóstico ou receituário: encaminhar ao veterinário"
+    ],
+    "source": "13-sustentabilidade-mercado-certificacao-territorio.md, cheatsheet.md, SKILL.md"
+  },
+  {
+    "id": 24,
+    "type": "counter",
+    "question": "Qual a cotação da arroba do boi gordo hoje em Mato Grosso e quanto está o preço do bezerro?",
+    "expected_facts": [
+      "As referências não trazem cotações atuais de mercado",
+      "A skill só cobre o conteúdo das suas referências e não tem dados de mercado em tempo real",
+      "Orientar consultar fonte de mercado atualizada (ex.: CEPEA/B3) em vez de inventar valor"
+    ],
+    "source": "13-sustentabilidade-mercado-certificacao-territorio.md, cheatsheet.md, SKILL.md"
+  },
+  {
+    "id": 25,
+    "type": "formula",
+    "question": "Comprei bezerros de 200 kg e quero vendê-los com 380 kg, com ganho de 0,6 kg/dia. Em quantos dias e meses chego no peso de venda e quantos dias levo para ganhar 1 arroba?",
+    "expected_facts": [
+      "Peso a ganhar: ΔP = Pf − Pi = 380 − 200 = 180 kg",
+      "Prazo: dias = ΔP ÷ GMD = 180 ÷ 0,6 = 300 dias",
+      "Meses: Nmeses = dias ÷ DM, com DM = 30, dá 300 ÷ 30 = 10 meses",
+      "Dias para ganhar 1 @: dias_arr = KVA ÷ GMD = 30 ÷ 0,6 = 50 dias/@ (KVA = 30 kg de ganho de peso vivo por @)"
+    ],
+    "source": "formulas.md"
+  },
+  {
+    "id": 26,
+    "type": "formula",
+    "question": "Fechei o mês da recria: despesas operacionais de R$ 90.000, 1.500 cabeças e GMD de 0,6 kg/dia. A arroba está a R$ 300. Qual é a diária, o custo operacional da arroba produzida e a diferença para o preço da arroba?",
+    "expected_facts": [
+      "Diaria = Dop ÷ Cab ÷ DM = 90.000 ÷ 1.500 ÷ 30 = R$ 2,00/cab/dia",
+      "dias_arr = 30 ÷ 0,6 = 50 dias por @",
+      "Carop = Diaria × dias_arr = 2,00 × 50 = R$ 100/@",
+      "DifAr = Varr − Carop = 300 − 100 = R$ 200/@, positiva: o preço cobre o custo operacional",
+      "O custo operacional da arroba não inclui reposição nem juros do capital"
+    ],
+    "source": "formulas.md"
+  },
+  {
+    "id": 27,
+    "type": "formula",
+    "question": "Um bezerro custou R$ 2.200, vai ficar 300 dias na recria com diária de R$ 1,50 e sair com 420 kg vivos, sem despesa extra. A que preço mínimo da arroba eu não tenho prejuízo?",
+    "expected_facts": [
+      "Despesa diária acumulada: Ddiar = dias × Diaria = 300 × 1,50 = R$ 450",
+      "Custo total do animal: Cant = Caq + Ddiar + Dext = 2.200 + 450 + 0 = R$ 2.650",
+      "Ponto de equilíbrio: PE = Cant ÷ Pf × KVA = 2.650 ÷ 420 × 30 = R$ 189,29/@",
+      "PE menor que a @ atual é lucro; maior é prejuízo"
+    ],
+    "source": "formulas.md"
+  },
+  {
+    "id": 28,
+    "type": "formula",
+    "question": "Paguei R$ 2.400 por um bezerro de 200 kg com a arroba a R$ 280, e pretendo recriá-lo por 250 dias. Quanto de ágio paguei por arroba, quanto tenho de diluir no total e que ganho extra por dia preciso para compensar?",
+    "expected_facts": [
+      "Custo do kg vivo: Ckgc = Vcomp ÷ Pcomp = 2.400 ÷ 200 = R$ 12,00/kg",
+      "Custo da @ na compra: Carc = Ckgc × KVA = 12 × 30 = R$ 360/@; ágio Dag = Carc − Varr = 360 − 280 = R$ 80/@",
+      "Narrv = PV ÷ KVA = 200 ÷ 30 = 6,67 @; ágio total Agt = Dag × Narrv = R$ 533,33",
+      "Diluição por dia: Agd = Agt ÷ dias = 533,33 ÷ 250 = R$ 2,1333/dia",
+      "Ganho extra: Gx = Agd ÷ Ckgc = 2,1333 ÷ 12 = 0,178 kg/dia, ou cerca de 177,8 g/dia"
+    ],
+    "source": "formulas.md"
+  },
+  {
+    "id": 29,
+    "type": "formula",
+    "question": "Vendi um boi gordo de 20 @ a R$ 310/@ e o bezerro de reposição está a R$ 2.480. Qual é a relação de troca e o que ela diz?",
+    "expected_facts": [
+      "Valor de venda: Vvenda = Varr × Narr = 310 × 20 = R$ 6.200",
+      "Relação de troca: RT = Vvenda ÷ Vbez = 6.200 ÷ 2.480 = 2,50",
+      "RT mede quantos bezerros a venda de um animal gordo compra",
+      "RT em queda indica ciclo desfavorável ao recriador e engordador"
+    ],
+    "source": "formulas.md"
+  },
+  {
+    "id": 30,
+    "type": "formula",
+    "question": "Minha misturadora faz batida de 1.000 kg: 70% de milho a R$ 1,50/kg, 20% de farelo de soja a R$ 2,50/kg e 10% de núcleo a R$ 6,00/kg. Quantos kg de cada ingrediente entram na batida, quanto custa o kg da mistura e o saco de 30 kg?",
+    "expected_facts": [
+      "Quantidade de cada ingrediente: mi = Pbatida × pcti ÷ 100, ou seja, milho 700 kg, soja 200 kg e núcleo 100 kg",
+      "Conferir Spct = Σ pcti = 100%",
+      "Custo da batida: Cbatida = Σ Cing_i = 700 × 1,50 + 200 × 2,50 + 100 × 6,00 = R$ 2.150",
+      "Custo por kg: Cmist = Cbatida ÷ Ktotal = 2.150 ÷ 1.000 = R$ 2,15/kg",
+      "Custo do saco: Csaco = Cmist × Ksaco = 2,15 × 30 = R$ 64,50"
+    ],
+    "source": "formulas.md"
+  },
+  {
+    "id": 31,
+    "type": "formula",
+    "question": "Vou confinar novilhos de 450 kg de peso vivo com ganho previsto de 1,3 kg/dia. Qual o consumo de matéria seca esperado pela equação para animais cruzados?",
+    "expected_facts": [
+      "Equação: CMS = −0,6273 + 0,06453 × PV^0,75 + 3,871 × GMD − 0,614 × GMD^2",
+      "PV^0,75 = 450^0,75 ≈ 97,70",
+      "CMS = −0,6273 + 0,06453 × 97,70 + 3,871 × 1,3 − 0,614 × 1,69 ≈ 9,67 kg MS/animal/dia",
+      "A equação vale para animais cruzados, com PV em kg e GMD em kg/dia"
+    ],
+    "source": "formulas.md, 05-confinamento-terminacao.md"
+  },
+  {
+    "id": 32,
+    "type": "formula",
+    "question": "Tenho 300 novilhos de 380 kg de peso médio em 110 ha de pasto. Qual a lotação em UA/ha e em cabeças/ha?",
+    "expected_facts": [
+      "Peso total: Ptotal = Ncab × Pmed = 300 × 380 = 114.000 kg",
+      "UA = Ptotal ÷ PUA = 114.000 ÷ 450 = 253,33 UA (1 UA = 450 kg de PV)",
+      "LotUA = UA ÷ Apast = 253,33 ÷ 110 = 2,30 UA/ha",
+      "Lotcab = Ncab ÷ Apast = 300 ÷ 110 = 2,73 cab/ha",
+      "UA/ha e cab/ha são grandezas diferentes: não rotular UA/ha como cabeças por hectare"
+    ],
+    "source": "formulas.md"
+  },
+  {
+    "id": 33,
+    "type": "formula",
+    "question": "As bezerras F1 do meu cruzamento desmamam com média de 210 kg e a média dos pais é 180 kg. Qual a heterose? Se eu continuar com cruzamento rotacionado, que heterose se mantém com 2 raças e com 3 raças?",
+    "expected_facts": [
+      "Fórmula: H = (X1 − X2) ÷ X2 × 100",
+      "X1 = média da cria F1 (210 kg) e X2 = média dos pais (180 kg)",
+      "H = (210 − 180) ÷ 180 × 100 = 16,67%",
+      "Em cruzamento rotacionado a heterose estável é de 67% com 2 raças e cerca de 86% com 3 raças"
+    ],
+    "source": "formulas.md, 02-reproducao-genetica.md"
+  },
+  {
+    "id": 34,
+    "type": "formula",
+    "question": "Meu vaqueiro ganha R$ 3.000 por mês. Considerando só FGTS e INSS de outras entidades mais as provisões, quanto custa por mês e qual o fator de custo? E para uma fazenda de 2.000 cabeças, rateando 1 funcionário por 1.000 cabeças, quanto custa a equipe?",
+    "expected_facts": [
+      "Encargos: FGTS = Sal × 0,08 = R$ 240 e INSS de outras entidades = Sal × 0,027 = R$ 81; Enc = R$ 321",
+      "Provisões (férias, 1/3, 13º, FGTS e multa de 40% sobre remuneração e direitos, INSS sobre direitos) somam Prov ≈ R$ 760,26",
+      "Cfunc = Sal + Enc + Prov = 3.000 + 321 + 760,26 = R$ 4.081,26/mês",
+      "Fator de custo: Fat = 1 + pEnc + pProv ≈ 1,3604",
+      "NF = Ncab ÷ CF = 2.000 ÷ 1.000 = 2 funcionários; Cgrp = Cfunc × NF ≈ R$ 8.162,53/mês"
+    ],
+    "source": "formulas.md"
+  },
+  {
+    "id": 35,
+    "type": "retrieval",
+    "question": "Estou regularizando uma fazenda: o rio que passa tem 120 m de largura, há um córrego de 30 m de largura e uma nascente na área. Qual a faixa de APP para cada um (e para um rio com mais de 600 m), e qual a reserva legal no cerrado dentro da Amazônia Legal e nas demais regiões?",
+    "expected_facts": [
+      "Córrego de 10 a 50 m de largura: APP ripária de 50 m",
+      "Nascentes: raio mínimo de 50 m",
+      "Reserva legal no cerrado da Amazônia Legal: 35%",
+      "Reserva legal nas demais regiões (Cerrados, Mata Atlântica, Caatinga, Campos Sulinos e outras): 20%",
+      "Para rio de 50 a 200 m a APP é de 100 m e acima de 600 m é de 500 m"
+    ],
+    "source": "12-legislacao-ambiental-rastreabilidade.md"
+  },
+  {
+    "id": 36,
+    "type": "retrieval",
+    "question": "Tenho vacas leiteiras mancando. Com que frequência faço o pedilúvio e com qual solução? Posso casquear todas as vacas toda vez que fizer o pedilúvio? E quando vermifugar o gado de corte e o de leite ao longo do ano?",
+    "expected_facts": [
+      "Pedilúvio pelo menos 2 vezes por semana, depois do lava-pés só com água",
+      "Soluções alternadas: formol 3-5% ou sulfato de cobre 5%",
+      "Gado de corte: vermifugar no início da seca, no meio da seca e no início das águas",
+      "Gado de leite: mais uma 4ª dose no meio das chuvas",
+      "Casquear só quando manca é anti-padrão"
+    ],
+    "source": "10-sanidade.md"
+  },
+  {
+    "id": 37,
+    "type": "retrieval",
+    "question": "Vou mandar um lote para o frigorífico. Qual o tempo máximo de viagem, o que fazer se passar disso, qual o tempo de espera ideal no frigorífico para pH e cor da carne e a partir de que pH há carne DFD?",
+    "expected_facts": [
+      "Duração máxima da viagem: 12 h",
+      "Se ultrapassar: descarregar, dar alimento e água e reembarcar após ~18 h",
+      "Melhor tempo de espera para pH e cor: 4 h",
+      "pH da carne de 5,5-5,8 para mercados exigentes (UE); acima de 6,0 = DFD"
+    ],
+    "source": "09-conforto-bem-estar-instalacoes-pre-abate.md"
+  },
+  {
+    "id": 38,
+    "type": "retrieval",
+    "question": "Quero montar um tanque de expansão coletivo com os vizinhos. Quais são os limites de distância, número de produtores, volume por produtor, e os prazos de entrega e de coleta?",
+    "expected_facts": [
+      "Produtores a no máximo 5 km",
+      "No máximo 10 produtores por tanque",
+      "Nenhum com produção acima de 200 L em duas ordenhas",
+      "Leite entregue em até 2 h",
+      "Coleta a cada 24 h; capacidade do tanque = 2,5 vezes o volume diário total"
+    ],
+    "source": "08-leite-qualidade-ordenha.md"
+  },
+  {
+    "id": 39,
+    "type": "retrieval",
+    "question": "Vou montar um creep-feeding para os bezerros. Qual a composição da dieta, quanto fornecer por dia, e qual a área e o cocho por bezerro?",
+    "expected_facts": [
+      "Dieta com 75-80% NDT e 16-21% PB",
+      "Fornecer 0,5 a 1,0% do peso vivo/cabeça/dia",
+      "Área de 1,5 m² por cria (circulação de 2 m entre cocho e cerca)",
+      "Cocho linear de ~10 cm por animal",
+      "Cocho privativo, sem acesso das vacas"
+    ],
+    "source": "03-cria-bezerros-recria.md"
+  },
+  {
+    "id": 40,
+    "type": "retrieval",
+    "question": "O agrônomo recomendou calagem na minha brizantha. Quando aplicar antes do plantio, quanto de MS a mais eu devo esperar e qual o retorno financeiro citado?",
+    "expected_facts": [
+      "Calagem 90 dias antes do plantio",
+      "B. brizantha: 19,0 t MS (V 80%) vs 16,3 t MS (V 57%), ganho de +2,7 t MS/ha.ano",
+      "Retorno: R$ 4,9 por R$ 1,00 investido",
+      "Exemplo: R$ 400 de ganho menos R$ 67,50 de calcário (1,5 t/ha) = R$ 332,50"
+    ],
+    "source": "06-pastagem-adubacao-forragem.md"
+  },
+  {
+    "id": 41,
+    "type": "application",
+    "question": "Meu free-stall tem 96 baias e 120 vacas em lactação. Está adequado? E quantas vacas devo avaliar nos escores de higiene e de casco?",
+    "expected_facts": [
+      "Razão vacas por baia: Rbaia = Naloj ÷ Nbaias = 120 ÷ 96 = 1,25, acima da meta de 1,0 (superlotação)",
+      "Regra: 1 baia por vaca; 1,1-1,3 vacas/baia não é ideal porque as vacas sincronizam o deitar",
+      "Escore de higiene: Nhig = 0,70 × Nvac = 84 vacas (70%)",
+      "Escore de casco: Ncasco = 0,25 × Nvac = 30 vacas, no mínimo 25% do lote",
+      "Decisão: ampliar para 120 baias ou reduzir o lote"
+    ],
+    "source": "09-conforto-bem-estar-instalacoes-pre-abate.md, formulas.md"
+  },
+  {
+    "id": 42,
+    "type": "application",
+    "question": "Minha fazenda de 2.000 ha fica em área de cerrado dentro da Amazônia Legal, com 100 ha de APP, 20 ha de benfeitorias e 900 ha de pasto utilizado. Atendo a função social (GUT)? Se não, quanto preciso utilizar?",
+    "expected_facts": [
+      "Reserva legal no cerrado da Amazônia Legal: 35% = 700 ha",
+      "Área aproveitável: Aap = Aimov − (RL + APP + Aeco + Aref + Aben) = 2.000 − (700 + 100 + 20) = 1.180 ha",
+      "GUT = Aut ÷ Aap × 100 = 900 ÷ 1.180 × 100 ≈ 76,3%",
+      "Meta GUT >= 80%, portanto não atende",
+      "Precisa utilizar pelo menos 0,80 × 1.180 = 944 ha, ou seja, mais 44 ha"
+    ],
+    "source": "12-legislacao-ambiental-rastreabilidade.md, 11-gestao-economia-financas.md, formulas.md"
+  },
+  {
+    "id": 43,
+    "type": "application",
+    "question": "O tanque de 60 vacas veio com 450 mil CS/mL (média geométrica de 3 meses, região Sudeste, 2019). Estou sujeito a penalização? O que esse valor indica sobre o rebanho, quanto perco de leite e o que faço no manejo de mastite?",
+    "expected_facts": [
+      "Limite de CCS: 4,0 x 10^5 CS/mL (400.000) para S/SE/CO a partir de 01/07/2018; 450.000 CS/mL está acima e sujeito a penalização ou recusa",
+      "CCS do tanque acima de 200 mil CS/mL já indica vacas com mastite subclínica",
+      "Perda de 4 L/dia por vaca (LE4): 60 × 4 = 240 L/dia",
+      "Ação: caneca de fundo preto, CMT mensal, checar vácuo e pós-dipping",
+      "Mastite clínica: cultura e antibiograma do quarto afetado com leite colhido antes do tratamento; tratar mastite sem cultura é erro"
+    ],
+    "source": "08-leite-qualidade-ordenha.md, formulas.md"
+  },
+  {
+    "id": 44,
+    "type": "application",
+    "question": "No fim da seca meu pasto está com 5% de PB e tenho 100 novilhos de recria de 300 kg. Que tipo de suplemento uso, em qual dose e quantos sacos de 30 kg por dia o lote consome?",
+    "expected_facts": [
+      "PB do pasto abaixo de 6 a 7% na seca indica suplemento proteico de baixo consumo",
+      "Proteico de baixo consumo: 1 a 2 g/kg de peso corporal, que rende 300 a 350 g/dia na seca",
+      "Dose por animal de 300 kg: 1 a 2 g/kg = 0,3 a 0,6 kg/animal/dia",
+      "Lote de 100 animais: 30 a 60 kg/dia = 1 a 2 sacos de 30 kg/dia"
+    ],
+    "source": "04-nutricao-suplementacao.md, formulas.md"
+  },
+  {
+    "id": 45,
+    "type": "conflict",
+    "question": "Em que idade desmamar os bezerros: 6-8, 7-9 ou 9-11 meses? Vi números diferentes nos materiais. Qual a meta de peso na desmama?",
+    "expected_facts": [
+      "Os arquivos citam valores diferentes: 6-8 meses (artificial, também chamada tradicional), 7-9 meses e natural 9-11 meses",
+      "A diferença é de definição (natural vs artificial) e da condição de mãe, raça, época e alimento",
+      "Meta de recria: desmama aos 6-8 meses com 160-180 kg",
+      "O arquivo sinaliza a discrepância em Inconsistências, sem escolher um valor em silêncio"
+    ],
+    "source": "03-cria-bezerros-recria.md"
+  },
+  {
+    "id": 46,
+    "type": "conflict",
+    "question": "No confinamento, a alimentação pesa mais de 70% do custo, 70-90% ou só 28,67%? Qual número uso no orçamento?",
+    "expected_facts": [
+      "Valores citados: mais de 70% do custo total (2/3 disso concentrado); 70-90% do custo operacional (sem o boi); 28,67% do custo operacional total no cenário de 1.000 animais",
+      "No cenário de 1.000 animais o boi magro é 64,56% do custo",
+      "A diferença decorre da base de cálculo (com ou sem o boi magro)",
+      "Usar a tabela de custos para o cenário e 70-90% apenas como faixa do custo operacional, sem escolher em silêncio"
+    ],
+    "source": "05-confinamento-terminacao.md"
+  },
+  {
+    "id": 47,
+    "type": "counter",
+    "question": "Qual a taxa de lotação de ovinos por hectare e a dose de vermífugo para ovelha adulta?",
+    "expected_facts": [
+      "As referências cobrem pecuária bovina (corte e leite); não trazem dados de ovinos",
+      "Não há lotação de ovinos nem dose de vermífugo para ovelha nos arquivos",
+      "A skill só cobre o conteúdo dos 14 documentos e não substitui veterinário ou agrônomo para dose",
+      "Não inventar valor; orientar buscar fonte específica de ovinocultura ou o veterinário"
+    ],
+    "source": "SKILL.md"
+  },
+  {
+    "id": 48,
+    "type": "counter",
+    "question": "Minha vaca recém-parida caiu com suspeita de febre do leite. Qual a dose de gluconato de cálcio endovenoso que devo aplicar e qual o protocolo de hipocalcemia?",
+    "expected_facts": [
+      "As referências não trazem dose de gluconato de cálcio nem protocolo de hipocalcemia (febre do leite)",
+      "A skill não substitui veterinário ou agrônomo para dose, diagnóstico ou receituário",
+      "Orientar chamar o veterinário imediatamente em vez de estimar dose",
+      "Não inventar dose nem protocolo"
+    ],
+    "source": "SKILL.md"
+  }
+]

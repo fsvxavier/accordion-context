@@ -1,0 +1,418 @@
+[
+ {
+  "id": 1,
+  "answer": "Regra 60/40 (arquivo 01): R$ 600.000 na compra do gado e R$ 400.000 de reserva para pasto, suplemento, mão de obra e capital de giro; não gastar tudo no gado. Rotacionado: permanência no piquete de 2 a 7 dias, conforme espécie, idade, peso, época e condição do pasto; nº de piquetes = PD/PO + 1 (PD dias de descanso, PO dias de ocupação). Ciclo de preços: comprar nas baixas do mercado (fase de baixa: oferta maior que demanda, preços em queda; também na recuperação, quando começam a subir) e vender na alta; antes de terminar, comparar opções pelo lucro com custo de oportunidade. Suplemento novo: adaptação gradual de 2 a 3 semanas, nunca troca de uma vez. A skill não dá um período de descanso único para qualquer capim; ver tabela por espécie (ex.: B. decumbens 32 dias, B. brizantha 35).",
+  "files_read": [
+   "01-sistemas-producao-intensificacao.md",
+   "04-nutricao-suplementacao.md",
+   "06-pastagem-adubacao-forragem.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 2,
+  "answer": "Classificação (arquivos 12 e 13): pequeno 1-4 módulos (80-400 ha), médio 4-15 módulos (401-1.500 ha), grande >15 módulos (>1.500 ha); módulo fiscal de referência 80-100 ha. 450 ha = 4,5 a 5,6 módulos (450/100 a 450/80), logo produtor MÉDIO, logo acima do limite de 400 ha. O módulo real de cada município de MT não consta na skill. Comparação: média do Brasil 5,57 @/ha = 83,55 kg de carcaça/ha; sua fazenda com 3 @/ha está em 54% da média (3/5,57), ~46% abaixo. Carcaça: 3 @ x 15 kg/@ = 45 kg/ha; na fazenda, 450 ha x 45 = 20.250 kg (20,25 t) por ano. A skill cita que produtores com <3 @/ha têm margem líquida máxima <US$ 30/ha; você está no limite. Arroba = 15 kg de carcaça (há também convenção de 30 kg de peso vivo; não misturar).",
+  "files_read": [
+   "12-legislacao-ambiental-rastreabilidade.md",
+   "13-sustentabilidade-mercado-certificacao-territorio.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 3,
+  "answer": "A norma da skill (arquivo 08): a IN 62/2011 rege o leite cru refrigerado, e a IN 7/2016 altera a tabela 2 da IN 62 (CPP e CCS); portanto os dois laticinistas estão parcialmente certos, a IN 7 é a que fixa os limites e a vigente no texto. Limite para S/SE/CO a partir de 01/07/2018: CCS máx. 4,0 x 10^5 CS/mL (400 mil) e CPP máx. 1,0 x 10^5 UFC/mL; N/NE, mesmos valores a partir de 01/07/2019. Avaliação: mínimo de 1 análise mensal, média geométrica de 3 meses. Conflito na fonte: o texto cita 'IN 62' para os 400 mil e 'IN 51' para crioscopia (mesma família normativa). Observação: CCS >200 mil/mL no tanque já indica mastite subclínica. A skill só cobre os documentos-base; norma posterior pode ter mudado, então confirme a vigente no MAPA.",
+  "files_read": [
+   "08-leite-qualidade-ordenha.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 4,
+  "answer": "Fórmula (LE1): capacidade do tanque = 2,5 x volume diário (atual e futuro). Dados: hoje 700 L/dia, meta 900 L/dia. Conta pela meta: 900 x 2,5 = 2.250 L (pelo volume atual seria 700 x 2,5 = 1.750 L). Compre pelo volume futuro: tanque de expansão direta de pelo menos 2.250 L (escolher o modelo comercial imediatamente acima). A razão 2,5 corresponde a tanque para duas ordenhas (24 h) com coleta a cada 24 h. Meta de resfriamento: 4 °C em até 3 h; leite sai a 37,5 °C e as bactérias dobram a cada 15 min em temperatura ambiente.",
+  "files_read": [
+   "08-leite-qualidade-ordenha.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 5,
+  "answer": "Os dois números estão certos, em escopos diferentes (arquivos 09, 08, 05). 2 m² por animal adulto: mínimo de sombra para vaca em sala de espera/ordenha (conforto térmico). 6 m² por animal: BPA do leite, animal a pasto (>=6 m²/animal). Confinamento de corte: 2,0 m²/animal é insuficiente; 3,3 e 4,7 m² são adequados; 4 m² (Nelore, MT) deu +120 g/dia; anti-padrão: abaixo de 3 m². Para pasto, use 6 m²; 2 m² só vale para a sala de espera. A skill sinaliza essa divergência em 'Inconsistências'; sombra: tela >=70%, altura >=3,5 m. Descanso a céu aberto: 40-50 m²/vaca.",
+  "files_read": [
+   "05-confinamento-terminacao.md",
+   "08-leite-qualidade-ordenha.md",
+   "09-conforto-bem-estar-instalacoes-pre-abate.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 6,
+  "answer": "Fórmulas (GE1, GE2): área aproveitável = total - RL - APP - benfeitorias (- interesse ecológico e área em reforma comprovada). Aap = 1.000 - 200 - 50 - 10 = 740 ha. GUT = área utilizada / Aap x 100 = 620/740 x 100 = 83,8%. Meta GUT >= 80%: ATENDE. Ressalvas: a função social exige também GEE >= 100% (não calculável sem o rebanho em UA e o índice de lotação da zona pecuária), além de respeito às leis ambientais e trabalhistas; portanto só o GUT está comprovado. Os índices regionais e as regras podem ter mudado; conferir INCRA vigente.",
+  "files_read": [
+   "11-gestao-economia-financas.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 7,
+  "answer": "Há duas redações na fonte (arquivo 11): um parágrafo manda dividir o total de UA pelo índice de lotação e depois pela área ocupada com pecuária; a fórmula final divide pela ÁREA APROVEITÁVEL. Adote a fórmula final (GE3, GE5): Aeqp = UAmed / ILZP; GEE = (Aeqp + Aeqa) / Aap x 100, com Aap = área aproveitável; confira a instrução do INCRA vigente. Índice de lotação (ILZP) é o da zona pecuária; ex. MS: ZP3 = 0,46 UA/ha, ZP2 = 0,80. Meta do GEE: >= 100% (GUT >= 80%). Exemplo da skill: 574 UA / 0,46 = 1.247,8 ha; /880 ha = 141,8%.",
+  "files_read": [
+   "11-gestao-economia-financas.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 8,
+  "answer": "Regra (arquivo 10): B19 só em fêmeas de 3 a 8 meses, dose única, por veterinário cadastrado, marcação 'V' + último dígito do ano na cara esquerda. RB51 permitida em fêmeas com mais de 8 meses (adultas não reagentes); proibida em machos de qualquer idade, em fêmeas até 8 meses e em gestantes. Bezerra de 5 meses: B19 (RB51 proibida). Bezerra de 10 meses: RB51 (B19 já passou da janela de 3-8 meses; fêmea não reagente). Bezerro macho de 6 meses: nenhuma (RB51 proibida; B19 é indicada só para fêmeas). Conflito: um manual cita 2 campanhas por ano, outro dose única; siga o calendário oficial local.",
+  "files_read": [
+   "10-sanidade.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 9,
+  "answer": "Diagnóstico (arquivo 09): 90/120 = 75%, acima do limiar de 70% = estresse térmico do REBANHO. Vaca com 40,2 °C: acima de 39,4 °C (estresse) e acima de 40 °C (estresse severo): agir rápido, água fresca e local mais fresco imediatamente; FR >80/min confirma. Medidas: sombra, ventilação, aspersão e nebulização, água limpa abundante; evitar acesso a rios/lagos. Pacote sombra + ventilação + aspersão dá o maior ganho: 18,20 (só sombra) para 19,19 (+5,4%) para 20,53 kg/vaca/ordenha (+12,8%). Sombra: 2 m²/vaca na sala de espera/ordenha = 120 x 2 = 240 m²; a pasto, 6 m²/animal = 720 m² (divergência sinalizada na skill). Tela >=70%, altura >=3,5 m; descanso a céu aberto 40-50 m²/vaca.",
+  "files_read": [
+   "08-leite-qualidade-ordenha.md",
+   "09-conforto-bem-estar-instalacoes-pre-abate.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 10,
+  "answer": "Nota 3 = consumo ideal (sem falta nem sobra). Notas 4-5 (cocho cheio) = reduzir ~0,5% do trato (NU7). Cálculo: lote = 14,72 x 100 = 1.472 kg MN/dia; novo trato = 1.472 x (1 - 0,005) = 1.464,6 kg, ~1.465 kg/dia (14,65 kg/animal), redução de ~7,4 kg. Condição: 3 dias seguidos e sem chuva, comparado com os 3-5 dias anteriores (chuva reduz consumo; não cortar por leitura isolada). Não misturar escalas: na escala +2 a -2 o cocho cheio (-2) reduz 10%. Leitura antes do 1º trato, mesma pessoa e horário.",
+  "files_read": [
+   "05-confinamento-terminacao.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 11,
+  "answer": "Equação NU1 (zebuínos e cruzados; a skill não nomeia 'BR Corte 2016'): CMS = -0,6273 + 0,06453 x PV^0,75 + 3,871 x GMD - 0,614 x GMD². Dados: PV 400, GMD 1,2. 400^0,75 = 89,44; 0,06453 x 89,44 = 5,772; 3,871 x 1,2 = 4,645; 0,614 x 1,44 = 0,884. CMS = -0,6273 + 5,772 + 4,645 - 0,884 = 8,91 kg MS/dia. Milho (NU3): MN = CMS x fração / %MS = 8,91 x 0,60 / 0,88 = 6,07 kg MN/animal/dia. O CMS sobe com o peso; repesar e recalcular (não usar CMS fixo).",
+  "files_read": [
+   "05-confinamento-terminacao.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 12,
+  "answer": "Arquivo 02: gestação média 282 dias (faixa 270-290); ciclo estral 19-21 dias (o cio dura 12-24 h; 19-21 d é o ciclo, não a duração do cio); meta de intervalo entre partos 12 meses (<12), 1 bezerro/vaca/ano. Vacas por touro jovem: ideal 20-25 vacas (só no manual de extensão; a fonte técnica de campo não dá número). A relação depende de idade e capacidade do touro, ECC das vacas e tamanho/topografia do pasto. Com touros jovens (baixa acurácia) usar 3 ou mais touros e menos vacas por touro. Andrológico ~60 dias antes da monta.",
+  "files_read": [
+   "02-reproducao-genetica.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 13,
+  "answer": "Arquivo 14: GMGC médio das fazendas de corte = 55,9 pontos (escala 0-100), nível Externalização Experimental (faixa 41-60). Responderam 94 fazendas (de 318 entregues = 29,6%; o texto reporta 29,2%; 516 e-mails enviados, 92 não entregues). Menor dimensão: Pessoas (PES) com 2,42 na escala 1-5 (seguida de Processos do Conhecimento 2,44 e Liderança 2,55); o menor item isolado foi proteção do conhecimento (1,70). Maior dimensão: Aprendizagem e Inovação (3,34). A fórmula do índice é reconstrução; pesos não conhecidos (média simples dá 55,2).",
+  "files_read": [
+   "14-gestao-conhecimento-inovacao.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 14,
+  "answer": "Arquivo 13: produtividade na Amazônia: pecuária 50 kg/ha, soja 2.800 kg/ha, cana 75.000 kg/ha (razões ~56x e ~1.500x; produtos diferentes, apenas ordem de grandeza). Participação do Brasil no mercado de carne da UE caiu de 65% (2006-2007) para 43% (2008), após embargo por falta de rastreabilidade (queda de 22 pontos percentuais). Dados de 2009.",
+  "files_read": [
+   "12-legislacao-ambiental-rastreabilidade.md",
+   "13-sustentabilidade-mercado-certificacao-territorio.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 15,
+  "answer": "Arquivo 07 (4 módulos, 3-4 anos, valores de 2017). Lotação: SSPR 3,5 UA/ha vs extensivo 0,75 (466%, calculado 4,67x; fonte também diz 4,5x e 4,6x). Leite: 5.794 vs 1.192 L/ha/ano (486%); renda bruta de leite R$ 4.978 vs 1.073/ha. Módulo base: 5,2 ha, 24 piquetes de 2.167 m², cerca elétrica 6.000 m + convencional 4.000 m, água nos piquetes, recuperação de 100% da área, 938 mudas. Investimento R$ 6.866,62/ha vs 823,08 (~8x). Financeiro (10 anos, 10% a.a.): VPL R$ 57.066 (57.068 na conclusão), TIR 19%; incremental TIR 25% e VPL R$ 92.081; lucro operacional R$ 3.980/ha.ano; payback 2 anos e 10 meses sem rebanho. Extensivo inviável em 5,2 ha (equilíbrio 7,4 ha). Conflito: '15 L/ha' provavelmente por dia.",
+  "files_read": [
+   "07-sistemas-integrados-silvipastoril.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 16,
+  "answer": "Arquivo 13: lotação do Pantanal 0,33 cabeça/ha; 86% do bioma conservado (4,4% em unidades de conservação). Área certificada em 2014: 140 mil ha (2013: 120 mil; a associação tinha 100 mil ha 'cadastrados', conflito sinalizado). Custo sanitário: fazendas com homeopatia e fitoterapia R$ 2,00/cabeça vs R$ 15,00 nas convencionais (economia derivada de R$ 13/cab).",
+  "files_read": [
+   "13-sustentabilidade-mercado-certificacao-territorio.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 17,
+  "answer": "Protocolo Carne Sustentável no Pantanal (arquivo 13): (1) ureia no sal é PROIBIDA: na seca, suplementar só com alimentos de origem vegetal (80% orgânicos) e adubação só orgânica; (2) fogo no manejo de pastagem é proibido: trocar a queima por manejo (roçada/controle); (3) tratamento veterinário restrito a fitoterápicos e homeopatia: vermífugo químico não entra; a única exceção negociada é 1 ml de ivermectina no bezerro recém-nascido (umbigo). Também: vacinações oficiais obrigatórias, bem-estar animal, cumprir leis trabalhistas e ambientais. Atenção: certificação custa nos 2 primeiros anos, prêmio relatado 10-18% (ou 'nunca passou de 10%') e depende de aliança com comprador. A skill não traz a dose/produto fitoterápico alternativo.",
+  "files_read": [
+   "10-sanidade.md",
+   "13-sustentabilidade-mercado-certificacao-territorio.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 18,
+  "answer": "Não faz sentido ainda (arquivo 01, gate de entrada): intensificar só depois de prenhez >= 75%, desmame > 160 kg e repetição de cria em primíparas >= 65%. Com 70% você está abaixo do mínimo de 75%; corrija primeiro a cria: estação de monta de ~3 meses, ECC >= 3, andrológico, diagnóstico de gestação (arquivo 02), e verifique desmame e repetição. Confinamento é terminação de machos, não resolve prenhez; o boi magro pesa 64,56% do custo e alimentação 28,67% (arquivo 05), exige capital. Se o gate for cumprido, avalie semi-intensivo e depois confinamento, comparando prêmio e margens.",
+  "files_read": [
+   "01-sistemas-producao-intensificacao.md",
+   "02-reproducao-genetica.md",
+   "05-confinamento-terminacao.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 19,
+  "answer": "Fórmulas (PA14, PA15; arquivo 06): Ndose = MS x 0,015 - NMO; Ureia = Ndose / 0,45 / ef (ef = 0,50). Dados: MS 18.000 kg/ha.ano; solo com 2% MO fornece 100 kg N/ha (valor do exemplo da skill). Cálculo: 18.000 x 0,015 = 270 kg N; 270 - 100 = 170 kg N/ha.ano. Ureia = 170 / 0,45 / 0,50 = 755,6 kg/ha (~756 kg). Ressalvas: o termo de MO vem de um exemplo com 15.000 kg MS e a linha de origem do cálculo está ilegível (reconstruída); aplicar N no início das águas e evitar ureia sobre palha no fim das águas (perda de NH3). A skill traz também a manutenção do tanzânia (50 kg N/ha/ano por 3 anos, 100 depois), que é bem inferior.",
+  "files_read": [
+   "06-pastagem-adubacao-forragem.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 20,
+  "answer": "Arquivo 06: em capim irrigado a produção de MS pico é em 750 kg N/ha: MS total 21,04 Mg/ha (águas 17,21; seca 3,83), estacionalidade 18,2%, receita R$ 3.731,09/ha. Com 900 kg N cai para 19,59 Mg/ha; de 600 para 750 kg ganha +1,99 Mg/ha e +R$ 352,89/ha. O ponto econômico não está calculado (custo do N não consta); testar a curva. Alfafa para pastejo (área irrigada): produção anual média 18,4 t/ha (águas 2004/05 11,5; seca 6,8; águas 2005/06 9,2), estacionalidade 36,93%; melhores anuais Crioula RS 21,8, Itapuã 21,5, Chile 21,1; mais estacionais Crioula Chile 44,0 e RS 43,3. Dados de poucos locais; usar com cautela.",
+  "files_read": [
+   "06-pastagem-adubacao-forragem.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 21,
+  "answer": "ECC 2,5 está abaixo do mínimo (>= 3 para entrar na estação). Prenhez esperada (Nelore, 9.053 vacas): ECC 2 = 57,6%, ECC 3 = 67,9% (ECC 2,5 entre os dois); outro estudo: ECC >=3 = 86,5% vs <3 = 65,9%. Antes da estação: dar melhores pastos e suplemento proteico/energético, corrigir o ECC já no terço final da gestação, estação de ~90 dias iniciando ~30 dias após as chuvas, andrológico ~60 dias antes, diagnóstico >=45 dias após o fim da monta. Bezerro: colostro em até 3 h; umbigo, marcação, pesagem e vermífugo no dia seguinte; cordão >=4 cm; creep a partir do 2º mês. Desmama: lado a lado (pasto vizinho) por 3 dias; idade 6-8 meses (artificial), faixa 7-9 meses, natural 9-11 (fontes divergem); meta 160-180 kg; não somar estressores nem castrar junto.",
+  "files_read": [
+   "02-reproducao-genetica.md",
+   "03-cria-bezerros-recria.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 22,
+  "answer": "Não: o valor correto é 2.500 kg MS/ha (2,5 t), não 2.500 t. A fonte grafa 't' por erro de escala (2.500 t/ha seria impossível); a skill corrige para 2.500 kg MS/ha para B. decumbens como disponibilidade mínima de forragem, e indica que a suplementação funciona mesmo com >4 t MS/ha de forragem.",
+  "files_read": [
+   "04-nutricao-suplementacao.md",
+   "06-pastagem-adubacao-forragem.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 23,
+  "answer": "A skill NÃO traz dose de ivermectina para adultos (nem para vaca de 450 kg). A única menção é a exceção de 1 ml de Ivomec em bezerro recém-nascido (umbigo) no protocolo orgânico do Pantanal. Dose e esquema são prescrição do veterinário. Sobre aplicações, a skill só dá o controle estratégico de carrapato: 3 a 6 banhos por ano, intervalo de 19-21 dias, no início das chuvas, tratamento tático se >10-20 fêmeas adultas por lado; meta é nível tolerável, não erradicar; banhos curativos indiscriminados geram resistência. As avermectinas são citadas só como classe (pour-on/injetáveis), sem dose ou número de aplicações.",
+  "files_read": [
+   "10-sanidade.md",
+   "13-sustentabilidade-mercado-certificacao-territorio.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 24,
+  "answer": "A skill não cobre cotações: não traz preço da arroba do boi gordo em Mato Grosso nem do bezerro (cotações de mercado não estão na base). Consulte uma fonte atualizada (CEPEA/ESALQ, Imea, Scot). A skill só dá fórmulas (ex. relação de troca, ponto de equilíbrio da arroba) e a convenção de 1 @ = 15 kg de carcaça, que dependem do preço que você informar.",
+  "files_read": [
+   "01-sistemas-producao-intensificacao.md",
+   "11-gestao-economia-financas.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 25,
+  "answer": "Ganho necessário: ΔP = Pf − Pi (DE2) = 380 − 200 = 180 kg. Dias = ΔP ÷ GMD (DE3) = 180 ÷ 0,6 = 300 dias = 10 meses (30 d/mês, DE4). Dias para 1 @: dias_arr = KVA ÷ GMD (DE6) = 30 ÷ 0,6 = 50 dias. Atenção: aqui a @ é 30 kg de ganho de peso vivo; a outra convenção da skill é 1 @ = 15 kg de carcaça, e não se deve misturar as duas no mesmo cálculo.",
+  "files_read": [
+   "SKILL.md",
+   "formulas.md"
+  ]
+ },
+ {
+  "id": 26,
+  "answer": "Diária = despesa ÷ cabeças ÷ dias do mês (EC3) = 90.000 ÷ 1.500 ÷ 30 = R$ 2,00/cab/dia. Dias por arroba (DE6) = 30 ÷ 0,6 = 50 dias. Custo operacional da @ (EC4) = 2,00 × 50 = R$ 100,00/@. Diferença (EC5) = 300 − 100 = +R$ 200,00/@: o preço cobre o custo operacional. Esse custo exclui reposição (compra do animal), comissão, frete e juros; para o custo total usa-se EC6 (Ctot ÷ arrobas).",
+  "files_read": [
+   "11-gestao-economia-financas.md",
+   "SKILL.md",
+   "formulas.md"
+  ]
+ },
+ {
+  "id": 27,
+  "answer": "Custo total do animal (EC8) = aquisição + diária × dias = 2.200 + 300 × 1,50 = R$ 2.650 (sem extras). Ponto de equilíbrio (EC9): PE = Cant ÷ Pf × KVA = 2.650 ÷ 420 × 30 = R$ 189,29/@ de peso vivo. Abaixo disso há prejuízo. Usa a convenção de 30 kg vivo por @; o mesmo cálculo com carcaça (15 kg/@, rendimento ~50,5%) daria outro valor, e as convenções não devem ser misturadas.",
+  "files_read": [
+   "11-gestao-economia-financas.md",
+   "SKILL.md",
+   "formulas.md"
+  ]
+ },
+ {
+  "id": 28,
+  "answer": "Custo do kg vivo comprado (EC13) = 2.400 ÷ 200 = R$ 12,00/kg; arroba paga (EC14) = 12 × 30 = R$ 360/@. Ágio por @ (EC15) = 360 − 280 = R$ 80/@. Arrobas na compra (DE9) = 200 ÷ 30 = 6,67 @. Ágio total a diluir (EC16) = 80 × 6,67 = R$ 533,33. Diluição por dia (EC17) = 533,33 ÷ 250 = R$ 2,13/dia. Ganho extra necessário (EC18) = 2,133 ÷ 12 = 0,178 kg/dia ≈ 178 g/dia (EC19), além do ganho normal. Convenção usada: 30 kg vivo por @.",
+  "files_read": [
+   "11-gestao-economia-financas.md",
+   "SKILL.md",
+   "formulas.md"
+  ]
+ },
+ {
+  "id": 29,
+  "answer": "Valor de venda (EC20) = 310 × 20 = R$ 6.200. Relação de troca (EC21) = Vvenda ÷ Vbez = 6.200 ÷ 2.480 = 2,50 bezerros. Leitura: a venda de um boi gordo compra 2,5 bezerros; RT em queda indica ciclo desfavorável ao recriador e engordador, RT em alta o contrário. Referência da skill (valores de exemplo): machos 2,43 (2025) e 2,00 (2021); 2,50 está um pouco acima do exemplo de 2025.",
+  "files_read": [
+   "11-gestao-economia-financas.md",
+   "SKILL.md",
+   "formulas.md"
+  ]
+ },
+ {
+  "id": 30,
+  "answer": "Ingrediente = Pbatida × % ÷ 100 (NU18): milho 700 kg, farelo de soja 200 kg, núcleo 100 kg (soma 100%, NU19). Custo (NU22): milho 700 × 1,50 = R$ 1.050; farelo 200 × 2,50 = R$ 500; núcleo 100 × 6,00 = R$ 600. Batida (NU23) = R$ 2.150. Custo/kg (NU24) = 2.150 ÷ 1.000 = R$ 2,15/kg. Saco de 30 kg (NU25) = 2,15 × 30 = R$ 64,50. O núcleo é 10% da massa e 28% do custo.",
+  "files_read": [
+   "04-nutricao-suplementacao.md",
+   "SKILL.md",
+   "formulas.md"
+  ]
+ },
+ {
+  "id": 31,
+  "answer": "NU1 (animais cruzados): CMS = −0,6273 + 0,06453 × PV^0,75 + 3,871 × GMD − 0,614 × GMD². PV^0,75 = 450^0,75 = 97,70. CMS = −0,6273 + 6,304 + 5,032 − 1,038 = 9,67 kg MS/dia. Conflito: a faixa de 2,3 a 2,8% do PV no confinamento daria 10,4 a 12,6 kg MS/dia para 450 kg; a skill traz as duas estimativas sem reconciliá-las. Não usar CMS fixo ao longo da engorda; repesar o lote.",
+  "files_read": [
+   "04-nutricao-suplementacao.md",
+   "05-confinamento-terminacao.md",
+   "SKILL.md",
+   "formulas.md"
+  ]
+ },
+ {
+  "id": 32,
+  "answer": "PA1: peso total = 300 × 380 = 114.000 kg. PA2: UA = 114.000 ÷ 450 = 253,3 UA (1 UA = 450 kg PV). PA4: lotação = 253,3 ÷ 110 = 2,30 UA/ha. PA5: cabeças/ha = 300 ÷ 110 = 2,73 cab/ha. Use só a área efetivamente pastejada. Referência da skill: lotação média geral 1,21 cab/ha (amostra de 94 fazendas).",
+  "files_read": [
+   "11-gestao-economia-financas.md",
+   "SKILL.md",
+   "formulas.md"
+  ]
+ },
+ {
+  "id": 33,
+  "answer": "Heterose (RE7): H = (X1 − X2) ÷ X2 × 100 = (210 − 180) ÷ 180 × 100 = 16,7%. No cruzamento rotacionado a heterose estabiliza em 67% com 2 raças e em cerca de 86% com 3 raças (percentuais da heterose máxima do F1, que a skill trata como 100%; não é o mesmo conceito dos 16,7% medidos em kg).",
+  "files_read": [
+   "02-reproducao-genetica.md",
+   "SKILL.md",
+   "formulas.md"
+  ]
+ },
+ {
+  "id": 34,
+  "answer": "Salário R$ 3.000. Encargos (EC35-37): FGTS 8% = 240 + INSS outras entidades 2,7% = 81, total R$ 321. Provisões (EC38-46): férias 249,90 + 1/3 férias 83,40 + 13º 249,90 + FGTS s/ direitos 46,66 + multa FGTS 40% 96,00 + multa s/ direitos 18,66 + INSS s/ direitos 15,75 = R$ 760,26. Custo mensal (EC49) = 3.000 + 321 + 760,26 = R$ 4.081,26. Fator (EC50) = 1,3604. Fazenda de 2.000 cab: NF = 2.000 ÷ 1.000 = 2 funcionários (EC25), equipe (EC51) = 2 × 4.081,26 = R$ 8.162,53/mês. Fora dos encargos: INSS patronal, RAT, EPI, horas extras; confirmar com o contador.",
+  "files_read": [
+   "11-gestao-economia-financas.md",
+   "SKILL.md",
+   "formulas.md"
+  ]
+ },
+ {
+  "id": 35,
+  "answer": "APP ripária (versão 2011 do manual): rio de 120 m (faixa 50-200 m) = 100 m por margem; córrego de 30 m (faixa 10-50 m) = 50 m; nascente = raio mínimo de 50 m; rio com mais de 600 m = 500 m. Reserva Legal: cerrado na Amazônia Legal 35%; demais regiões 20% (floresta na Amazônia Legal 80%, reduzível a 50% com ZEE). Aviso: esses valores vêm de uma versão de 2011, anterior à Lei 12.651/2012; revalide contra a norma vigente antes de decidir.",
+  "files_read": [
+   "12-legislacao-ambiental-rastreabilidade.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 36,
+  "answer": "Pedilúvio pelo menos 2 vezes por semana, na saída da ordenha, precedido de lava-pés só com água; soluções alternadas: formol 3-5% e sulfato de cobre 5%; trocar a solução quando houver muita matéria orgânica. Casqueamento: a skill não autoriza casquear todas as vacas a cada pedilúvio; traz casqueamento preventivo regular (de preferência no início da secagem) e corretivo quando necessário, e lista casquear só quando manca como anti-padrão. Vermífugo: corte no início da seca, meio da seca e início das águas (maio, julho e setembro no Brasil, ~60% do território); leite ganha 4ª dose no meio das chuvas. Fazer OPG e dose por peso.",
+  "files_read": [
+   "09-conforto-bem-estar-instalacoes-pre-abate.md",
+   "10-sanidade.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 37,
+  "answer": "Viagem de no máximo 12 h. Se passar disso: descarregar, dar alimento e água e reembarcar após ~18 h. Espera no frigorífico: o melhor ponto para pH e cor citado é 4 h (estudo pontual); a regra legal (RIISPOA) é 24 h de descanso, reduzida a 6 h se a origem for próxima e o transporte durar menos de 2 h. DFD: pH acima de 6,0 (mercados exigentes pedem 5,5-5,8). Acima de 330 km, pH > 6,0 sobe de 5% para 26,6% dos casos.",
+  "files_read": [
+   "09-conforto-bem-estar-instalacoes-pre-abate.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 38,
+  "answer": "Tanque coletivo (só expansão direta, em propriedade rural): produtores a no máximo 5 km; no máximo 10 produtores por tanque; nenhum com mais de 200 L em duas ordenhas; só tanque de duas ordenhas (24 h); capacidade = 2,5 x o volume diário total; leite entregue pelo próprio produtor em no máximo 2 h após a ordenha; coleta da indústria a cada 24 h no máximo; não acumular mais de uma ordenha. Recebimento: alizarol 78% e densidade em cada latão.",
+  "files_read": [
+   "08-leite-qualidade-ordenha.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 39,
+  "answer": "Creep-feeding, a partir do 2º mês: dieta com 75-80% NDT e 16-21% PB; fornecer 0,5 a 1,0% do PV/cabeça/dia (ex.: bezerro de 150 kg = 0,75-1,5 kg/dia, derivado). Área 1,5 m² por cria (2 m de circulação entre cocho e cerca); cocho linear ~10 cm por animal; entrada exclusiva 0,40 x 1,20 m; cerca de arame liso de 6-8 fios. Conflito: ensaios usaram 12,4-20% PB e consumos de 0,328 a 3,4 kg/dia. Manter nutrição na recria, senão o ganho se perde.",
+  "files_read": [
+   "03-cria-bezerros-recria.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 40,
+  "answer": "Aplicar o calcário 90 dias antes do plantio, incorporando só na implantação (em pasto formado, em superfície). Resposta citada em B. brizantha recuperada: 19,0 t MS/ha.ano (V 80%) vs 16,3 (V 57%) = +2,7 t MS/ha.ano; líquido de 20% (PA16) = 2,16 t, o que alimenta 0,7 UA por 365 dias. Retorno (PA17): R$ 400 de ganho − R$ 67,50 de calcário (1,5 t/ha) = R$ 332,50; R$ 4,9 por R$ 1,00 investido (líquido; bruto seria R$ 5,9, e o preço da @ usado é ambíguo na origem). Forrageiras tropicais respondem pouco à calagem.",
+  "files_read": [
+   "06-pastagem-adubacao-forragem.md",
+   "SKILL.md",
+   "formulas.md"
+  ]
+ },
+ {
+  "id": 41,
+  "answer": "Não está adequado. A regra é 1 baia por vaca (1,1-1,3 vacas/baia não é ideal, pois sincroniza o deitar). Aqui: 96 ÷ 120 = 0,8 baia/vaca (1,25 vaca/baia); faltam 24 baias (precisa de 120). Vacas deitadas no corredor confirmam o problema. Amostras: escore de higiene em 70% das vacas = 0,70 × 120 = 84 vacas (na sala de ordenha); escore de locomoção/casco em pelo menos 25% do lote = 30 vacas.",
+  "files_read": [
+   "09-conforto-bem-estar-instalacoes-pre-abate.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 42,
+  "answer": "GE1: área aproveitável = 2.000 − (RL + APP + benfeitorias). RL no cerrado da Amazônia Legal = 35% (versão 2011) = 700 ha (suposição minha: você não informou a RL). Aap = 2.000 − (700 + 100 + 20) = 1.180 ha. GE2: GUT = 900 ÷ 1.180 × 100 = 76,3%, abaixo do mínimo de 80%: não atende. Área utilizada necessária = 0,80 × 1.180 = 944 ha, ou seja, mais 44 ha. Se a RL averbada for outra, refaça a conta. A função social também exige GEE ≥ 100%, que não dá para calcular sem o rebanho.",
+  "files_read": [
+   "11-gestao-economia-financas.md",
+   "12-legislacao-ambiental-rastreabilidade.md",
+   "SKILL.md",
+   "formulas.md"
+  ]
+ },
+ {
+  "id": 43,
+  "answer": "Sim. Desde 01/07/2018 o limite de CCS é 400 mil CS/mL (S/SE/CO, média geométrica de 3 meses, IN 7/2016); 450 mil o ultrapassa, com risco de penalização ou recusa. Acima de 200 mil CS/mL o tanque indica vacas doentes (mastite subclínica, sem sinal visível). Perda: 4 L/dia por vaca adulta com CCS elevada (LE4); a skill não diz quantas vacas; exemplo de 30 vacas = 120 L/dia (~3.600 L/mês), teto de 60 vacas = 240 L/dia. A 1,5 milhão a perda chega a 30%. Manejo: caneca de fundo preto, CMT mensal, pré e pós-dipping, linha de ordenha, vácuo e teteiras, cultura e antibiograma, antibiótico na secagem, descarte de crônicas, ambiente limpo.",
+  "files_read": [
+   "08-leite-qualidade-ordenha.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 44,
+  "answer": "Pasto com 5% PB (abaixo de 6-7%): suplemento proteico de baixo consumo, 1 a 2 g/kg de peso corporal. Novilhos de 300 kg: 0,3 a 0,6 kg/animal/dia (Cons = PV × dose, NU2). Lote de 100: 30 a 60 kg/dia (NU5); saco de 30 kg: 1 a 2 sacos/dia (NU17, arredondando para cima). Os 300-350 g/dia citados são o ganho esperado, não o consumo. Alternativa mais intensa: 0,8-1,0% PV com 20% PB (GPD > 800 g/dia), ou seja, 2,4-3 kg/animal e 8-10 sacos/dia (derivado). Faixa citada também: 1-3 g/kg, 100-350 g/dia. Adaptação de 2-3 semanas.",
+  "files_read": [
+   "04-nutricao-suplementacao.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 45,
+  "answer": "Os três valores são definições diferentes, não erros: desmama artificial 6-8 meses (também dita tradicional); natural 9-11 meses; faixa recomendada 7-9 meses, conforme condição de mãe e cria, raça, época e alimento. Meta de peso: 160-180 kg na desmama aos 6-8 meses; antes de intensificar, a skill exige peso médio de desmame acima de 160 kg. Use lado a lado por 3 dias. Fim da recria: 360-400 kg.",
+  "files_read": [
+   "01-sistemas-producao-intensificacao.md",
+   "03-cria-bezerros-recria.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 46,
+  "answer": "Os três números têm bases diferentes e a fonte não os reconcilia: 28,67% é a alimentação no custo operacional total do cenário de 1.000 animais (360 para 500 kg, 100 dias), em que o boi magro pesa 64,56%; mais de 70% é o custo total (2/3 disso concentrado); 70-90% é o custo operacional sem o boi. Para orçamento com compra do boi magro, use a tabela de custos do cenário (28,67% alimentação, 64,56% boi magro, 6,55% instalações e mão de obra, 0,21% higiene e medicamentos); use 70-90% só se o orçamento excluir o boi. Não escolha um número isolado: defina a base primeiro.",
+  "files_read": [
+   "05-confinamento-terminacao.md",
+   "11-gestao-economia-financas.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 47,
+  "answer": "A skill não cobre nenhum dos dois. Não há taxa de lotação de ovinos por hectare nem dose de vermífugo para ovelha adulta (nem de ivermectina para adultos). Só traz o índice de conversão em UA para ovinos e caprinos: 0,25 UA (planalto MS) e 0,19 (Pantanal), que serve para o GEE e não é recomendação de lotação. O calendário de vermifugação da skill é de bovinos. Consulte veterinário ou fonte específica de ovinocultura.",
+  "files_read": [
+   "10-sanidade.md",
+   "11-gestao-economia-financas.md",
+   "SKILL.md"
+  ]
+ },
+ {
+  "id": 48,
+  "answer": "A skill não cobre: não há dose de gluconato de cálcio endovenoso nem protocolo de hipocalcemia/febre do leite (sem busca com resultado). Só traz o manejo de animal caído: local seco e confortável com água e comida, mudar de posição com frequência, identificar a causa, não içar antes da avaliação veterinária, nunca arrastar, e abate humanitário se o prognóstico for mau. Dose e protocolo são com o veterinário, com urgência.",
+  "files_read": [
+   "09-conforto-bem-estar-instalacoes-pre-abate.md",
+   "10-sanidade.md",
+   "SKILL.md"
+  ]
+ }
+]

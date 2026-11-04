@@ -51,6 +51,7 @@ type Options struct {
 	MinCompressRange int           // smallest range or fold in tokens (§10.2)
 	MinSummaryChars  int           // shortest accepted summary in characters (§10.2)
 	RecentKeep       int           // trailing messages no compress call may touch (§10.2)
+	FramingCheck     bool          // reject imperative-mood summaries (§11.2, opt-in)
 }
 
 // withDefaults fills the zero fields of o with the spec defaults.
@@ -172,13 +173,35 @@ func (s *Session) Plan(ctx context.Context, tokenCount int) (Plan, error) {
 	before := trig
 	trig.LowWater = kernel.UpdateLowWater(trig.LowWater, tokenCount)
 
+	pend := pending(snap, s.opts.RecentKeep)
 	d := kernel.DecideNudge(kernel.TriggerInput{
 		TokenCount:   tokenCount,
 		ContextLimit: snap.ContextLimit,
 		ReadDensity:  readDensity(snap),
-		Pending:      pending(snap, s.opts.RecentKeep),
+		Pending:      pend,
 		Trigger:      trig,
 	}, s.opts.Kernel)
+
+	// A forced nudge (Compact) is one-shot: it nudges with tier 1 whatever the
+	// usage bands say, as long as tier-1 content is pending, and it is not
+	// counted as a refusal, since the model has not seen it yet.
+	forced, err := s.st.ForcedNudge(ctx, s.sid)
+	if err != nil {
+		return Plan{}, err
+	}
+	forcedNow := false
+	if forced {
+		if pend[1] > 0 {
+			if !d.Nudge {
+				d = kernel.Decision{Nudge: true, Tier: 1, Voice: kernel.VoiceFirm, Row: "forced",
+					Reason: "compaction requested by the user"}
+			}
+			forcedNow = true
+		}
+		if err := s.st.ClearForcedNudge(ctx, s.sid); err != nil {
+			return Plan{}, err
+		}
+	}
 
 	hints := kernel.DetectRecall(snap)
 	var turnSeq int64
@@ -204,7 +227,7 @@ func (s *Session) Plan(ctx context.Context, tokenCount int) (Plan, error) {
 	}
 
 	if d.Nudge {
-		if trig.NudgePending {
+		if trig.NudgePending && !forcedNow {
 			// Previous nudge was shown and the model never compressed: refusal (spec §8.3).
 			trig.Refusals++
 			if err := s.st.AppendEvent(ctx, s.sid, "refuse", map[string]any{"refusals": trig.Refusals}); err != nil {
@@ -220,13 +243,47 @@ func (s *Session) Plan(ctx context.Context, tokenCount int) (Plan, error) {
 			trig.LastShownT3 = tokenCount
 		}
 	}
+	visible := s.truncated(snap, tokenCount)
+	if len(visible.Dropped) > 0 || visible.Overflow {
+		payload := map[string]any{
+			"limit": snap.ContextLimit, "tokens": tokenCount, "dropped": len(visible.Dropped),
+			"marker": visible.Marker, "overflow": visible.Overflow,
+		}
+		if n := len(visible.Dropped); n > 0 {
+			payload["from"], payload["to"] = visible.Dropped[0], visible.Dropped[n-1]
+		}
+		if err := s.st.AppendEvent(ctx, s.sid, "truncate", payload); err != nil {
+			return Plan{}, err
+		}
+	}
 	if err := s.st.SetTrigger(ctx, s.sid, trig); err != nil {
 		return Plan{}, err
 	}
 	return Plan{
-		Decision: d, LowWater: trig.LowWater, Visible: kernel.Render(snap), Hints: hints,
+		Decision: d, LowWater: trig.LowWater, Visible: visible.Window, Hints: hints,
 		Before: before, After: trig,
 	}, nil
+}
+
+// truncated renders the visible window and applies the I8 bound (spec §17.1):
+// the window never exceeds the context limit unless its protected content does.
+// tokenCount is the calibrated size of the window the proxy measures. It is
+// spread over the messages in proportion to their estimates, rounded up, so the
+// scaled sum never falls below tokenCount. The untruncated Render still feeds
+// tokensAfter, so the trigger low-water does not depend on a per-request valve.
+func (s *Session) truncated(snap kernel.Snapshot, tokenCount int) kernel.Truncation {
+	raw := kernel.Render(snap)
+	rawTotal := int64(0)
+	for _, m := range raw {
+		rawTotal += int64(m.Tokens)
+	}
+	if snap.ContextLimit <= 0 || tokenCount <= snap.ContextLimit || rawTotal == 0 {
+		return kernel.Truncation{Window: raw}
+	}
+	tok := func(m kernel.Message) int {
+		return int((int64(m.Tokens)*int64(tokenCount) + rawTotal - 1) / rawTotal)
+	}
+	return kernel.EmergencyTruncateWith(raw, snap.ContextLimit, s.opts.RecentKeep, tok)
 }
 
 // ErrNudgeStale reports that the trigger state moved after the Plan, so a
@@ -355,7 +412,7 @@ func (s *Session) HandleCompress(ctx context.Context, args CompressArgs) (Compre
 			return CompressResult{}, fmt.Errorf("range %d: %s after %s", i, r.StartRef, r.EndRef)
 		}
 		summary := stripForgedMarkers(r.Summary)
-		if err := checkSummary(summary, s.opts.MinSummaryChars); err != nil {
+		if err := s.validateSummary(summary); err != nil {
 			return CompressResult{}, fmt.Errorf("range %d: %w", i, err)
 		}
 		if hasSystemMessage(snap.Messages, start.Seq, end.Seq) {
@@ -431,7 +488,7 @@ func (s *Session) HandleCompress(ctx context.Context, args CompressArgs) (Compre
 			return CompressResult{}, fmt.Errorf("fold %d: covers %d tokens, minimum is %d", i, raw, s.opts.MinCompressRange)
 		}
 		summary := stripForgedMarkers(f.Summary)
-		if err := checkSummary(summary, s.opts.MinSummaryChars); err != nil {
+		if err := s.validateSummary(summary); err != nil {
 			return CompressResult{}, fmt.Errorf("fold %d: %w", i, err)
 		}
 		sum := estimateTokens(summary)
@@ -504,6 +561,18 @@ func (s *Session) Recall(ctx context.Context, ref string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("recall: unknown ref %q", ref)
+}
+
+// validateSummary applies the §10.2 summary rules and, when enabled, the §11.2
+// framing check. The summary has its forged markers stripped already.
+func (s *Session) validateSummary(summary string) error {
+	if err := checkSummary(summary, s.opts.MinSummaryChars); err != nil {
+		return err
+	}
+	if s.opts.FramingCheck {
+		return kernel.FramingCheck(summary)
+	}
+	return nil
 }
 
 // checkSummary applies the non-empty and MinSummaryChars rules of spec §10.2 to a

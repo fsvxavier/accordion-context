@@ -103,6 +103,8 @@ func Run(args []string, streams IO) int {
 		return runAttach(args[1:], s)
 	case "doctor":
 		return runDoctor(args[1:], s)
+	case "replay":
+		return runReplay(args[1:], s)
 	case "help", "-h", "--help":
 		fmt.Fprint(s.Stdout, Usage())
 		return ExitOK
@@ -133,6 +135,7 @@ claude|codex|gemini|opencode [args]   launch a client through the proxy
 run -- <cmd> [args]                   launch any client whose profile is known
 attach [--profiles f] -- <cmd> [args] run any command through the proxy, verifying the integration first
 doctor [--json] [client]              check the installation and, optionally, one client's integration
+replay [--check] <trace.jsonl>           re-run a session trace through the kernel and print the window and events
 mcp                                   serve the companion MCP server on stdio
 help                                  show this help
 

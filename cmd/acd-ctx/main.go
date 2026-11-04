@@ -54,8 +54,16 @@ func serve(args []string, stderr io.Writer) int {
 	upstream := fs.String("upstream", "https://api.anthropic.com", "default upstream API base URL, used when the request has no /ctx/<url>/ prefix")
 	dbPath := fs.String("db", "", "SQLite database path (default ~/.local/share/acd-ctx/acd-ctx.db)")
 	allow := fs.String("allow", "", "comma-separated origins reachable through /ctx/<url>/ (default: the --upstream origin)")
+	configPath := fs.String("config", "", "global config file (default: the user config path, spec §18.1)")
+	markers := fs.String("markers", "", "comma-separated project root markers (default: go.mod,package.json,pyproject.toml,composer.json,Cargo.toml)")
 	if err := fs.Parse(args); err != nil {
 		return 2
+	}
+	var rootMarkers []string
+	for _, m := range strings.Split(*markers, ",") {
+		if m = strings.TrimSpace(m); m != "" {
+			rootMarkers = append(rootMarkers, m)
+		}
 	}
 	var allowed []string
 	for _, a := range strings.Split(*allow, ",") {
@@ -97,7 +105,7 @@ func serve(args []string, stderr io.Writer) int {
 
 	listenHost, _, _ := net.SplitHostPort(*listen)
 	h, err := proxy.New(proxy.Config{Upstream: up, Store: st, Version: version, Logger: logger,
-		UpstreamAllow: allowed, ListenHost: listenHost})
+		UpstreamAllow: allowed, ListenHost: listenHost, GlobalPath: *configPath, Markers: rootMarkers})
 	if err != nil {
 		logger.Error("configure proxy", "err", err)
 		return 1
@@ -118,6 +126,6 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, `usage: acd-ctx <command>
 
 commands:
-  serve     run the compaction proxy (--listen, --upstream, --db, --allow)
+  serve     run the compaction proxy (--listen, --upstream, --db, --allow, --config, --markers)
   version   print the version`)
 }

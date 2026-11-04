@@ -60,11 +60,23 @@ type Config struct {
 	Upstream     *url.URL
 	Store        *store.Store
 	Version      string
-	ContextLimit int          // default 200000 (no config layer yet)
+	ContextLimit int          // window used when the model has no entry, default 200000
 	MaxLoop      int          // server-side tool rounds per client request, default 4
 	Markers      []string     // project root markers, default go.mod, package.json, ...
 	Logger       *slog.Logger // default: discard
 	Transport    http.RoundTripper
+	// GlobalPath is the global configuration file (spec §18.1). Empty means the
+	// user config path. Project files are read per request-project root.
+	GlobalPath string
+	// ConfigFlags are explicit configuration keys (the highest layer of §18.5).
+	ConfigFlags map[string]string
+	// ContextWindows maps model name prefixes to context windows, added to the
+	// built-in table (builtinWindows).
+	ContextWindows map[string]int
+	// LookupEnv reads ACD_CTX_* variables. Nil means os.LookupEnv.
+	LookupEnv func(string) (string, bool)
+	// Now is the clock used for idle times and config reloads. Nil means time.Now.
+	Now func() time.Time
 	// ListenHost is the host part of the listen address. It is accepted in the
 	// Host header in addition to the loopback names. Empty when unknown.
 	ListenHost string
@@ -83,12 +95,15 @@ type Server struct {
 	// inherit gives a new fork its parent's blocks. A field so tests can fail it.
 	inherit func(ctx context.Context, child string, f *fork) error
 
-	defaultRequests atomic.Int64 // requests that fell back to the default project (§18.2)
+	defaultRequests atomic.Int64   // requests that fell back to the default project (§18.2)
+	windows         map[string]int // model prefix -> context window, lower-case keys
 
 	mu       sync.Mutex
 	sessions map[string]*session.Session
-	ensured  map[string]bool   // project ids already written to the projects table
-	roots    map[string]string // project id -> root_path last seen
+	ensured  map[string]bool         // project ids already written to the projects table
+	roots    map[string]string       // project id -> root_path last seen
+	tunes    map[string]*tune        // per session: calibration, cache gate state (tune.go)
+	cfgs     map[string]cachedConfig // project root ("" = global only) -> configuration
 }
 
 // New validates cfg and builds the handler.
@@ -111,6 +126,9 @@ func New(cfg Config) (*Server, error) {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
+	if cfg.Now == nil {
+		cfg.Now = time.Now
+	}
 	allow, err := allowSet(cfg.UpstreamAllow, cfg.Upstream)
 	if err != nil {
 		return nil, err
@@ -129,6 +147,9 @@ func New(cfg Config) (*Server, error) {
 		sessions: map[string]*session.Session{},
 		ensured:  map[string]bool{},
 		roots:    map[string]string{},
+		tunes:    map[string]*tune{},
+		cfgs:     map[string]cachedConfig{},
+		windows:  mergedWindows(cfg.ContextWindows),
 	}
 	srv.inherit = srv.inheritBlocks
 	return srv, nil
@@ -231,10 +252,11 @@ func (s *Server) compactTurn(w http.ResponseWriter, r *http.Request, rt routed, 
 	}
 
 	proj := s.resolveProject(r, rt.project)
+	cfg := s.configFor(proj.Root)
 	base := sessionID(proj.ID, r.Header.Get(headerConv), msgs)
 	// The walk never returns a session whose ledger differs from the transcript:
 	// an edited or colliding transcript gets its own fork (see fork.go).
-	sid, sess, fk, err := s.resolveLedger(ctx, proj, base, msgs, model)
+	sid, sess, fk, err := s.resolveLedger(ctx, proj, base, msgs, model, s.contextWindow(model))
 	if err != nil {
 		s.failOpen(w, r, rt, body, "session", err)
 		return
@@ -254,42 +276,54 @@ func (s *Server) compactTurn(w http.ResponseWriter, r *http.Request, rt routed, 
 		s.failOpen(w, r, rt, body, "snapshot", err)
 		return
 	}
-	// The client resends the whole transcript, so the size that matters is the
-	// rendered window, not the raw transcript.
-	visible := 0
-	for _, m := range kernel.Render(snap) {
-		visible += m.Tokens
+	// The trigger state before Plan, so a deferred nudge can be undone (tune.go).
+	prev, err := s.cfg.Store.GetTrigger(ctx, sid)
+	if err != nil {
+		s.failOpen(w, r, rt, body, "trigger", err)
+		return
 	}
-	plan, err := sess.Plan(ctx, visible)
+	// The client resends the whole transcript, so the size that matters is the
+	// rendered window, after CCR and crush (spec §14), not the raw transcript.
+	// Its calibrated size is the TokenCount of the trigger (spec §15).
+	rendered := reduceWindow(kernel.Render(snap), cfg.CCRThresholdTokens, cfg.CrushEnabled)
+	tokenCount := s.calibrate(sid, sumTokens(rendered))
+	plan, err := sess.Plan(ctx, tokenCount)
 	if err != nil {
 		s.failOpen(w, r, rt, body, "plan", err)
 		return
 	}
-	window, err := req.encode(plan.Visible)
+	window := reduceWindow(plan.Visible, cfg.CCRThresholdTokens, cfg.CrushEnabled)
+	encoded, err := req.encode(window)
 	if err != nil {
 		s.failOpen(w, r, rt, body, "encode", err)
 		return
 	}
-	out, err := p.InjectTools(window)
+	out, err := p.InjectTools(encoded)
 	if err != nil {
 		s.failOpen(w, r, rt, body, "inject", err)
 		return
 	}
 	if plan.Decision.Nudge {
-		spans := kernel.CompressibleSpans(snap, session.RecentKeep)
-		if nudged, err := p.AppendNudge(out, nudgeText(plan.Decision.Voice, spans)); err == nil {
-			out = nudged
-		} else {
-			s.cfg.Logger.Warn("nudge not injected", "protocol", p.Name(), "err", err)
+		spans := nudgeSpans(snap, cfg)
+		send := s.gateNudge(ctx, sid, gateIn{
+			plan: plan, prev: prev, spans: spans, visible: window,
+			tokens: tokenCount, limit: snap.ContextLimit, cfg: cfg,
+		})
+		if send {
+			if nudged, err := p.AppendNudge(out, nudgeText(plan.Decision.Voice, spans)); err == nil {
+				out = nudged
+			} else {
+				s.cfg.Logger.Warn("nudge not injected", "protocol", p.Name(), "err", err)
+			}
 		}
 	}
 
 	t := &turn{
 		ctx: ctx, sess: sess, sid: sid, proto: p, up: rt.up, path: rt.path, stream: stream, body: out,
-		estTokens: visible, proj: proj.ID,
+		estTokens: sumTokens(window), proj: proj.ID,
 	}
 	s.cfg.Logger.Debug("compaction turn", "protocol", p.Name(), "project", proj.ID, "session", sid,
-		"rule", plan.Decision.Row, "nudge", plan.Decision.Nudge, "tokens", visible)
+		"rule", plan.Decision.Row, "nudge", plan.Decision.Nudge, "tokens", tokenCount, "est_tokens", t.estTokens)
 	s.runTurns(w, r, t)
 }
 
@@ -305,8 +339,20 @@ type turn struct {
 	stream    bool
 	begun     bool   // the client stream has started (headers and bytes sent)
 	body      []byte // upstream request body of the current round
-	estTokens int
-	compress  int // successful compress calls so far in this request
+	estTokens int    // local estimate of the body sent this round, raw (before calibration)
+	compress  int    // successful compress calls so far in this request
+	foldsSeen int    // compress calls already reflected in a ledger row
+}
+
+// grow adds what a finished round appends to the body: the call arguments and
+// the results. The estimate tracks the body that the provider counts.
+func (t *turn) grow(calls []toolCall, results []toolResult) {
+	for _, c := range calls {
+		t.estTokens += kernel.EstimateTokens(string(c.input))
+	}
+	for _, r := range results {
+		t.estTokens += kernel.EstimateTokens(r.text)
+	}
 }
 
 // runTurns sends rounds upstream until the model stops asking for compress or
@@ -317,6 +363,7 @@ func (s *Server) runTurns(w http.ResponseWriter, r *http.Request, t *turn) {
 		fw = anthropic.NewForwarder(flushWriter{w})
 	}
 	for round := 0; ; round++ {
+		s.observeCall(t.sid)
 		resp, err := s.upstreamCall(r, t.up, t.path, t.body)
 		if err != nil {
 			s.cfg.Logger.Error("upstream call failed", "session", t.sid, "err", err)
@@ -382,6 +429,7 @@ func (s *Server) bufferedRound(w http.ResponseWriter, resp *http.Response, t *tu
 		s.send(w, resp, t, rr.final)
 		return true
 	}
+	t.grow(rr.calls, results)
 	t.body = next
 	return false
 }
@@ -492,6 +540,14 @@ func (s *Server) decompress(t *turn, args toolArgs) (string, error) {
 		}
 	}
 	if blk == nil {
+		if msgRef.MatchString(args.block) {
+			// A message reference from a CCR placeholder (ccr.go): the stored original.
+			text, err := t.sess.Recall(t.ctx, args.block)
+			if err != nil {
+				return "", err
+			}
+			return refExcerpt(args.block, text, args), nil
+		}
 		return "", fmt.Errorf("decompress: unknown block %q", args.block)
 	}
 
@@ -529,15 +585,19 @@ func (s *Server) decompress(t *turn, args toolArgs) (string, error) {
 }
 
 func (s *Server) recordCache(t *turn, u usage) {
+	folded := t.compress > t.foldsSeen
+	t.foldsSeen = t.compress
 	err := s.cfg.Store.RecordCache(t.ctx, t.sid, store.CacheCall{
 		InputTokens:   u.input,
 		CachedTokens:  u.cached,
 		EstTokens:     t.estTokens,
-		AfterCompress: t.compress > 0,
+		AfterCompress: folded,
 	})
 	if err != nil {
 		s.cfg.Logger.Warn("cache ledger write failed", "session", t.sid, "err", err)
 	}
+	// The sample pairs the raw estimate with the reported input (spec §15).
+	s.observeUsage(t.sid, t.estTokens, u.input, folded)
 }
 
 // failOpen forwards the untouched client body. Compaction problems must never
@@ -655,7 +715,7 @@ func (s *Server) rootOf(id string) string {
 
 // session returns the cached session, creating the project and session rows on
 // first use.
-func (s *Server) session(ctx context.Context, p projectRef, sid, model string) (*session.Session, error) {
+func (s *Server) session(ctx context.Context, p projectRef, sid, model string, limit int) (*session.Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if sess, ok := s.sessions[sid]; ok {
@@ -674,7 +734,7 @@ func (s *Server) session(ctx context.Context, p projectRef, sid, model string) (
 			return nil, err
 		}
 		if err := s.cfg.Store.CreateSession(ctx, store.Session{
-			ID: sid, ProjectID: p.ID, Model: model, ContextLimit: s.cfg.ContextLimit,
+			ID: sid, ProjectID: p.ID, Model: model, ContextLimit: limit,
 			Mode: "proxy", Integration: "url",
 		}); err != nil {
 			return nil, err

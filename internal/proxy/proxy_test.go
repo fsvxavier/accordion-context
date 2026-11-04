@@ -78,7 +78,8 @@ func newProxy(t *testing.T, up *fakeUpstream) (*httptest.Server, *store.Store, s
 	}
 	t.Cleanup(func() { st.Close() })
 	u, _ := url.Parse(up.srv.URL)
-	h, err := New(Config{Upstream: u, Store: st, Version: "test"})
+	h, err := New(Config{Upstream: u, Store: st, Version: "test",
+		GlobalPath: filepath.Join(t.TempDir(), "absent.yaml")})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

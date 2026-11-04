@@ -31,11 +31,11 @@ type fork struct {
 // only on the transcript, so the walk is the same across turns and restarts,
 // and no state is kept in memory. A fork is returned when the session reached
 // is new and must inherit the parent's blocks.
-func (s *Server) resolveLedger(ctx context.Context, p projectRef, base string, msgs []kernel.Message, model string) (string, *session.Session, *fork, error) {
+func (s *Server) resolveLedger(ctx context.Context, p projectRef, base string, msgs []kernel.Message, model string, limit int) (string, *session.Session, *fork, error) {
 	sid := base
 	var f *fork
 	for depth := 0; depth < maxForkDepth; depth++ {
-		sess, err := s.session(ctx, p, sid, model)
+		sess, err := s.session(ctx, p, sid, model, limit)
 		if err != nil {
 			return "", nil, nil, err
 		}

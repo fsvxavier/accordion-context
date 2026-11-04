@@ -1,0 +1,105 @@
+package proxy
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/fsvxavier/accordion-context/internal/config"
+)
+
+// cfgTTL is how long a loaded configuration is reused before the files are read again.
+const cfgTTL = 30 * time.Second
+
+// builtinWindows maps model name prefixes to context windows in tokens (spec §4).
+// The longest matching prefix wins. Config.ContextWindows adds to or replaces entries.
+var builtinWindows = map[string]int{
+	"claude-": 200_000,
+	"gpt-4o":  128_000,
+	"gpt-4.1": 1_047_576,
+	"gpt-5":   400_000,
+	"o1":      200_000,
+	"o3":      200_000,
+	"o4":      200_000,
+	"gemini-": 1_048_576,
+}
+
+// cachedConfig is one loaded configuration and when it was loaded.
+type cachedConfig struct {
+	cfg config.Config
+	at  time.Time
+}
+
+// mergedWindows returns builtinWindows overlaid with the configured entries, with
+// lower-case keys.
+func mergedWindows(extra map[string]int) map[string]int {
+	out := make(map[string]int, len(builtinWindows)+len(extra))
+	for k, v := range builtinWindows {
+		out[k] = v
+	}
+	for k, v := range extra {
+		if k = strings.ToLower(strings.TrimSpace(k)); k != "" && v > 0 {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// contextWindow returns the context window of model. Without a matching prefix
+// it falls back to Config.ContextLimit.
+func (s *Server) contextWindow(model string) int {
+	m := strings.ToLower(model)
+	best := ""
+	for k := range s.windows {
+		if strings.HasPrefix(m, k) && len(k) > len(best) {
+			best = k
+		}
+	}
+	if best == "" {
+		return s.cfg.ContextLimit
+	}
+	return s.windows[best]
+}
+
+// configFor returns the effective configuration of a project root (spec §18.5).
+// Only a real directory adds the project layer; synthetic roots and unknown ids
+// use the global file alone. A load failure is logged and the defaults are used,
+// so configuration problems never stop the traffic.
+func (s *Server) configFor(root string) config.Config {
+	key := ""
+	if filepath.IsAbs(root) && !strings.HasPrefix(root, "urn:") {
+		if fi, err := os.Stat(root); err == nil && fi.IsDir() {
+			key = filepath.Clean(root)
+		}
+	}
+	now := s.cfg.Now()
+	s.mu.Lock()
+	e, ok := s.cfgs[key]
+	s.mu.Unlock()
+	if ok && now.Sub(e.at) < cfgTTL {
+		return e.cfg
+	}
+	c := s.loadConfig(key)
+	s.mu.Lock()
+	s.cfgs[key] = cachedConfig{cfg: c, at: now}
+	s.mu.Unlock()
+	return c
+}
+
+func (s *Server) loadConfig(root string) config.Config {
+	res, err := config.Load(config.Options{
+		GlobalPath: s.cfg.GlobalPath,
+		Root:       root,
+		Flags:      s.cfg.ConfigFlags,
+		LookupEnv:  s.cfg.LookupEnv,
+	})
+	if err != nil {
+		s.cfg.Logger.Warn("configuration not loaded; using defaults", "root", root, "err", err)
+		return config.Defaults()
+	}
+	for _, w := range res.Warnings {
+		s.cfg.Logger.Warn("configuration", "detail", w)
+	}
+	return res.Config
+}

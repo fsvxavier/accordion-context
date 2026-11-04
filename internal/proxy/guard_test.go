@@ -28,7 +28,8 @@ func newServer(t *testing.T, up *fakeUpstream, listenHost string) (*Server, *sto
 	}
 	t.Cleanup(func() { st.Close() })
 	u, _ := url.Parse(up.srv.URL)
-	s, err := New(Config{Upstream: u, Store: st, Version: "test", ListenHost: listenHost})
+	s, err := New(Config{Upstream: u, Store: st, Version: "test", ListenHost: listenHost,
+		GlobalPath: filepath.Join(t.TempDir(), "absent.yaml")})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -174,7 +175,7 @@ func TestSessionPropagatesStoreErrors(t *testing.T) {
 	p := projectRef{ID: "proj1", Root: "urn:acd-ctx:project:proj1", Storage: "global"}
 
 	// A missing session is created.
-	if _, err := s.session(ctx, p, "s_new", "m"); err != nil {
+	if _, err := s.session(ctx, p, "s_new", "m", 200_000); err != nil {
 		t.Fatalf("missing session: %v", err)
 	}
 	if n := countRows(t, dbPath, "SELECT COUNT(*) FROM sessions WHERE id = 's_new'"); n != 1 {
@@ -185,7 +186,7 @@ func TestSessionPropagatesStoreErrors(t *testing.T) {
 	// that error. Renaming blocks breaks Snapshot but not the sessions row, so
 	// the old code would fall through to CreateSession and fail there with a
 	// UNIQUE error instead.
-	if _, err := s.session(ctx, p, "s_broken", "m"); err != nil {
+	if _, err := s.session(ctx, p, "s_broken", "m", 200_000); err != nil {
 		t.Fatalf("create s_broken: %v", err)
 	}
 	delete(s.sessions, "s_broken")
@@ -197,7 +198,7 @@ func TestSessionPropagatesStoreErrors(t *testing.T) {
 	if _, err := db.Exec(`ALTER TABLE blocks RENAME TO blocks_gone`); err != nil {
 		t.Fatal(err)
 	}
-	_, err = s.session(ctx, p, "s_broken", "m")
+	_, err = s.session(ctx, p, "s_broken", "m", 200_000)
 	if err == nil || !strings.Contains(err.Error(), "no such table") {
 		t.Fatalf("session error = %v, want the Snapshot failure", err)
 	}

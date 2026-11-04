@@ -291,6 +291,11 @@ func (s *Server) streamRound(w http.ResponseWriter, resp *http.Response, t *turn
 		_ = fw.Finish(true)
 		return true
 	}
+	calls := make([]toolCall, 0, len(res.Internal))
+	for _, u := range res.Internal {
+		calls = append(calls, toolCall{id: u.ID, name: u.Name, input: []byte(u.Input)})
+	}
+	t.grow(calls, results)
 	t.body = next
 	return false
 }

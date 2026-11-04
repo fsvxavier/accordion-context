@@ -4,7 +4,7 @@
 
 Accordion Context is a local proxy that keeps long coding-agent sessions inside a limited context window. The model summarizes older parts of the conversation, the summaries replace the original messages in the window, and the originals stay in a SQLite database so they can be recovered.
 
-> **Status: early development (pre-1.0).** The proxy, the client launchers, the `project`, `config`, `attach`, `doctor` and `mcp` commands, the plugin HTTP protocol with its Python and Node clients, and the `pkg/acdctx` library are implemented and pass `go test ./...`. Nothing has been validated against the live provider APIs or the real client binaries. See [Status](#status).
+> **Status: early development (pre-1.0).** The proxy, the launchers, the `attach` ladder (including the opt-in system-proxy and transparent degrees), backup, restore, clean, the observability endpoints, the plugin protocol with its clients, and `pkg/acdctx` are implemented and pass `go test ./...`. Nothing has been validated against the live provider APIs or the real client binaries. See [Status](#status).
 
 ## What it is
 
@@ -21,7 +21,7 @@ Differences from billion-context, as stated in the design spec `compactacao-cont
 - Go instead of TypeScript, with a pure `internal/kernel` package that does no I/O.
 - The trigger is one decision table, implemented as the pure function `kernel.DecideNudge`. Its table tests are the executable specification.
 - A compression counts only when a `compression_events` row exists in the database. Compression-looking text in the model's output is not trusted.
-- Named invariants (I1 to I9) are enforced by SQL checks in the store and by property tests.
+- Named invariants (I1 to I9) are checked by SQL checks, property tests and, for the window size (I8), an emergency truncation.
 - Cache cost is modeled explicitly, and a cache gate can defer a nudge.
 
 ## How it works
@@ -42,7 +42,7 @@ The proxy recognizes four API dialects on `POST`:
 |---|---|---|
 | Anthropic Messages | `/v1/messages` | Streaming is relayed as it arrives. |
 | OpenAI Chat Completions | `/v1/chat/completions` | Each upstream round is read in full before it is sent. |
-| OpenAI Responses | `/v1/responses` | **Stateless only.** Requests with `previous_response_id` or `conversation` are forwarded unchanged. WebSocket mode is not handled. |
+| OpenAI Responses | `/v1/responses` | HTTP requests are stateless: `previous_response_id` or `conversation` requests are forwarded unchanged. WebSocket upgrades are compacted per `response.create` frame. |
 | Google Gemini | `.../models/<model>:generateContent`, and `:streamGenerateContent` with `alt=sse` | Streams are buffered per round. Without `alt=sse` the request is forwarded unchanged. |
 
 Other paths, and other methods, are passed through to the upstream without compaction.
@@ -60,13 +60,18 @@ go build -o acd-ctx ./cmd/acd-ctx
 ./acd-ctx help
 ```
 
-Install from the module path:
-Install from the module path, once a version is tagged:
+Install from the module path with `go install github.com/fsvxavier/accordion-context/cmd/acd-ctx@<commit>`. No version tag exists yet, so `@latest` does not resolve. The `version` value is `dev` unless the binary is built with `-ldflags "-X main.version=<tag>"`.
+
+## Docker
+
+The image is a static, non-root build (distroless, uid 65532) with the data in the `acd-ctx-data` volume. Compose publishes the port on `127.0.0.1` only:
+
 ```sh
-go install github.com/fsvxavier/accordion-context/cmd/acd-ctx@latest
+ACD_CTX_VERSION=$(acd-ctx version | awk '{print $2}') docker compose up -d --build
+docker exec acd-ctx /acd-ctx healthcheck --port 8787   # exit 0 when healthy
 ```
 
-No version tag exists yet, so `@latest` does not resolve today. Until then, install a specific commit with `go install github.com/fsvxavier/accordion-context/cmd/acd-ctx@<commit>`, or build from source as above. The `version` value is `dev` unless the binary is built with `-ldflags "-X main.version=<tag>"`.
+Build the image with the same version as the host binary: the host launcher reuses a running proxy only when its version matches. See [docs/docker.md](docs/docker.md) for configuration, backup, upgrade and security notes.
 
 ## Quick start
 
@@ -102,28 +107,32 @@ OPENAI_BASE_URL=http://127.0.0.1:8787/ctx/https://api.openai.com/v1 codex
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--listen` | `127.0.0.1:8787` | Must be a loopback address, otherwise the command refuses to start. |
+| `--listen` | `127.0.0.1:8787` | Must be loopback, unless `--allow-non-loopback` and `--allowed-hosts` are both set (see [Security notes](#security-notes)). |
 | `--upstream` | `https://api.anthropic.com` | Upstream used for requests without a `/ctx/<url>/` prefix. |
-| `--allow` | origin of `--upstream` | Comma-separated origins reachable through `/ctx/<url>/`. |
+| `--allow` | origin of `--upstream` | Comma-separated origins reachable through `/ctx/<url>/`. Env `ACD_CTX_ALLOW`. |
+| `--allowed-hosts` | loopback names | Host header values the guard accepts; replaces the defaults. Env `ACD_CTX_ALLOWED_HOSTS`. |
 | `--db` | `~/.local/share/acd-ctx/acd-ctx.db` | SQLite database path. |
 | `--config` | user config path | Global configuration file. |
 | `--markers` | `go.mod,package.json,pyproject.toml,composer.json,Cargo.toml` | Project root markers. |
-| `--plugin-token-file` | `~/.local/share/acd-ctx/plugin.token` | File that receives the per-run plugin bearer token (mode `0600`). If it cannot be written, the plugin protocol is disabled and the proxy keeps running. |
+| `--plugin-token-file` | `~/.local/share/acd-ctx/plugin.token` | Receives the per-run plugin bearer token (mode `0600`). A non-default port uses `plugin-<port>.token`. If it cannot be written, the plugin protocol is disabled and the proxy keeps running. |
 
 ## Integration modes
 
 | Mode | Command | Status | Notes |
 |---|---|---|---|
-| **Base URL** | `acd-ctx serve` plus the client's base-URL variable | Implemented | Verified with HTTP requests. Real clients not run. |
-| **Launcher** | `acd-ctx claude`, `codex`, `gemini`, `opencode`, `run -- <cmd>` | Implemented for claude, codex, gemini | `run` only accepts a command that matches a built-in profile. `opencode` has no base-URL variable and is refused, so use `attach`. Checked with stand-in client binaries. |
-| **Attach** | `acd-ctx attach [--mitm-domain <host>] -- <cmd> [args]` | Implemented (base-URL and MITM degrees) | Probes each degree before starting the client and uses the first that works. Any command works in console mode. |
-| **MITM** | the `mitm` degree of `attach` | Implemented | Only allowlisted hosts are terminated. Other hosts are tunnelled untouched. The CA is per install and is not added to the system trust store. |
-| **System proxy, transparent, temporary config** | `attach --system-proxy` / `--transparent`; temporary base-URL config file (spec degree 4) | Not implemented | The two flags are refused with an error. `attach` never tries degree 4. |
-| **Plugin** (HTTP loopback, spec §19.4) | `acd-ctx serve`, under `/__acd-ctx/plugin/` | Implemented | Bearer token created per run. `compact` returns 501 and `search_context` fails (the store has no search API yet). See [Plugin protocol and middleware](#plugin-protocol-and-middleware). |
+| **Base URL** | `acd-ctx serve` plus the client's base-URL variable | Implemented | Verified with HTTP requests and stand-in clients. Real clients not run. |
+| **Launcher** | `acd-ctx claude`, `codex`, `gemini`, `opencode`, `run -- <cmd>` | Implemented for claude, codex, gemini | `run` accepts only commands with a known profile. `opencode` has no base-URL variable and is refused: use `attach`. |
+| **Attach** | `acd-ctx attach [--profiles f] [--mitm-domain h] -- <cmd>` | Implemented | Probes each degree before starting the client and uses the first that works: base-URL env, base-URL flag, temp config, console (any command), MITM. |
+| **MITM** | the `mitm` degree of `attach` | Implemented | Only allowlisted hosts are terminated. Others are tunnelled untouched. The CA is per install and is not added to the system trust store. |
+| **System proxy** | `attach --system-proxy --yes` | Implemented; not validated on real desktops | Points the desktop HTTPS proxy at acd-ctx for the run. Backends: GNOME, KDE, macOS, Windows. Machine-wide change: needs `--yes`. |
+| **Transparent** | `attach --transparent --yes --apply` | Implemented for Linux nftables only | Redirects TCP 443 of one uid (MITM domains by default) to the local listener. Needs root or CAP_NET_ADMIN. Without `--apply` only the rules are printed. |
+| **Plugin** | `acd-ctx serve`, under `/__acd-ctx/plugin/` | Implemented | Bearer token per run. Tools: `compress`, `decompress`, `retrieve`, `search_context`, `ctx_status`. See [Plugin protocol and middleware](#plugin-protocol-and-middleware). |
 | **Middleware** | `middleware/python`, `middleware/node` | Implemented | Dependency-free clients of the plugin protocol, tested against the conformance vectors. |
-| **MCP companion** | `acd-ctx mcp` (stdio) | Implemented | Tools: `decompress`, `retrieve`, `search_context`, `ctx_status`. `search_context` currently returns an error. |
-| **Go library** | `pkg/acdctx` | Implemented | `Open` and `Client` (Turn, Compress, Decompress, Recall), `NewTransport` (an `http.RoundTripper`) and `Handler`. The API may change before 1.0. |
+| **MCP companion** | `acd-ctx mcp` (stdio) | Implemented | Tools: `decompress`, `retrieve`, `search_context`, `ctx_status`. |
+| **Go library** | `pkg/acdctx` | Implemented | `Open` and `Client` (Turn, Compress, Decompress, Recall, Close), `NewTransport` (an `http.RoundTripper`) and `Handler`. May change before 1.0. |
 | **Doctor** | `acd-ctx doctor [--json] [client]` | Implemented | Checks the install and the integration. Exit code 0 for PASS, 3 for WARN, 1 for FAIL. |
+
+`attach --profiles file.yaml` adds profiles that are matched before the built-in ones. A profile sets `match`, `upstream`, `base_url_env` or `base_url_flag` (with `flag_position`), a `temp_config` (`file`, `format`, `template`, `merge_from`, `key`; `merge_from` supports JSON and YAML only, not TOML), `env`, `detect` (`binaries`, `config_paths`, `version_regex`), `integration` (`prefer`, `base_url_env`, `https_proxy`, `ca_env`, `domains`), `model_info` and `quirks`.
 
 ## Configuration
 
@@ -143,10 +152,6 @@ Example, using real keys (it loads without warnings):
 trigger:
   u_high: 0.75          # start compacting at 75% of the window
   step_base: 50000      # tokens between nudges, before adaptive scaling
-compress:
-  preserve_recent_messages: 3
-ccr:
-  crush: true           # shrink very large tool outputs deterministically
 storage: global         # or "local": keep the project database in .acd-ctx/
 ```
 
@@ -185,13 +190,13 @@ The proxy reloads configuration for each project root at most every 30 seconds, 
 
 ### Security note on local config
 
-`<project>/.acd-ctx/config.yaml` lives inside the repository you are working on, so it may come from a clone you did not write. It can change trigger, compression, CCR, recall and storage behavior, but not `upstream.*`, `credentials.*` or `listen.*`. Review it like any other project file.
+`<project>/.acd-ctx/config.yaml` lives inside the repository you are working on, so it may come from a clone you did not write. It can change trigger, compression, CCR, recall, storage and window behavior, but not `upstream.*`, `credentials.*` or `listen.*`. Review it like any other project file.
 
 ## Per-project separation
 
-- **Detection.** Walking up from the working directory, the first match wins: a `.acd-ctx/` directory, then `.git`, then a root marker. Otherwise the working directory is the root.
+- **Detection.** Walking up from the working directory, the nearest directory that holds `.acd-ctx/`, `.git` or a root marker is the root; within one directory the order is `.acd-ctx/`, then `.git`, then a marker. If none is found, the working directory is the root.
 - **Project ID.** A project with `.acd-ctx/project-id` uses that value. Otherwise the ID is the first 16 hex characters of the SHA-256 of the root path.
-- **Requests.** The proxy takes the project from the `/p/<id>/` prefix, then from the `X-Acd-Ctx-Project-Dir` header. The conversation comes from `X-Acd-Ctx-Conversation`. Requests with no project signal use the `default` project and log a warning.
+- **Requests.** The proxy takes the project from the `X-Acd-Ctx-Project-Dir` header (an absolute path of an existing directory), then from the `/p/<id>/` prefix. The conversation comes from `X-Acd-Ctx-Conversation`. Requests with no project signal use the `default` project and log a warning.
 - **Storage.** `global` keeps every project in one database. `local` keeps one project in `.acd-ctx/acd-ctx.db`.
 
 Project commands:
@@ -201,7 +206,7 @@ acd-ctx project init [--local-storage]   # create .acd-ctx/ at the project root
 acd-ctx project show                     # detected project, root, storage and database
 acd-ctx project list                     # projects in the global database
 acd-ctx project move <old> <new>         # re-point a moved project's root path
-acd-ctx project migrate --to local|global
+acd-ctx project migrate --to local|global # copy the project's sessions between databases
 acd-ctx project purge <id> [--yes]       # delete all data of a project
 ```
 
@@ -211,21 +216,26 @@ acd-ctx project purge <id> [--yes]       # delete all data of a project
 |---|---|---|
 | `ACD_CTX_<KEY>` | config loader | Overrides one configuration key, for example `ACD_CTX_CCR_CRUSH=false`. |
 | `ACD_CTX_DB` | CLI commands, `attach`, `doctor` | Global database path. `serve` uses `--db` instead. |
+| `ACD_CTX_ALLOW`, `ACD_CTX_ALLOWED_HOSTS`, `ACD_CTX_ALLOW_NON_LOOPBACK` | `serve` | Same as `--allow`, `--allowed-hosts` and `--allow-non-loopback` (`1` or `true`). |
+| `ACD_CTX_MAX_RESTORE_BYTES` | `restore` | Size cap for a backup, when `--max-size` is not given. Default 2GiB. |
 | `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `HOME` | paths | Base directories. `serve` ignores `XDG_DATA_HOME`. |
 | `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `GOOGLE_GEMINI_BASE_URL` | your client | Point the client at the proxy in base-URL mode. Set by the launchers. |
 | `HTTPS_PROXY`, `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE` | `attach` (MITM degree) | Set for that client process only, so it trusts the local CA. |
-| `ACD_CTX_URL`, `ACD_CTX_TOKEN`, `ACD_CTX_TOKEN_FILE`, `ACD_CTX_CONVERSATION` | `middleware/` clients | Locate and authenticate against the plugin protocol. See [Plugin protocol and middleware](#plugin-protocol-and-middleware). |
+| `ACD_CTX_URL`, `ACD_CTX_TOKEN`, `ACD_CTX_TOKEN_FILE`, `ACD_CTX_CONVERSATION` | `middleware/` clients | Locate and authenticate against the plugin protocol. |
 
 ## Endpoints
 
-Control endpoints:
+Control endpoints (`/__acd-ctx/` refuses any request with an `Origin` header; `metrics` and `sessions/...` accept GET only, `health` and `status` do not check the method):
 
-| Path | Method | Response |
+| Path | Access | Response |
 |---|---|---|
-| `/__acd-ctx/health` | GET | `{"ok":true}` |
-| `/__acd-ctx/status` | GET | JSON with `status`, `version`, `uptime_seconds`, `upstream_host`, `context_limit`, `max_loop`, `sessions_loaded`, `projects_seen`, `default_project_requests` and `protocols`. |
+| `/__acd-ctx/health` | any allowed Host | `{"ok":true}` |
+| `/__acd-ctx/status` | any allowed Host | JSON: `status`, `version`, `uptime_seconds`, `upstream_host`, `context_limit`, `max_loop`, `sessions_loaded`, `projects_seen`, `default_project_requests`, `protocols`. |
+| `/__acd-ctx/metrics` | loopback peers only | Prometheus text. Families: `acd_ctx_requests_total`, `acd_ctx_request_duration_seconds`, `acd_ctx_upstream_duration_seconds`, `acd_ctx_context_tokens`, `acd_ctx_compress_total`, `acd_ctx_compress_ratio`, `acd_ctx_cache_read_ratio`, `acd_ctx_fold_cache_cost_tokens`, `acd_ctx_recall_hint_total`, `acd_ctx_token_calib_factor`. Labels are a closed set: no session, project or message IDs. |
+| `/__acd-ctx/sessions/{id}/status` | loopback peers only | Counts, trigger state, window size, blocks, open intents and recent decisions (`?decisions=N`). No message or block text. |
+| `/__acd-ctx/sessions/{id}/trace.jsonl` | loopback peers only | Session trace in JSON lines. `?anonymize=1` replaces texts with their length and SHA-256. Replay it with `acd-ctx replay`. |
 
-API requests use the protocol paths in [Supported protocols](#supported-protocols), optionally behind `/p/<id>/` and `/ctx/<url>/`. The MCP companion has no HTTP endpoint; it speaks JSON-RPC over stdio.
+API requests use the protocol paths in [Supported protocols](#supported-protocols), optionally behind `/p/<id>/` and `/ctx/<url>/`.
 
 ## Plugin protocol and middleware
 
@@ -236,27 +246,64 @@ The plugin protocol (spec §19.4) lets a program that builds its own prompts ask
 | `manifest` | GET | Protocol name and version (`acd-ctx-plugin`, 1), tools and doctrine. |
 | `runtime-info` | POST | Declare the conversation, model and context window. |
 | `turn` | POST | Send messages and a token count; get the decision, hints and the visible window. |
-| `tool` | POST | Run `compress`, `decompress`, `retrieve`, `search_context` or `ctx_status`. |
+| `tool` | POST | Run `compress`, `decompress` (modes `context`, `peek`, `file`), `retrieve`, `search_context` or `ctx_status`. |
 | `status` | GET | Same data as `ctx_status`, for `?conversationId=`. |
-| `compact` | POST | Not implemented: always HTTP 501. |
+| `compact` | POST | Offers the compressible spans and arms a nudge for the next turn. Unknown conversation: 404. |
+
+`search_context` is a full-text (FTS5) search over the messages and block summaries of the session; all words must match. `decompress` mode `file` writes the block's original text to the project's exports directory and returns the path.
 
 The clients live in `middleware/python` (package `acd_ctx`, standard library only) and `middleware/node` (package `acd-ctx`, ESM, Node.js 18.13 or later, no dependencies). Both read `ACD_CTX_URL` (default `http://127.0.0.1:8787`), `ACD_CTX_TOKEN` or the file in `ACD_CTX_TOKEN_FILE` (default `~/.local/share/acd-ctx/plugin.token`), and `ACD_CTX_CONVERSATION`. On any client error, continue without compression.
 
-`conformance/vectors/*.json` are language-neutral request and expectation vectors. `go test ./conformance/...` replays them against the real plugin handler. The Python and Node test suites replay the same files against a fake server. Set `ACD_CTX_CONFORMANCE_URL` and `ACD_CTX_CONFORMANCE_TOKEN` to replay against a running `acd-ctx serve`.
+`conformance/vectors/*.json` are language-neutral vectors, replayed by `go test ./conformance/...` and by the Python and Node suites. `docs/compatibility.md` is generated by `go run ./scripts/gen-compat-matrix`, and CI fails when it is stale.
 
-`docs/compatibility.md` is the generated compatibility matrix of protocols and client profiles. CI fails when the committed file differs from the output of `go run ./scripts/gen-compat-matrix`.
+## Backup and restore
+
+`acd-ctx backup` writes a verified copy of the global database, or of one project. The copy is made with `VACUUM INTO` into a private temporary directory, checked with the same inspection that `restore` applies, and renamed into place, so the output file is either the old one or the complete new one. The default file name is `acd-ctx-backup-<UTC time>.db` in the working directory; files are written with mode `0600`.
+
+```sh
+acd-ctx backup                              # whole global database
+acd-ctx backup --project <id|path|.> -o p.db  # one project; a local project copies its own file
+```
+
+`acd-ctx restore <file.db>` (or `--stdin`) imports a backup in one transaction. It never copies a file over the live database.
+
+- `--project <id>` restores one project of the backup. `--to local|global` chooses the destination; `local` needs exactly one project and writes the current project's `.acd-ctx/acd-ctx.db`.
+- `--mode merge` (default) refuses any ID that already exists in the destination, and writes nothing.
+- `--mode replace` purges the target project first. It needs `--yes`.
+- `--dry-run` plans the whole import on a scratch copy and rolls it back. It writes nothing and creates no destination file.
+- `--max-size` (or `ACD_CTX_MAX_RESTORE_BYTES`) caps the backup size: bytes, or a number with `KiB`, `MiB` or `GiB`. Default 2GiB.
+- `--docker <container>` (also on `backup` and `clean`) runs the operation inside the container; the file is read or written on the host.
+
+Hostile or damaged backups are rejected before anything is written. A file is refused when it is not SQLite, when its schema is newer than the binary's, when it holds any table, view, trigger or virtual table that acd-ctx does not create (only the FTS5 `search_idx` is allowed), when `PRAGMA integrity_check` fails, when a stored content does not hash to its key, or when a session breaks an invariant (I1 to I3, I6, I7). The copy is opened with `trusted_schema` off and `query_only` on.
+
+## Cleaning
+
+`acd-ctx clean` deletes conversation data. **It is irreversible.** Without a backup, the deleted sessions, messages, blocks, events and contents are gone. Always run it with `--dry-run` first, and use `--backup` for anything you may need later.
+
+```sh
+acd-ctx clean --project . --dry-run                  # what would be deleted, nothing else
+acd-ctx clean --project . --backup before.db         # verified backup first, then delete
+acd-ctx clean --older-than 30d --vacuum --exports
+acd-ctx clean --all --docker acd-ctx --dry-run
+```
+
+- Scope: exactly one of `--project <id|path|.>`, `--session <id>`, `--older-than <dur>` (`30d`, `12h`, any Go duration; `--project` may narrow it) or `--all`.
+- `--backup <file.db>` writes a verified backup of each database before deleting. If a backup fails, nothing is deleted.
+- Confirmation: without `--yes` you must type the word shown: the project ID, the session ID, or `delete` for `--all` and `--older-than`. A non-terminal stdin without `--yes` is refused.
+- `--exports` also removes the exported block files of the removed sessions. `--vacuum` compacts the files afterwards.
+- `--include-local` also cleans the current directory's local database for `--all` or `--older-than` without `--project`.
+- Configuration, the MITM CA and the plugin token are never deleted (`--keep-config` is always on).
+- A purge bumps the store epoch in the same transaction. A running `serve` or plugin drops its in-memory state for the affected sessions on its next request. `restore --mode replace` does the same.
 
 ## Security notes
 
-- **Loopback only.** `serve` refuses a non-loopback `--listen` address. The proxy carries API credentials.
-- **No authentication on the base-URL listener.** Any local process can send requests to `/ctx/<allowlisted host>/...` on the loopback port (only the MITM `CONNECT` path and the plugin require a token). The proxy forwards the caller's own credentials and never adds its own, so this is a relay to allowlisted hosts, not a key leak. Run it on a single-user machine.
-- **Host guard.** Requests are accepted only when the `Host` header names `localhost`, `127.0.0.1`, `::1` or the listen host. Other names get HTTP 403, which blocks DNS rebinding.
-- **Browser access.** CORS preflight requests get HTTP 403. Control endpoints under `/__acd-ctx/` refuse any request with an `Origin` header.
-- **Plugin token.** Plugin endpoints require a bearer token, compared in constant time. It is regenerated on each `serve` run and stored in a file with mode `0600`.
+- **Loopback by default.** `serve` refuses a non-loopback `--listen` unless both `--allow-non-loopback` (or `ACD_CTX_ALLOW_NON_LOOPBACK=1`) and a non-empty `--allowed-hosts` are given. It then logs a `SECURITY` warning. The Docker image uses this path; see [docs/docker.md](docs/docker.md).
+- **No authentication on the base-URL listener.** Any local process can send requests to `/ctx/<allowlisted host>/...` on the loopback port (only the MITM `CONNECT` path and the plugin require a token). The proxy forwards the caller's own credentials and never adds its own, so it works as a relay to allowlisted hosts. Run it on a single-user machine.
+- **Host and browser guards.** Only allowed `Host` names are served (by default `localhost`, `127.0.0.1`, `::1` and the listen host); others get HTTP 403, which is meant to stop DNS rebinding (tested with forged `Host` headers, not with a real browser). CORS preflights get 403, and `/__acd-ctx/` refuses any request with an `Origin` header. Neither guard is authentication.
 - **Upstream allowlist.** A `/ctx/<url>/` target is used only if its origin is in `--allow`. Redirects are returned to the client, not followed.
-- **Credentials.** Credential headers are forwarded to the upstream. Logs record session IDs, stages and errors, not request headers.
-- **Fail-open.** A compaction error forwards the request unchanged.
-- **Limits.** Request bodies are capped at 32 MiB. The database directory is created with mode `0700`, and the MITM CA key with `0600`.
+- **MITM CA.** One CA per install, its key in a `0600` file. Only the allowlisted domains are intercepted, and `attach` passes the CA only to the client process it starts, through environment variables.
+- **System proxy and transparent mode.** Both change the machine's network path and need explicit consent (`--yes`). `--system-proxy` changes the desktop proxy settings; `--transparent` needs root or CAP_NET_ADMIN, installs nftables rules for one uid, and refuses to run under sudo with a `HOME` that is not the invoking user's, unless the uid and data directory are explicit. Both record state files that are checked before they are trusted, and `attach --restore` undoes a crashed run.
+- **Credentials and limits.** Credential headers are forwarded to the upstream and the proxy does not log them (tests cover only that error messages do not leak the query string). A compaction error forwards the request unchanged. Request bodies and WebSocket frames are capped at 32 MiB.
 
 ## Development
 
@@ -264,33 +311,33 @@ The clients live in `middleware/python` (package `acd_ctx`, standard library onl
 go test ./...                                  # full suite
 go test ./internal/kernel -run TestName        # one test
 go test -fuzz=FuzzParseToolArguments ./internal/wire/openai
-go test -fuzz=FuzzDecodeFrame ./internal/plugin
-go test -race ./...                            # as in CI
 go test ./conformance/...                      # plugin protocol vectors
 (cd middleware/python && python3 -m unittest discover -s tests)
 (cd middleware/node && node --test)
 go run ./scripts/gen-compat-matrix             # prints docs/compatibility.md
 ```
 
-`CLAUDE.md` is in English. The design spec `compactacao-contexto-go-sqlite.md` is in Portuguese and is the source of truth. Section numbers (§N) in code comments refer to it.
+`CLAUDE.md` is in English. The design spec `compactacao-contexto-go-sqlite.md` (Portuguese) is the source of truth; §N in code comments refers to it.
 
-CI (`.github/workflows/ci.yml`) runs `gofmt`, `go vet`, `go test -race`, the conformance vectors, the Python and Node client tests, and a check that `docs/compatibility.md` is current.
+CI (`.github/workflows/ci.yml`) runs `gofmt`, `go vet`, `go test -race`, the conformance vectors, the Python and Node client tests, a check that `docs/compatibility.md` is current, and a Docker image build with a health smoke test.
 
 | Package | Role |
 |---|---|
-| `internal/kernel` | Pure logic: trigger, tiers, render, recall, CCR and crush, cache cost. No I/O. |
-| `internal/store` | SQLite access (WAL, FTS5), schema and invariant checks. |
+| `internal/kernel` | Pure logic: trigger, tiers, render, recall, CCR and crush, truncation, cache cost. No I/O. |
+| `internal/store` | SQLite access (WAL, FTS5), schema, invariants, purge, backup and restore. |
 | `internal/session` | Turn orchestration, tools and the compression transaction. The only writer. |
-| `internal/proxy` | HTTP server, routing, protocol adapters, server-side tool loop, fork handling. |
+| `internal/proxy` | HTTP server, routing, protocol adapters, WebSocket mode, server-side tool loop, observability endpoints. |
 | `internal/wire/...` | Codecs for `anthropic`, `openai`, `responses` and `google`. |
 | `internal/config` | Layered configuration and effective-source reporting. |
-| `internal/project` | Project root and ID detection. |
-| `internal/launcher` | Client profiles and process launch with environment variables. |
-| `internal/attach` | Integration ladder for `attach`: probes, console and MITM degrees. |
+| `internal/launcher` | Client profiles, process launch with environment variables, temp configs. |
+| `internal/attach` | Integration ladder for `attach`: probes, console, MITM and system degrees. |
+| `internal/sysproxy` | System-proxy backends and the nftables transparent backend, with state files and restore. |
 | `internal/mitm` | Local CA, leaf certificates and scoped TLS interception. |
-| `internal/plugin` | stdio MCP server and the HTTP plugin handler mounted by `serve`. |
-| `internal/doctor` | Installation and integration checks. |
-| `internal/cli` | Command implementations behind `cmd/acd-ctx`. |
+| `internal/backup` | Verified backup and restore, and the `--docker` runners. |
+| `internal/obs` | Prometheus metrics, status reports and trace export. |
+| `internal/plugin` | stdio MCP server, HTTP plugin handler, and the store-epoch cache check. |
+| `internal/cli`, `internal/doctor` | Command implementations behind `cmd/acd-ctx`; installation and integration checks. |
+| `internal/project` | Project root and ID detection. |
 | `pkg/acdctx` | Public Go library: client API and HTTP transport and handler. |
 | `middleware/python`, `middleware/node` | Plugin protocol clients (no dependencies). |
 | `conformance` | Language-neutral plugin vectors and the Go runner. |
@@ -298,33 +345,38 @@ CI (`.github/workflows/ci.yml`) runs `gofmt`, `go vet`, `go test -race`, the con
 
 ## Status
 
-Validated by automated tests, with no network access beyond loopback:
+Validated by automated tests, with no network access beyond loopback. `go test ./...` passes with `CGO_ENABLED=0`:
 
-- Unit and table tests for the kernel, store, config, project, launcher, attach, MITM and doctor.
+- Unit and table tests for the kernel, store, config, project, launcher, attach, sysproxy (with fake runners), MITM, backup, restore, clean, observability and doctor.
 - Property tests (`pgregory.net/rapid`) that check the invariants after random compression steps.
 - Fuzz targets for the tool-argument parsers of each wire codec, the `compress` handler and the plugin JSON-RPC frames.
-- Proxy tests against fake upstreams (`httptest` on loopback) for the four dialects, including streaming.
+- Proxy tests against fake upstreams (`httptest` on loopback) for the four dialects, including streaming and the Responses WebSocket mode. Launchers, `attach` and MITM run with stand-in client binaries.
 - End-to-end tests (`e2e/`) run the real binary against a fake upstream for Anthropic Messages and OpenAI Chat Completions: 80 turns past twice a 128K window, folds and a decompress round trip, invariants checked after the run, and a proxy restart mid-run.
 - Plugin conformance vectors, replayed by Go, Python and Node.
-- Launchers, `attach` and MITM with stand-in client binaries.
+- The Docker image was built and run once locally in an earlier step. It was not re-verified for this revision.
 
 Not validated:
 
 - The real provider APIs (Anthropic, OpenAI, Google): wire details, streaming edge cases, `usage` values, cache behavior and prices.
-- The real agent clients (Claude Code, Codex, Gemini CLI, OpenCode) running through the proxy or MITM.
-- Summary quality in long real sessions.
+- The live OpenAI Responses WebSocket endpoint.
+- The real agent clients (Claude Code, Codex, Gemini CLI, OpenCode) running through the proxy, MITM, system proxy or transparent mode.
+- `attach --system-proxy` and `--transparent`, and the macOS and Windows system-proxy backends, on real systems.
+- A GitHub Actions run of the CI workflow (including its Docker job), and summary quality in long real sessions.
+
+Not implemented:
+
+- The iptables fallback for transparent mode (nftables only).
+- IPv6 interception: the transparent redirect matches IPv4 only.
+- TOML merge for temp configs (JSON and YAML only).
+- `search_context` and `retrieve` as tools injected into the model's request by the proxy. They are available through the plugin and the MCP companion.
+- Fail-open for a crashed transparent redirect: recovery is `attach --restore`, run by hand.
 
 ## Limitations and risks
 
 - **Lossy compression.** A summary replaces the messages it covers in the window. The model may summarize incorrectly or omit details. Originals are recoverable with `decompress`, but only if the model or you ask for them.
 - **Cache cost.** Rewriting an earlier part of the prompt invalidates the provider's prompt cache. The cache gate reduces this cost but does not remove it. Cache prices are provider-specific and must be set by you.
-- **Not validated against live APIs or real clients.** See [Status](#status). Tests use fake upstreams and stand-in client binaries.
-- **WebSocket not handled.** Responses WebSocket traffic is not compacted.
-- **Stateful Responses not compacted.** Requests that chain through `previous_response_id` or `conversation` are forwarded unchanged.
-- **Not implemented.** `attach --system-proxy`, `--transparent` and the temporary-config degree; the plugin `compact` endpoint; `search_context` in the plugin and the MCP companion.
 - **Token counts are estimates.** They are calibrated against provider `usage` values but are not exact.
 - **Pre-1.0.** No release tag exists yet, and the spec (v0.1) and the library API may change.
-
 
 ## License
 

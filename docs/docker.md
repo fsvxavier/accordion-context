@@ -80,10 +80,14 @@ defaults apply.
 
 Write the file in the same format as the global config (spec §18.1).
 
-`serve` reads the mounted file. CLI commands run with `docker exec` use the
+The same settings exist as flags of `serve`: `--allow-non-loopback` together with
+a non-empty `--allowed-hosts`, and `--allow`. The flags win over the environment.
+
+`serve` reads the mounted file. CLI commands run with `docker exec` (for
+example `config show --effective`) have no `--config` flag: they read the
 default config path inside the container, `/data/config/acd-ctx/config.yaml`
-(`XDG_CONFIG_HOME`). Pass `--config /data/config.yaml` to them to read the
-mounted file.
+(`XDG_CONFIG_HOME`), so they do not see the mounted file unless you also mount
+it at that path.
 
 Uncomment the bind mount in `docker-compose.yml`:
 
@@ -109,9 +113,10 @@ are passed through by the proxy and never stored.
    is pointed at `http://127.0.0.1:8787/p/<project-id>/ctx/<upstream>`, so the
    container keeps sessions apart per project without seeing host paths.
 
-Consequence: `X-Acd-Ctx-Project-Dir` does **not** work through the container.
-The proxy inside the container cannot see host paths to resolve, so use the
-`/p/<id>/` prefix (which the launcher sets for you).
+Consequence: `X-Acd-Ctx-Project-Dir` is not usable through the container. The
+proxy ignores the header unless the path is an existing directory inside the
+container, and host paths are not visible there, so use the `/p/<id>/` prefix
+(which the launcher sets for you).
 
 Known limits when the proxy is in the container:
 
@@ -127,8 +132,19 @@ Known limits when the proxy is in the container:
 ## Backup and restore
 
 The database is `/data/acd-ctx.db` (plus `-wal`/`-shm` while running), and the
-MITM CA is in `/data/ca`. Back up the whole `/data` directory, or use the
-`acd-ctx backup --docker <container>` command (available once it is merged).
+MITM CA is in `/data/ca`. Back up the whole `/data` directory, or let the CLI
+run inside the container:
+
+```sh
+acd-ctx backup --docker acd-ctx -o acd-ctx-backup.db       # verified copy, written on the host
+acd-ctx restore --docker acd-ctx acd-ctx-backup.db --dry-run
+acd-ctx clean --project . --docker acd-ctx --dry-run        # same confirmation rules as on the host
+```
+
+`backup`, `restore` and `clean` accept `--docker <container>`: the command runs
+inside the container and the backup file is read or written on the host. See
+[backup and restore](../README.md#backup-and-restore) and [cleaning](../README.md#cleaning)
+for the flags and the irreversibility warning.
 
 Manual backup, with the proxy stopped so the database is consistent:
 
@@ -160,9 +176,9 @@ docker compose start acd-ctx
 
 ## Security notes
 
-- **The Host allowlist is not authentication.** It stops DNS rebinding: a
-  browser page on `evil.com` cannot reach the proxy because its `Host` header
-  is refused (403). Any local process that can reach the port and sends an
+- **The Host allowlist is not authentication.** It is meant to stop DNS
+  rebinding: a request whose `Host` header is `evil.com` is refused (403), which
+  is what the tests and the CI smoke test check. Any local process that can reach the port and sends an
   allowed `Host` can use the proxy. That is why the port is published on
   `127.0.0.1` only.
 - Do not publish the port on `0.0.0.0` or another interface. The proxy holds

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"regexp"
 
@@ -41,6 +42,10 @@ func (googleProtocol) Meta(path, rawQuery string, _ []byte) (string, bool, error
 	}
 	return m[1], stream, nil
 }
+
+// ClientCompaction always reports false: no header or path marks Gemini's
+// compression request, and its prompt text is not a reliable signal.
+func (googleProtocol) ClientCompaction(routed, http.Header, []byte) bool { return false }
 
 func (googleProtocol) Decode(body []byte) (request, []kernel.Message, error) {
 	req, msgs, err := google.Decode(body)

@@ -20,6 +20,9 @@ const (
 	OutcomeRefused  = "refused"
 	OutcomeFailOpen = "failopen"
 	OutcomeCompact  = "compacted"
+	// OutcomeClientCompaction counts the client's own compaction call, which is
+	// forwarded unchanged. It is not a fail-open.
+	OutcomeClientCompaction = "client_compaction"
 
 	TierNone = "none"
 )

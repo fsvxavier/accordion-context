@@ -119,6 +119,8 @@ type Server struct {
 
 	telemetry *telemetry // metrics and recall-hint tracking (obs.go)
 
+	compactionLinks compactionLinks // last client compaction per project (client_compaction.go)
+
 	wsMu       sync.Mutex
 	wsSessions map[*wsSession]struct{} // live WebSocket sessions (ws.go)
 }
@@ -238,6 +240,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.compactTurn(w, r, rt, p)
 			return
 		}
+		if p := compactionEndpoint(rt, r.Header); p != nil {
+			s.clientCompaction(w, r, rt, p, nil)
+			return
+		}
 	}
 	s.passthrough(w, r, rt, nil)
 }
@@ -275,6 +281,12 @@ func (s *Server) compactTurn(w http.ResponseWriter, r *http.Request, rt routed, 
 		return
 	}
 
+	// The client's own compaction call is checked before Meta and Decode, so a body
+	// that this codec cannot decode is still a client compaction, not a fail-open.
+	if p.ClientCompaction(rt, r.Header, body) {
+		s.clientCompaction(w, r, rt, p, body)
+		return
+	}
 	model, stream, err := p.Meta(rt.path, r.URL.RawQuery, body)
 	if err != nil {
 		s.passthrough(w, r, rt, body)
@@ -291,6 +303,9 @@ func (s *Server) compactTurn(w http.ResponseWriter, r *http.Request, rt routed, 
 	if err != nil {
 		s.failOpen(w, r, rt, body, stage, err)
 		return
+	}
+	if r.Header.Get(headerContextCompacted) != "" {
+		s.linkCompactionParent(ctx, t)
 	}
 	t.stream = stream
 	s.runTurns(w, r, t)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/fsvxavier/accordion-context/internal/kernel"
 	"github.com/fsvxavier/accordion-context/internal/session"
@@ -14,6 +15,16 @@ import (
 
 // pathMessages is the Anthropic Messages endpoint (spec §19.1).
 const pathMessages = "/v1/messages"
+
+// Claude Code hint headers (llm-gateway-protocol). They are sent on a custom base
+// URL only when CLAUDE_CODE_GATEWAY_HINT_HEADERS=1, which the claude launcher
+// profile sets. x-claude-code-compaction is present on the summarizing request
+// only; x-claude-code-context-compacted on the first main request after it.
+const (
+	headerClaudeCompaction   = "X-Claude-Code-Compaction"
+	headerClaudeRequestClass = "X-Claude-Code-Request-Class"
+	headerContextCompacted   = "X-Claude-Code-Context-Compacted"
+)
 
 // anthropicProtocol adapts POST /v1/messages. It is the only dialect whose
 // streams are live: the Forwarder withholds internal tool_use blocks as they pass.
@@ -46,6 +57,20 @@ func (anthropicProtocol) Decode(body []byte) (request, []kernel.Message, error) 
 
 func (anthropicProtocol) InjectTools(body []byte) ([]byte, error) {
 	return anthropic.InjectTools(body)
+}
+
+// ClientCompaction matches the summarizing request of Claude Code: the header
+// x-claude-code-compaction with one of auto, manual or reactive, or the request
+// class header with the value compaction. Any other request is not a match.
+func (anthropicProtocol) ClientCompaction(rt routed, h http.Header, _ []byte) bool {
+	if !routedTo(rt, anthropicProtocol{}.Detect) {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(h.Get(headerClaudeCompaction))) {
+	case "auto", "manual", "reactive":
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(h.Get(headerClaudeRequestClass)), "compaction")
 }
 
 func (anthropicProtocol) AppendNudge(body []byte, text string) ([]byte, error) {

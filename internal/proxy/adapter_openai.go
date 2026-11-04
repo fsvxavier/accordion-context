@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 
 	"github.com/fsvxavier/accordion-context/internal/kernel"
 	"github.com/fsvxavier/accordion-context/internal/session"
@@ -41,6 +42,10 @@ func (openaiProtocol) Decode(body []byte) (request, []kernel.Message, error) {
 		return openai.Encode(req, window)
 	}), msgs, nil
 }
+
+// ClientCompaction always reports false: chat completions has no documented
+// signal for a client's compaction call.
+func (openaiProtocol) ClientCompaction(routed, http.Header, []byte) bool { return false }
 
 func (openaiProtocol) InjectTools(body []byte) ([]byte, error) {
 	return openai.InjectTools(body)

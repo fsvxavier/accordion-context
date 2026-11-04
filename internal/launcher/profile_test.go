@@ -137,3 +137,15 @@ func TestOpenCodeProfilesWriteTempConfigWithProxyURL(t *testing.T) {
 		}
 	}
 }
+
+// The claude profile turns on Claude Code's hint headers, which carry the
+// compaction signals that the proxy detects.
+func TestClaudeProfileSetsGatewayHintHeaders(t *testing.T) {
+	p, ok := ProfileFor("claude")
+	if !ok {
+		t.Fatal("ProfileFor(claude) not found")
+	}
+	if got := p.Env["CLAUDE_CODE_GATEWAY_HINT_HEADERS"]; got != "1" {
+		t.Fatalf("CLAUDE_CODE_GATEWAY_HINT_HEADERS = %q, want %q", got, "1")
+	}
+}

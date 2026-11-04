@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 
 	"github.com/fsvxavier/accordion-context/internal/kernel"
 	"github.com/fsvxavier/accordion-context/internal/session"
@@ -14,6 +15,11 @@ import (
 // pathResponses is the Responses endpoint (spec §19.1). Only the collection path
 // is matched, so /v1/responses/{id} passes through.
 const pathResponses = "/v1/responses"
+
+// pathResponsesCompact is the standalone compaction endpoint of the Responses API.
+// It is not compacted: its POST is the client's own compaction call and is
+// forwarded unchanged (see ClientCompaction).
+const pathResponsesCompact = "/v1/responses/compact"
 
 // responsesProtocol adapts POST /v1/responses. Requests that refer to server-side
 // state are forwarded unchanged (responses.ErrStateful). Streams are buffered.
@@ -42,6 +48,13 @@ func (responsesProtocol) Decode(body []byte) (request, []kernel.Message, error) 
 	return encoderFunc(func(window []kernel.Message) ([]byte, error) {
 		return responses.Encode(req, window)
 	}), msgs, nil
+}
+
+// ClientCompaction matches a POST to /v1/responses/compact, with or without a /ctx/
+// gateway prefix. The endpoint is stateless and its output must not be pruned, so
+// the request is never changed.
+func (responsesProtocol) ClientCompaction(rt routed, _ http.Header, _ []byte) bool {
+	return routedTo(rt, func(path string) bool { return path == pathResponsesCompact })
 }
 
 func (responsesProtocol) InjectTools(body []byte) ([]byte, error) {

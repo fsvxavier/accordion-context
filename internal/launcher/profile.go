@@ -129,6 +129,9 @@ var builtinProfiles = []Profile{
 		Match:      []string{"claude"},
 		Upstream:   "https://api.anthropic.com",
 		BaseURLEnv: "ANTHROPIC_BASE_URL",
+		// Claude Code sends its compaction hint headers only on a custom base URL
+		// when this is set. acd uses them to detect client compaction.
+		Env: map[string]string{"CLAUDE_CODE_GATEWAY_HINT_HEADERS": "1"},
 	},
 	{
 		Name:       "codex",

@@ -63,7 +63,10 @@ type Config struct {
 	// at least 32 characters. Generate it with NewToken.
 	Token      string
 	ListenHost string // host of the listen address, accepted in the Host header
-	Version    string
+	// AllowedHosts, when non-empty, is the exact Host name set (already normalized
+	// by the caller, see proxy.NormalizeHosts); it replaces the defaults.
+	AllowedHosts []string
+	Version      string
 	// ContextLimit is used when runtime-info names no window. Default 200000.
 	ContextLimit int
 	// ExportDir receives the files of decompress mode file. Default: the
@@ -117,6 +120,12 @@ func New(cfg Config) (*Handler, error) {
 	hosts := map[string]bool{"localhost": true, "127.0.0.1": true, "::1": true}
 	if h := strings.ToLower(cfg.ListenHost); h != "" {
 		hosts[h] = true
+	}
+	if len(cfg.AllowedHosts) > 0 {
+		hosts = map[string]bool{}
+		for _, h := range cfg.AllowedHosts {
+			hosts[strings.ToLower(h)] = true
+		}
 	}
 	return &Handler{
 		cfg: cfg, hosts: hosts,

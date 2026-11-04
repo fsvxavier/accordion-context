@@ -56,10 +56,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 func serve(args []string, stderr io.Writer) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	listen := fs.String("listen", "127.0.0.1:8787", "loopback address to listen on")
+	listen := fs.String("listen", "127.0.0.1:8787", "loopback address to listen on (a non-loopback address needs --allow-non-loopback and --allowed-hosts)")
+	envAllowNonLoopback := strings.TrimSpace(os.Getenv("ACD_CTX_ALLOW_NON_LOOPBACK"))
+	allowNonLoopback := fs.Bool("allow-non-loopback", envAllowNonLoopback == "1" || strings.EqualFold(envAllowNonLoopback, "true"),
+		"permit a non-loopback --listen address (containers); requires a non-empty --allowed-hosts; env ACD_CTX_ALLOW_NON_LOOPBACK=1")
+	allowedHostsFlag := fs.String("allowed-hosts", os.Getenv("ACD_CTX_ALLOWED_HOSTS"),
+		"comma-separated Host header values the guard accepts, replacing the loopback defaults; env ACD_CTX_ALLOWED_HOSTS")
 	upstream := fs.String("upstream", "https://api.anthropic.com", "default upstream API base URL, used when the request has no /ctx/<url>/ prefix")
 	dbPath := fs.String("db", "", "SQLite database path (default ~/.local/share/acd-ctx/acd-ctx.db)")
-	allow := fs.String("allow", "", "comma-separated origins reachable through /ctx/<url>/ (default: the --upstream origin)")
+	allow := fs.String("allow", os.Getenv("ACD_CTX_ALLOW"), "comma-separated origins reachable through /ctx/<url>/ (default: the --upstream origin; env ACD_CTX_ALLOW)")
 	configPath := fs.String("config", "", "global config file (default: the user config path, spec §18.1)")
 	markers := fs.String("markers", "", "comma-separated project root markers (default: go.mod,package.json,pyproject.toml,composer.json,Cargo.toml)")
 	pluginTokenFile := fs.String("plugin-token-file", "", "file that receives the plugin bearer token, mode 0600 (default ~/.local/share/acd-ctx/plugin.token, or plugin-<port>.token for a non-default --listen port)")
@@ -79,7 +84,12 @@ func serve(args []string, stderr io.Writer) int {
 		}
 	}
 
-	if err := proxy.CheckLoopback(*listen); err != nil {
+	hostList, err := proxy.NormalizeHosts(strings.Split(*allowedHostsFlag, ","))
+	if err != nil {
+		fmt.Fprintln(stderr, "acd-ctx serve: --allowed-hosts:", err)
+		return 2
+	}
+	if err := proxy.CheckListen(*listen, *allowNonLoopback, hostList); err != nil {
 		fmt.Fprintln(stderr, "acd-ctx serve:", err)
 		return 2
 	}
@@ -117,9 +127,14 @@ func serve(args []string, stderr io.Writer) int {
 	}
 	defer st.Close()
 
+	if *allowNonLoopback {
+		logger.Warn("SECURITY: listening on a non-loopback address. The Host allowlist is not authentication: any peer that can reach the port and sends an allowed Host header gets the proxy. Publish the port on 127.0.0.1 only, as docs/docker.md describes.",
+			"listen", *listen, "allowed_hosts", hostList)
+	}
 	listenHost, _, _ := net.SplitHostPort(*listen)
 	h, err := proxy.New(proxy.Config{Upstream: up, Store: st, Version: version, Logger: logger,
-		UpstreamAllow: allowed, ListenHost: listenHost, GlobalPath: *configPath, Markers: rootMarkers})
+		UpstreamAllow: allowed, ListenHost: listenHost, GlobalPath: *configPath, Markers: rootMarkers,
+		AllowedHosts: hostList})
 	if err != nil {
 		logger.Error("configure proxy", "err", err)
 		return 1
@@ -152,7 +167,7 @@ func serve(args []string, stderr io.Writer) int {
 		if err != nil {
 			return nil, err
 		}
-		return plugin.New(plugin.Config{Store: st, Project: proj, Token: token, ListenHost: listenHost,
+		return plugin.New(plugin.Config{Store: st, Project: proj, Token: token, ListenHost: listenHost, AllowedHosts: hostList,
 			Version: version, Logger: logger})
 	}(); err != nil {
 		logger.Warn("plugin protocol disabled; serving the proxy only", "err", err)
@@ -169,7 +184,7 @@ func serve(args []string, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	logger.Info("serving", "listen", *listen, "upstream_host", up.Host, "db", path, "plugin_token_file", tokenPath)
-	if err := proxy.Run(ctx, *listen, root); err != nil {
+	if err := proxy.RunListen(ctx, *listen, *allowNonLoopback, hostList, root); err != nil {
 		logger.Error("serve", "err", err)
 		return 1
 	}

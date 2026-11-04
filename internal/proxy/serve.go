@@ -31,6 +31,11 @@ func Run(ctx context.Context, addr string, h http.Handler) error {
 	if err := CheckLoopback(addr); err != nil {
 		return err
 	}
+	return serveListen(ctx, addr, h)
+}
+
+// serveListen binds addr and serves h until ctx is done. Callers check the address first.
+func serveListen(ctx context.Context, addr string, h http.Handler) error {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err

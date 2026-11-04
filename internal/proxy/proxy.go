@@ -145,9 +145,9 @@ func New(cfg Config) (*Server, error) {
 		// Redirects are returned to the client as-is, never followed.
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
-	hosts := map[string]bool{"localhost": true, "127.0.0.1": true, "::1": true}
-	if h := strings.ToLower(cfg.ListenHost); h != "" {
-		hosts[h] = true
+	hosts, err := guardHosts(cfg.ListenHost, cfg.AllowedHosts)
+	if err != nil {
+		return nil, err
 	}
 	srv := &Server{
 		cfg: cfg, client: client, started: time.Now(), allow: allow, hosts: hosts,

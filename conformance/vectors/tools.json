@@ -1,0 +1,343 @@
+{
+  "suite": "tools",
+  "description": "Tool calls over HTTP: round trips, argument validation and unknown tools.",
+  "vectors": [
+    {
+      "name": "tool_retrieve_round_trip",
+      "description": "retrieve returns the original text of a message by ref. Refs are m%05d by sequence number, starting at 1.",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "runtime-info",
+            "body": {
+              "conversationId": "{conv}",
+              "model": "conf-model"
+            }
+          },
+          "expect": {
+            "status": 200,
+            "json": {
+              "created": true
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "turn",
+            "body": {
+              "conversationId": "{conv}",
+              "messages": [
+                {
+                  "role": "user",
+                  "kind": "text",
+                  "text": "alpha"
+                },
+                {
+                  "role": "assistant",
+                  "kind": "text",
+                  "text": "beta gamma"
+                },
+                {
+                  "role": "user",
+                  "kind": "text",
+                  "text": "delta"
+                }
+              ]
+            }
+          },
+          "expect": {
+            "status": 200,
+            "json": {
+              "ingested": 3
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "tool",
+            "body": {
+              "conversationId": "{conv}",
+              "name": "retrieve",
+              "arguments": {
+                "ref": "m00002"
+              }
+            }
+          },
+          "expect": {
+            "status": 200,
+            "json": {
+              "result": {
+                "ref": "m00002",
+                "text": "beta gamma"
+              }
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "tool",
+            "body": {
+              "conversationId": "{conv}",
+              "name": "ctx_status"
+            }
+          },
+          "expect": {
+            "status": 200,
+            "json": {
+              "result": {
+                "messages": 3,
+                "contextLimit": 200000,
+                "activeBlocks": [],
+                "openIntents": "$any"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "tool_retrieve_unknown_ref",
+      "description": "A ref that names no message is refused by the session with 422.",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "runtime-info",
+            "body": {
+              "conversationId": "{conv}"
+            }
+          },
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "turn",
+            "body": {
+              "conversationId": "{conv}",
+              "messages": [
+                {
+                  "role": "user",
+                  "kind": "text",
+                  "text": "only"
+                }
+              ]
+            }
+          },
+          "expect": {
+            "status": 200,
+            "json": {
+              "ingested": 1
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "tool",
+            "body": {
+              "conversationId": "{conv}",
+              "name": "retrieve",
+              "arguments": {
+                "ref": "m00999"
+              }
+            }
+          },
+          "expect": {
+            "status": 422,
+            "json": {
+              "error": "$any"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "tool_retrieve_missing_ref",
+      "description": "retrieve without a ref is a bad argument.",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "runtime-info",
+            "body": {
+              "conversationId": "{conv}"
+            }
+          },
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "tool",
+            "body": {
+              "conversationId": "{conv}",
+              "name": "retrieve",
+              "arguments": {}
+            }
+          },
+          "expect": {
+            "status": 400,
+            "json": {
+              "error": "$any"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "tool_unknown_name",
+      "description": "An unknown tool name is 400.",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "runtime-info",
+            "body": {
+              "conversationId": "{conv}"
+            }
+          },
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "tool",
+            "body": {
+              "conversationId": "{conv}",
+              "name": "make_coffee",
+              "arguments": {}
+            }
+          },
+          "expect": {
+            "status": 400,
+            "json": {
+              "error": "unknown tool"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "tool_decompress_missing_block",
+      "description": "decompress without blockId is a bad argument.",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "runtime-info",
+            "body": {
+              "conversationId": "{conv}"
+            }
+          },
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "tool",
+            "body": {
+              "conversationId": "{conv}",
+              "name": "decompress",
+              "arguments": {
+                "mode": "context"
+              }
+            }
+          },
+          "expect": {
+            "status": 400,
+            "json": {
+              "error": "$any"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "tool_search_context_not_available",
+      "description": "search_context stays in the manifest but reports 501 until the store has a search API.",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "runtime-info",
+            "body": {
+              "conversationId": "{conv}"
+            }
+          },
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "tool",
+            "body": {
+              "conversationId": "{conv}",
+              "name": "search_context",
+              "arguments": {
+                "query": "port"
+              }
+            }
+          },
+          "expect": {
+            "status": 501,
+            "json": {
+              "error": "$any"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "tool_bad_arguments_json",
+      "description": "Arguments that are not an object for the tool are 400.",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "runtime-info",
+            "body": {
+              "conversationId": "{conv}"
+            }
+          },
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "tool",
+            "body": {
+              "conversationId": "{conv}",
+              "name": "retrieve",
+              "arguments": [
+                "m00001"
+              ]
+            }
+          },
+          "expect": {
+            "status": 400,
+            "json": {
+              "error": "$any"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

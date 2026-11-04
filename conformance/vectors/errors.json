@@ -1,0 +1,93 @@
+{
+  "suite": "errors",
+  "description": "Malformed requests, unknown conversations and endpoints that are not implemented yet.",
+  "vectors": [
+    {
+      "name": "turn_invalid_json",
+      "description": "A body that is not JSON is 400.",
+      "steps": [
+        {"request": {"method": "POST", "path": "turn", "raw": "{not json"},
+         "expect": {"status": 400, "json": {"error": "$any"}}}
+      ]
+    },
+    {
+      "name": "turn_missing_conversation",
+      "description": "conversationId is required.",
+      "steps": [
+        {"request": {"method": "POST", "path": "turn", "body": {"messages": []}},
+         "expect": {"status": 400, "json": {"error": "$any"}}}
+      ]
+    },
+    {
+      "name": "turn_unknown_role",
+      "description": "A message with a role outside system, user, assistant and tool is refused.",
+      "steps": [
+        {"request": {"method": "POST", "path": "turn",
+                     "body": {"conversationId": "{conv}",
+                              "messages": [{"role": "wizard", "kind": "text", "text": "hi"}]}},
+         "expect": {"status": 400, "json": {"error": "$any"}}}
+      ]
+    },
+    {
+      "name": "turn_unknown_kind",
+      "description": "A message kind outside text, tool_call, tool_result and reasoning is refused.",
+      "steps": [
+        {"request": {"method": "POST", "path": "turn",
+                     "body": {"conversationId": "{conv}",
+                              "messages": [{"role": "user", "kind": "image", "text": "x"}]}},
+         "expect": {"status": 400, "json": {"error": "$any"}}}
+      ]
+    },
+    {
+      "name": "turn_negative_tokens",
+      "description": "Token counts are never negative.",
+      "steps": [
+        {"request": {"method": "POST", "path": "turn",
+                     "body": {"conversationId": "{conv}",
+                              "messages": [{"role": "user", "kind": "text", "text": "x", "tokens": -1}]}},
+         "expect": {"status": 400}}
+      ]
+    },
+    {
+      "name": "turn_get_not_allowed",
+      "description": "turn accepts POST only.",
+      "steps": [
+        {"request": {"method": "GET", "path": "turn"},
+         "expect": {"status": 405, "json": {"error": "$any"}}}
+      ]
+    },
+    {
+      "name": "tool_unknown_conversation",
+      "description": "A tool call for a conversation that never received runtime-info or a turn is 404.",
+      "steps": [
+        {"request": {"method": "POST", "path": "tool",
+                     "body": {"conversationId": "missing-{conv}", "name": "ctx_status"}},
+         "expect": {"status": 404, "json": {"error": "unknown conversation"}}}
+      ]
+    },
+    {
+      "name": "status_unknown_conversation",
+      "description": "Status for an unknown conversation is 404.",
+      "steps": [
+        {"request": {"method": "GET", "path": "status?conversationId=missing-{conv}"},
+         "expect": {"status": 404, "json": {"error": "unknown conversation"}}}
+      ]
+    },
+    {
+      "name": "status_missing_conversation",
+      "description": "Status without conversationId is 400.",
+      "steps": [
+        {"request": {"method": "GET", "path": "status"},
+         "expect": {"status": 400}}
+      ]
+    },
+    {
+      "name": "compact_not_implemented",
+      "description": "Forced compaction has no session API yet, so it fails explicitly with 501.",
+      "steps": [
+        {"request": {"method": "POST", "path": "compact", "body": {"conversationId": "{conv}"}},
+         "expect": {"status": 501, "json": {"error": "$any"}}}
+      ]
+    }
+  ]
+}

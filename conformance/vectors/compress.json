@@ -1,0 +1,352 @@
+{
+  "suite": "compress",
+  "description": "compress over HTTP: a summary replaces an old range, the originals stay recoverable, and a range in the recent zone is refused.",
+  "vectors": [
+    {
+      "name": "compress_old_range",
+      "description": "Summarizing an old range (after the pinned first message) returns a block id; ctx_status counts the messages and retrieve still returns the original text of a folded message.",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "runtime-info",
+            "body": {
+              "conversationId": "{conv}",
+              "model": "conf-model",
+              "contextWindow": 200000
+            }
+          },
+          "expect": {
+            "status": 200,
+            "json": {
+              "created": true
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "turn",
+            "body": {
+              "conversationId": "{conv}",
+              "messages": [
+                {
+                  "role": "user",
+                  "kind": "text",
+                  "text": "Investigate the timeout in the upstream client. Check every retry path in client.go and the wrapper in transport.go before changing anything.",
+                  "tokens": 2000
+                },
+                {
+                  "role": "assistant",
+                  "kind": "text",
+                  "text": "Found a 30 second default in client.go, set in newClient, and it applies to every retry attempt across the whole upstream pool.",
+                  "tokens": 2000
+                },
+                {
+                  "role": "user",
+                  "kind": "text",
+                  "text": "Lower it to 10 seconds in newClient and keep the retry count unchanged, then rerun the full client test suite.",
+                  "tokens": 2000
+                },
+                {
+                  "role": "assistant",
+                  "kind": "text",
+                  "text": "Changed client.go and transport.go and ran the tests; all passed.",
+                  "tokens": 2000
+                },
+                {
+                  "role": "user",
+                  "kind": "text",
+                  "text": "Next task: the metrics labels.",
+                  "tokens": 2000
+                },
+                {
+                  "role": "assistant",
+                  "kind": "text",
+                  "text": "Working on the labels now.",
+                  "tokens": 2000
+                },
+                {
+                  "role": "user",
+                  "kind": "text",
+                  "text": "Labels use the tier name.",
+                  "tokens": 2000
+                },
+                {
+                  "role": "assistant",
+                  "kind": "text",
+                  "text": "Confirmed.",
+                  "tokens": 2000
+                },
+                {
+                  "role": "user",
+                  "kind": "text",
+                  "text": "Status update?",
+                  "tokens": 2000
+                },
+                {
+                  "role": "assistant",
+                  "kind": "text",
+                  "text": "Still working on it.",
+                  "tokens": 2000
+                },
+                {
+                  "role": "user",
+                  "kind": "text",
+                  "text": "Labels are done.",
+                  "tokens": 2000
+                },
+                {
+                  "role": "assistant",
+                  "kind": "text",
+                  "text": "Good.",
+                  "tokens": 2000
+                },
+                {
+                  "role": "user",
+                  "kind": "text",
+                  "text": "Commit it.",
+                  "tokens": 2000
+                },
+                {
+                  "role": "assistant",
+                  "kind": "text",
+                  "text": "Done.",
+                  "tokens": 2000
+                }
+              ]
+            }
+          },
+          "expect": {
+            "status": 200,
+            "json": {
+              "ingested": 14
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "tool",
+            "body": {
+              "conversationId": "{conv}",
+              "name": "compress",
+              "arguments": {
+                "ranges": [
+                  {
+                    "startRef": "m00002",
+                    "endRef": "m00004",
+                    "summary": "Timeout was 30s in newClient (client.go); lowered to 10s, retries unchanged; tests passed.",
+                    "topic": "timeout"
+                  }
+                ]
+              }
+            }
+          },
+          "expect": {
+            "status": 200,
+            "json": {
+              "result": {
+                "blockIds": "$any",
+                "tokensAfter": "$any"
+              }
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "tool",
+            "body": {
+              "conversationId": "{conv}",
+              "name": "ctx_status"
+            }
+          },
+          "expect": {
+            "status": 200,
+            "json": {
+              "result": {
+                "messages": 14
+              }
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "tool",
+            "body": {
+              "conversationId": "{conv}",
+              "name": "retrieve",
+              "arguments": {
+                "ref": "m00003"
+              }
+            }
+          },
+          "expect": {
+            "status": 200,
+            "json": {
+              "result": {
+                "ref": "m00003",
+                "text": "Lower it to 10 seconds in newClient and keep the retry count unchanged, then rerun the full client test suite."
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "compress_recent_range_refused",
+      "description": "A range that reaches into the recent zone is refused with 422 and nothing changes.",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "runtime-info",
+            "body": {
+              "conversationId": "{conv}"
+            }
+          },
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "turn",
+            "body": {
+              "conversationId": "{conv}",
+              "messages": [
+                {
+                  "role": "user",
+                  "kind": "text",
+                  "text": "message 1"
+                },
+                {
+                  "role": "assistant",
+                  "kind": "text",
+                  "text": "message 2"
+                },
+                {
+                  "role": "user",
+                  "kind": "text",
+                  "text": "message 3"
+                },
+                {
+                  "role": "assistant",
+                  "kind": "text",
+                  "text": "message 4"
+                },
+                {
+                  "role": "user",
+                  "kind": "text",
+                  "text": "message 5"
+                },
+                {
+                  "role": "assistant",
+                  "kind": "text",
+                  "text": "message 6"
+                },
+                {
+                  "role": "user",
+                  "kind": "text",
+                  "text": "message 7"
+                },
+                {
+                  "role": "assistant",
+                  "kind": "text",
+                  "text": "message 8"
+                }
+              ]
+            }
+          },
+          "expect": {
+            "status": 200,
+            "json": {
+              "ingested": 8
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "tool",
+            "body": {
+              "conversationId": "{conv}",
+              "name": "compress",
+              "arguments": {
+                "ranges": [
+                  {
+                    "startRef": "m00002",
+                    "endRef": "m00008",
+                    "summary": "Messages two to eight."
+                  }
+                ]
+              }
+            }
+          },
+          "expect": {
+            "status": 422,
+            "json": {
+              "error": "$any"
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "tool",
+            "body": {
+              "conversationId": "{conv}",
+              "name": "ctx_status"
+            }
+          },
+          "expect": {
+            "status": 200,
+            "json": {
+              "result": {
+                "activeBlocks": []
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "compress_missing_ranges",
+      "description": "compress without ranges is a bad argument.",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "runtime-info",
+            "body": {
+              "conversationId": "{conv}"
+            }
+          },
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "tool",
+            "body": {
+              "conversationId": "{conv}",
+              "name": "compress",
+              "arguments": {}
+            }
+          },
+          "expect": {
+            "status": 400,
+            "json": {
+              "error": "$any"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

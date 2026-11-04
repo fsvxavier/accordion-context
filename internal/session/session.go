@@ -50,6 +50,10 @@ type Session struct {
 	st  *store.Store
 	sid string
 	cfg kernel.Config
+	// hinted remembers the recall hints already logged for a user turn
+	// (keyed by the turn's last user seq), so a tool loop that calls Plan on
+	// every request logs each hint once. Hints are still returned every time.
+	hinted map[string]bool
 }
 
 // New wraps an existing store session. The caller creates the session row
@@ -125,7 +129,21 @@ func (s *Session) Plan(ctx context.Context, tokenCount int) (Plan, error) {
 	}, s.cfg)
 
 	hints := kernel.DetectRecall(snap)
+	var turnSeq int64
+	for _, m := range snap.Messages {
+		if m.Role == kernel.RoleUser && m.Kind == kernel.KindText {
+			turnSeq = m.Seq
+		}
+	}
 	for _, h := range hints {
+		key := fmt.Sprintf("%d|%s|%s|%s|%s", turnSeq, h.Kind, h.BlockID, h.Ref, h.Path)
+		if s.hinted[key] {
+			continue
+		}
+		if s.hinted == nil || len(s.hinted) > 1024 {
+			s.hinted = map[string]bool{}
+		}
+		s.hinted[key] = true
 		if err := s.st.AppendEvent(ctx, s.sid, "recall_hint", map[string]any{
 			"kind": string(h.Kind), "block": h.BlockID, "ref": h.Ref, "path": h.Path,
 		}); err != nil {

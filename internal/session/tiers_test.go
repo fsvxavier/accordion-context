@@ -2,8 +2,10 @@ package session
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -328,5 +330,60 @@ func TestTierThreeFoldDeterministic(t *testing.T) {
 	}
 	if err := st.CheckInvariants(ctx, "s1"); err != nil {
 		t.Fatalf("after T2 decompress: %v", err)
+	}
+}
+
+// A tool loop calls Plan on every request of one user turn. The re-read hint is
+// returned each time but logged as a recall_hint event only once.
+func TestPlanLogsRecallHintOncePerTurn(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "acd.db")
+	st, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	if err := st.EnsureProject(ctx, "p1", "/tmp/p1", "local", 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateSession(ctx, store.Session{ID: "s1", ProjectID: "p1", Model: "t", ContextLimit: 4000, Mode: "library", Integration: "library"}); err != nil {
+		t.Fatal(err)
+	}
+	s := New(st, "s1")
+	msgs := transcript()
+	msgs[14].Text = `{"file_path":"a.go"}`
+	if _, err := s.Ingest(ctx, msgs); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.HandleCompress(ctx, CompressArgs{Ranges: []CompressRange{{"m00002", "m00016", okSummary, "leitura"}}}); err != nil {
+		t.Fatal(err)
+	}
+	again := append(append([]kernel.Message(nil), msgs...),
+		kernel.Message{Role: kernel.RoleUser, Kind: kernel.KindText, Text: "veja de novo", Tokens: 10},
+		kernel.Message{Role: kernel.RoleAssistant, Kind: kernel.KindToolCall, ToolName: "Read",
+			ToolCallID: "c9", Text: `{"file_path":"a.go"}`, Tokens: 10})
+	if _, err := s.Ingest(ctx, again); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		p, err := s.Plan(ctx, 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(p.Hints) == 0 {
+			t.Fatalf("plan %d returned no hints", i)
+		}
+	}
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM events WHERE type = 'recall_hint'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("recall_hint events = %d, want 1", n)
 	}
 }

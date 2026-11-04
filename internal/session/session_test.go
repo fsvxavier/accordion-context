@@ -128,6 +128,18 @@ func TestPlanCompressRenderRoundTrip(t *testing.T) {
 	if lw, _ := st.GetTrigger(ctx, "s1"); lw.LowWater != res.TokensAfter {
 		t.Fatalf("low-water=%d after fold, want TokensAfter=%d", lw.LowWater, res.TokensAfter)
 	}
+	// TokensAfter must equal the window actually rendered after the fold.
+	snap, err := st.Snapshot(ctx, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := 0
+	for _, m := range kernel.Render(snap) {
+		got += m.Tokens
+	}
+	if got != res.TokensAfter {
+		t.Fatalf("rendered window=%d tokens, TokensAfter=%d", got, res.TokensAfter)
+	}
 
 	plan, err = s.Plan(ctx, 2000)
 	if err != nil {

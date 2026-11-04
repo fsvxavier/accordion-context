@@ -44,6 +44,10 @@ type Options struct {
 	Cwd string
 	// Markers are project root markers. Defaults to the proxy's markers.
 	Markers []string
+	// IDByRoot optionally looks up the project id already registered for a root
+	// (the caller passes store.ProjectIDByRoot), so a moved project keeps its id.
+	// Nil derives the id from the root as usual.
+	IDByRoot func(root string) (string, bool)
 	// Version is the acd-ctx version a running proxy must report to be
 	// reused. Empty accepts any healthy proxy.
 	Version string
@@ -83,7 +87,7 @@ func Run(ctx context.Context, opts Options) (int, error) {
 	if markers == nil {
 		markers = defaultMarkers
 	}
-	res, err := project.Resolve(cwd, markers)
+	res, err := project.ResolveWith(cwd, markers, project.Options{IDByRoot: opts.IDByRoot})
 	if err != nil {
 		return 1, fmt.Errorf("launcher: resolve project: %w", err)
 	}

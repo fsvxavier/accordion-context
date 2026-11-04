@@ -225,3 +225,36 @@ func newTestServer(t *testing.T, h http.Handler) *httptest.Server {
 	t.Cleanup(srv.Close)
 	return srv
 }
+
+func TestRunUsesIDByRootForMovedProject(t *testing.T) {
+	addr := healthServer(t, "v1")
+	dir := t.TempDir()
+	prof := fakeProfile()
+	out := &syncBuffer{}
+	var asked []string
+
+	code, err := Run(context.Background(), Options{
+		Args:      shellArgs(`printf '%s' "$FAKE_BASE_URL"; exit 0`),
+		Profile:   &prof,
+		Cwd:       dir,
+		Version:   "v1",
+		ProxyAddr: addr,
+		ServeExe:  "/nonexistent/acd-ctx",
+		Stdin:     strings.NewReader(""),
+		Stdout:    out,
+		Stderr:    io.Discard,
+		IDByRoot: func(root string) (string, bool) {
+			asked = append(asked, root)
+			return "moved-id", true
+		},
+	})
+	if err != nil || code != 0 {
+		t.Fatalf("Run: code %d err %v", code, err)
+	}
+	if len(asked) != 1 || asked[0] == "" {
+		t.Fatalf("IDByRoot asked %v, want one root", asked)
+	}
+	if want := BaseURL(addr, "moved-id", prof); out.String() != want {
+		t.Fatalf("client env = %q, want %q", out.String(), want)
+	}
+}

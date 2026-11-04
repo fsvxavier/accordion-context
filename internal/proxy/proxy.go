@@ -1,7 +1,9 @@
-// Package proxy serves the Anthropic Messages endpoint as a context-compaction
-// proxy (spec §19.2 mode 1, §18.2, §16). It is the only place where the HTTP
-// traffic, wire/anthropic, session and store meet. Every failure on the
-// compaction side is fail-open: the client request is then forwarded unchanged.
+// Package proxy serves the compacted API endpoints as a context-compaction proxy
+// (spec §19.1, §19.2 mode 1, §18.2, §16). The HTTP traffic, the wire codecs,
+// session and store meet here. Each dialect is an adapter behind the protocol
+// interface (protocol.go), and one server-side loop serves all of them. Every
+// failure on the compaction side is fail-open: the client request is then
+// forwarded unchanged.
 package proxy
 
 import (
@@ -34,7 +36,6 @@ import (
 )
 
 const (
-	pathMessages   = "/v1/messages"
 	pathHealth     = "/__acd-ctx/health"
 	pathStatus     = "/__acd-ctx/status"
 	pathInternal   = "/__acd-ctx/"
@@ -146,7 +147,7 @@ func (s *Server) hostAllowed(hostport string) bool {
 }
 
 // ServeHTTP checks the request against the loopback guard, then routes internal
-// endpoints, the compaction path and pass-through.
+// endpoints, the compaction endpoints and pass-through.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !s.hostAllowed(r.Host) {
 		http.Error(w, "forbidden host", http.StatusForbidden)
@@ -175,9 +176,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, msg, status)
 		return
 	}
-	if r.Method == http.MethodPost && (rt.path == pathMessages || rt.viaCtx && strings.HasSuffix(rt.path, pathMessages)) {
-		s.messages(w, r, rt)
-		return
+	if r.Method == http.MethodPost {
+		if p := protocolFor(rt); p != nil {
+			s.compactTurn(w, r, rt, p)
+			return
+		}
 	}
 	s.passthrough(w, r, rt, nil)
 }
@@ -186,6 +189,10 @@ func (s *Server) status(w http.ResponseWriter) {
 	s.mu.Lock()
 	loaded, projects := len(s.sessions), len(s.ensured)
 	s.mu.Unlock()
+	names := make([]string, 0, len(protocols))
+	for _, p := range protocols {
+		names = append(names, p.Name())
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":                   "ok",
 		"version":                  s.cfg.Version,
@@ -196,11 +203,12 @@ func (s *Server) status(w http.ResponseWriter) {
 		"sessions_loaded":          loaded,
 		"projects_seen":            projects,
 		"default_project_requests": s.defaultRequests.Load(),
+		"protocols":                names,
 	})
 }
 
-// messages runs the compaction pipeline for POST /v1/messages.
-func (s *Server) messages(w http.ResponseWriter, r *http.Request, rt routed) {
+// compactTurn runs the compaction pipeline for one request of a dialect p.
+func (s *Server) compactTurn(w http.ResponseWriter, r *http.Request, rt routed, p protocol) {
 	ctx := context.WithoutCancel(r.Context())
 	body, err := readLimited(r.Body)
 	if err != nil {
@@ -208,15 +216,12 @@ func (s *Server) messages(w http.ResponseWriter, r *http.Request, rt routed) {
 		return
 	}
 
-	var meta struct {
-		Model  string `json:"model"`
-		Stream bool   `json:"stream"`
-	}
-	if json.Unmarshal(body, &meta) != nil {
+	model, stream, err := p.Meta(rt.path, r.URL.RawQuery, body)
+	if err != nil {
 		s.passthrough(w, r, rt, body)
 		return
 	}
-	req, msgs, err := anthropic.Decode(body)
+	req, msgs, err := p.Decode(body)
 	if err != nil {
 		s.failOpen(w, r, rt, body, "decode", err)
 		return
@@ -229,7 +234,7 @@ func (s *Server) messages(w http.ResponseWriter, r *http.Request, rt routed) {
 	base := sessionID(proj.ID, r.Header.Get(headerConv), msgs)
 	// The walk never returns a session whose ledger differs from the transcript:
 	// an edited or colliding transcript gets its own fork (see fork.go).
-	sid, sess, fk, err := s.resolveLedger(ctx, proj, base, msgs, meta.Model)
+	sid, sess, fk, err := s.resolveLedger(ctx, proj, base, msgs, model)
 	if err != nil {
 		s.failOpen(w, r, rt, body, "session", err)
 		return
@@ -260,30 +265,30 @@ func (s *Server) messages(w http.ResponseWriter, r *http.Request, rt routed) {
 		s.failOpen(w, r, rt, body, "plan", err)
 		return
 	}
-	window, err := anthropic.Encode(req, plan.Visible)
+	window, err := req.encode(plan.Visible)
 	if err != nil {
 		s.failOpen(w, r, rt, body, "encode", err)
 		return
 	}
-	out, err := anthropic.InjectTools(window)
+	out, err := p.InjectTools(window)
 	if err != nil {
 		s.failOpen(w, r, rt, body, "inject", err)
 		return
 	}
 	if plan.Decision.Nudge {
 		spans := kernel.CompressibleSpans(snap, session.RecentKeep)
-		if nudged, err := appendToLastUser(out, nudgeText(plan.Decision.Voice, spans)); err == nil {
+		if nudged, err := p.AppendNudge(out, nudgeText(plan.Decision.Voice, spans)); err == nil {
 			out = nudged
 		} else {
-			s.cfg.Logger.Warn("nudge not injected", "err", err)
+			s.cfg.Logger.Warn("nudge not injected", "protocol", p.Name(), "err", err)
 		}
 	}
 
 	t := &turn{
-		ctx: ctx, sess: sess, sid: sid, up: rt.up, path: rt.path, stream: meta.Stream, body: out,
+		ctx: ctx, sess: sess, sid: sid, proto: p, up: rt.up, path: rt.path, stream: stream, body: out,
 		estTokens: visible, proj: proj.ID,
 	}
-	s.cfg.Logger.Debug("compaction turn", "project", proj.ID, "session", sid,
+	s.cfg.Logger.Debug("compaction turn", "protocol", p.Name(), "project", proj.ID, "session", sid,
 		"rule", plan.Decision.Row, "nudge", plan.Decision.Nudge, "tokens", visible)
 	s.runTurns(w, r, t)
 }
@@ -294,6 +299,7 @@ type turn struct {
 	sess      *session.Session
 	sid       string
 	proj      string
+	proto     protocol
 	up        *url.URL // upstream base of this request
 	path      string   // upstream path of this request
 	stream    bool
@@ -304,10 +310,10 @@ type turn struct {
 }
 
 // runTurns sends rounds upstream until the model stops asking for compress or
-// decompress. Internal tool_use blocks never reach the client.
+// decompress. Internal calls never reach the client.
 func (s *Server) runTurns(w http.ResponseWriter, r *http.Request, t *turn) {
 	var fw *anthropic.Forwarder
-	if t.stream {
+	if t.stream && t.proto.Live() {
 		fw = anthropic.NewForwarder(flushWriter{w})
 	}
 	for round := 0; ; round++ {
@@ -322,15 +328,77 @@ func (s *Server) runTurns(w http.ResponseWriter, r *http.Request, t *turn) {
 			return
 		}
 		var done bool
-		if t.stream {
+		if fw != nil {
 			done = s.streamRound(w, resp, t, round, fw)
 		} else {
-			done = s.jsonRound(w, resp, t, round)
+			done = s.bufferedRound(w, resp, t, round)
 		}
 		if done {
 			return
 		}
 	}
+}
+
+// bufferedRound reads one whole upstream answer and decides whether the loop goes
+// on. Nothing reaches the client before the final round, so internal calls never
+// show. It returns true when the answer was written to the client.
+func (s *Server) bufferedRound(w http.ResponseWriter, resp *http.Response, t *turn, round int) bool {
+	data, err := readLimited(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		s.abort(w, t, "upstream body unreadable", http.StatusBadGateway)
+		return true
+	}
+	rr := t.proto.Read(data, t.stream)
+	if rr.usage != nil {
+		s.recordCache(t, *rr.usage)
+	}
+	if t.stream && !rr.complete {
+		// The upstream closed the stream before its terminal event: the round is cut
+		// short and must not be finished as if it were complete.
+		s.cfg.Logger.Error("upstream stream truncated", "session", t.sid, "round", round)
+		s.abort(w, t, "upstream stream truncated", http.StatusBadGateway)
+		return true
+	}
+	if len(rr.calls) == 0 {
+		s.send(w, resp, t, rr.final)
+		return true
+	}
+
+	results := make([]toolResult, 0, len(rr.calls))
+	for _, c := range rr.calls {
+		results = append(results, s.runTool(t, c))
+	}
+	if rr.clientCalls > 0 || round+1 >= s.cfg.MaxLoop {
+		// The round cannot continue: the internal calls are removed from the answer.
+		s.cfg.Logger.Warn("internal tool_use not continued", "protocol", t.proto.Name(), "session", t.sid,
+			"client_tools", rr.clientCalls, "round", round)
+		s.send(w, resp, t, rr.final)
+		return true
+	}
+	next, err := t.proto.Continue(t.body, rr, results)
+	if err != nil {
+		s.cfg.Logger.Error("append tool round failed", "session", t.sid, "err", err)
+		s.send(w, resp, t, rr.final)
+		return true
+	}
+	t.body = next
+	return false
+}
+
+// send writes the final answer of a round to the client. A stream starts with
+// its first write, so headers of a stream that is still being compacted are not sent.
+func (s *Server) send(w http.ResponseWriter, resp *http.Response, t *turn, body []byte) {
+	if !t.stream {
+		writeRaw(w, resp, body)
+		return
+	}
+	if !t.begun {
+		copyHeaders(w.Header(), resp.Header)
+		w.WriteHeader(http.StatusOK)
+		t.begun = true
+	}
+	_, _ = flushWriter{w}.Write(body)
 }
 
 // abort ends a request that failed before anything reached the client, or, once
@@ -368,203 +436,36 @@ func writeSSEError(w http.ResponseWriter, data []byte) {
 	}
 }
 
-// jsonRound handles one non-streaming upstream response. It returns true when
-// the response was written to the client.
-func (s *Server) jsonRound(w http.ResponseWriter, resp *http.Response, t *turn, round int) bool {
-	data, err := readLimited(resp.Body)
-	resp.Body.Close()
+// runTool executes one internal call and returns its result for the dialect.
+func (s *Server) runTool(t *turn, c toolCall) toolResult {
+	res := toolResult{id: c.id, name: c.name}
+	text, err := s.execTool(t, c)
 	if err != nil {
-		http.Error(w, "upstream body unreadable", http.StatusBadGateway)
-		return true
-	}
-	if u, ok, err := anthropic.ParseUsage(data); err == nil && ok {
-		s.recordCache(t, u)
-	}
-
-	var msg struct {
-		StopReason string            `json:"stop_reason"`
-		Content    []json.RawMessage `json:"content"`
-	}
-	if json.Unmarshal(data, &msg) != nil {
-		writeRaw(w, resp, data)
-		return true
-	}
-	var calls []toolCall
-	clientTools := 0
-	for _, raw := range msg.Content {
-		var b toolUseWire
-		if json.Unmarshal(raw, &b) != nil || b.Type != "tool_use" {
-			continue
-		}
-		if isInternal(b.Name) {
-			calls = append(calls, toolCall{id: b.ID, name: b.Name, input: b.Input})
-		} else {
-			clientTools++
-		}
-	}
-	if len(calls) == 0 {
-		writeRaw(w, resp, data)
-		return true
-	}
-
-	results := make([]json.RawMessage, 0, len(calls))
-	for _, c := range calls {
-		results = append(results, s.runTool(t, c))
-	}
-	if clientTools > 0 || round+1 >= s.cfg.MaxLoop {
-		// The round cannot continue: drop the internal blocks from the answer.
-		s.cfg.Logger.Warn("internal tool_use not continued", "session", t.sid,
-			"client_tools", clientTools, "round", round)
-		out, err := stripInternal(data)
-		if err != nil {
-			writeRaw(w, resp, data)
-			return true
-		}
-		writeRaw(w, resp, out)
-		return true
-	}
-
-	next, err := appendTurn(t.body, msg.Content, results)
-	if err != nil {
-		s.cfg.Logger.Error("append tool round failed", "session", t.sid, "err", err)
-		writeRaw(w, resp, data)
-		return true
-	}
-	t.body = next
-	return false
-}
-
-// streamRound forwards one upstream SSE response as it arrives. Internal blocks
-// are withheld and their calls run after the round. When the round continues
-// server-side, the client keeps receiving the same message, and only the
-// message end waits for the last round.
-func (s *Server) streamRound(w http.ResponseWriter, resp *http.Response, t *turn, round int, fw *anthropic.Forwarder) bool {
-	defer resp.Body.Close()
-	if !t.begun {
-		copyHeaders(w.Header(), resp.Header)
-		w.WriteHeader(http.StatusOK)
-		t.begun = true
-	}
-	fw.BeginRound()
-	sse := anthropic.NewSSEReader(resp.Body)
-	ended := false
-	for {
-		ev, err := sse.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			s.cfg.Logger.Error("upstream stream broken", "session", t.sid, "err", err)
-			s.abort(w, t, "upstream stream broken", http.StatusBadGateway)
-			return true
-		}
-		if ev.Name == "message_stop" || ev.Name == "error" {
-			// An upstream error event is terminal too, so no second one is added.
-			ended = true
-		}
-		if err := fw.Feed(ev); err != nil {
-			s.cfg.Logger.Warn("client stream write failed", "session", t.sid, "err", err)
-			return true
-		}
-	}
-
-	if !ended {
-		// The upstream closed the stream before message_stop: the round is cut
-		// short and must not be finished as if it were complete.
-		s.cfg.Logger.Error("upstream stream truncated", "session", t.sid, "round", round)
-		s.abort(w, t, "upstream stream truncated", http.StatusBadGateway)
-		return true
-	}
-
-	res := fw.EndRound()
-	s.recordCache(t, res.Usage)
-	if len(res.Internal) == 0 {
-		if err := fw.Finish(false); err != nil {
-			s.cfg.Logger.Warn("client stream write failed", "session", t.sid, "err", err)
-		}
-		return true
-	}
-
-	results := make([]json.RawMessage, 0, len(res.Internal))
-	for _, u := range res.Internal {
-		results = append(results, s.runTool(t, toolCall{id: u.ID, name: u.Name, input: u.Input}))
-	}
-	if res.ClientTools > 0 || round+1 >= s.cfg.MaxLoop {
-		// The round cannot continue. The internal blocks were already withheld from the client.
-		s.cfg.Logger.Warn("internal tool_use not continued", "session", t.sid,
-			"client_tools", res.ClientTools, "round", round)
-		if err := fw.Finish(res.ClientTools == 0); err != nil {
-			s.cfg.Logger.Warn("client stream write failed", "session", t.sid, "err", err)
-		}
-		return true
-	}
-
-	next, err := appendTurn(t.body, res.Content, results)
-	if err != nil {
-		s.cfg.Logger.Error("append tool round failed", "session", t.sid, "err", err)
-		_ = fw.Finish(true)
-		return true
-	}
-	t.body = next
-	return false
-}
-
-type toolCall struct {
-	id    string
-	name  string
-	input []byte
-}
-
-// toolUseWire is the wire form of a tool_use block (also used for replay).
-type toolUseWire struct {
-	Type  string          `json:"type"`
-	ID    string          `json:"id"`
-	Name  string          `json:"name"`
-	Input json.RawMessage `json:"input,omitempty"`
-}
-
-type toolResultWire struct {
-	Type      string `json:"type"`
-	ToolUseID string `json:"tool_use_id"`
-	Content   string `json:"content"`
-	IsError   bool   `json:"is_error,omitempty"`
-}
-
-// runTool executes one internal call and returns its tool_result block.
-func (s *Server) runTool(t *turn, c toolCall) json.RawMessage {
-	var text string
-	var err error
-	switch c.name {
-	case anthropic.ToolCompress:
-		text, err = s.compress(t, c.input)
-	case anthropic.ToolDecompress:
-		text, err = s.decompress(t, c.input)
-	}
-	res := toolResultWire{Type: "tool_result", ToolUseID: c.id, Content: text}
-	if err != nil {
-		res.Content = "error: " + err.Error()
-		res.IsError = true
+		res.text = "error: " + err.Error()
+		res.isErr = true
 		s.cfg.Logger.Warn("internal tool failed", "tool", c.name, "session", t.sid, "err", err)
+		return res
 	}
-	raw, _ := json.Marshal(res)
-	return raw
+	res.text = text
+	return res
 }
 
-func (s *Server) compress(t *turn, input []byte) (string, error) {
-	args, err := anthropic.ParseCompressArgs(input)
+func (s *Server) execTool(t *turn, c toolCall) (string, error) {
+	args, err := t.proto.ParseTool(c.name, c.input)
 	if err != nil {
 		return "", err
 	}
-	ranges := make([]session.CompressRange, 0, len(args.Ranges))
-	for _, r := range args.Ranges {
-		ranges = append(ranges, session.CompressRange{
-			StartRef: kernel.FormatRef(r.StartSeq),
-			EndRef:   kernel.FormatRef(r.EndSeq),
-			Summary:  r.Summary,
-			Topic:    r.Topic,
-		})
+	switch c.name {
+	case toolCompress:
+		return s.compress(t, args)
+	case toolDecompress:
+		return s.decompress(t, args)
 	}
-	res, err := t.sess.HandleCompress(t.ctx, session.CompressArgs{Ranges: ranges})
+	return "", fmt.Errorf("unknown tool %q", c.name)
+}
+
+func (s *Server) compress(t *turn, args toolArgs) (string, error) {
+	res, err := t.sess.HandleCompress(t.ctx, session.CompressArgs{Ranges: args.ranges})
 	if err != nil {
 		return "", err
 	}
@@ -575,16 +476,8 @@ func (s *Server) compress(t *turn, input []byte) (string, error) {
 
 // decompress returns the original messages of a block. mode peek filters lines
 // by query, context and file return the whole block (capped).
-func (s *Server) decompress(t *turn, input []byte) (string, error) {
-	var args struct {
-		BlockID string `json:"blockId"`
-		Mode    string `json:"mode"`
-		Query   string `json:"query"`
-	}
-	if err := json.Unmarshal(input, &args); err != nil {
-		return "", fmt.Errorf("decompress args: %w", err)
-	}
-	if args.BlockID == "" {
+func (s *Server) decompress(t *turn, args toolArgs) (string, error) {
+	if args.block == "" {
 		return "", errors.New("decompress: blockId is required")
 	}
 	snap, err := s.cfg.Store.Snapshot(t.ctx, t.sid)
@@ -593,13 +486,13 @@ func (s *Server) decompress(t *turn, input []byte) (string, error) {
 	}
 	var blk *kernel.Block
 	for i := range snap.Blocks {
-		if snap.Blocks[i].ID == args.BlockID {
+		if snap.Blocks[i].ID == args.block {
 			blk = &snap.Blocks[i]
 			break
 		}
 	}
 	if blk == nil {
-		return "", fmt.Errorf("decompress: unknown block %q", args.BlockID)
+		return "", fmt.Errorf("decompress: unknown block %q", args.block)
 	}
 
 	var b strings.Builder
@@ -611,8 +504,8 @@ func (s *Server) decompress(t *turn, input []byte) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if args.Mode == "peek" && args.Query != "" {
-			q := strings.ToLower(args.Query)
+		if args.mode == "peek" && args.query != "" {
+			q := strings.ToLower(args.query)
 			for _, line := range strings.Split(text, "\n") {
 				if strings.Contains(strings.ToLower(line), q) {
 					fmt.Fprintf(&b, "[%s] %s\n", m.Ref, line)
@@ -635,10 +528,10 @@ func (s *Server) decompress(t *turn, input []byte) (string, error) {
 	return out, nil
 }
 
-func (s *Server) recordCache(t *turn, u anthropic.Usage) {
+func (s *Server) recordCache(t *turn, u usage) {
 	err := s.cfg.Store.RecordCache(t.ctx, t.sid, store.CacheCall{
-		InputTokens:   u.TotalInput(),
-		CachedTokens:  u.CacheReadInputTokens,
+		InputTokens:   u.input,
+		CachedTokens:  u.cached,
 		EstTokens:     t.estTokens,
 		AfterCompress: t.compress > 0,
 	})
@@ -811,113 +704,6 @@ func sessionID(projectID, conv string, msgs []kernel.Message) string {
 		}
 	}
 	return "s_" + hex.EncodeToString(h.Sum(nil))[:32]
-}
-
-func isInternal(name string) bool {
-	return anthropic.IsInternalTool(name)
-}
-
-// stripInternal removes internal tool_use blocks from a JSON message and turns
-// stop_reason tool_use into end_turn when nothing else is pending.
-func stripInternal(data []byte) ([]byte, error) {
-	var top map[string]json.RawMessage
-	if err := json.Unmarshal(data, &top); err != nil {
-		return nil, err
-	}
-	var content []json.RawMessage
-	if err := json.Unmarshal(top["content"], &content); err != nil {
-		return nil, err
-	}
-	kept := make([]json.RawMessage, 0, len(content))
-	pending := false
-	for _, raw := range content {
-		var b toolUseWire
-		if json.Unmarshal(raw, &b) == nil && b.Type == "tool_use" {
-			if isInternal(b.Name) {
-				continue
-			}
-			pending = true
-		}
-		kept = append(kept, raw)
-	}
-	out, err := json.Marshal(kept)
-	if err != nil {
-		return nil, err
-	}
-	top["content"] = out
-	if !pending {
-		var stop string
-		if json.Unmarshal(top["stop_reason"], &stop) == nil && stop == "tool_use" {
-			top["stop_reason"] = json.RawMessage(`"end_turn"`)
-		}
-	}
-	return json.Marshal(top)
-}
-
-// appendTurn adds the assistant tool round and the tool_result user message.
-func appendTurn(body []byte, assistant []json.RawMessage, results []json.RawMessage) ([]byte, error) {
-	return editMessages(body, func(msgs []json.RawMessage) ([]json.RawMessage, error) {
-		a, err := json.Marshal(map[string]any{"role": "assistant", "content": assistant})
-		if err != nil {
-			return nil, err
-		}
-		u, err := json.Marshal(map[string]any{"role": "user", "content": results})
-		if err != nil {
-			return nil, err
-		}
-		return append(msgs, a, u), nil
-	})
-}
-
-// appendToLastUser adds a text block to the last user message (upstream only).
-func appendToLastUser(body []byte, text string) ([]byte, error) {
-	return editMessages(body, func(msgs []json.RawMessage) ([]json.RawMessage, error) {
-		if len(msgs) == 0 {
-			return nil, errors.New("no messages")
-		}
-		var last struct {
-			Role    string            `json:"role"`
-			Content []json.RawMessage `json:"content"`
-		}
-		if err := json.Unmarshal(msgs[len(msgs)-1], &last); err != nil {
-			return nil, err
-		}
-		if last.Role != "user" {
-			return nil, errors.New("last message is not user")
-		}
-		block, err := json.Marshal(map[string]string{"type": "text", "text": text})
-		if err != nil {
-			return nil, err
-		}
-		last.Content = append(last.Content, block)
-		out, err := json.Marshal(last)
-		if err != nil {
-			return nil, err
-		}
-		msgs[len(msgs)-1] = out
-		return msgs, nil
-	})
-}
-
-func editMessages(body []byte, fn func([]json.RawMessage) ([]json.RawMessage, error)) ([]byte, error) {
-	var top map[string]json.RawMessage
-	if err := json.Unmarshal(body, &top); err != nil {
-		return nil, err
-	}
-	var msgs []json.RawMessage
-	if err := json.Unmarshal(top["messages"], &msgs); err != nil {
-		return nil, err
-	}
-	msgs, err := fn(msgs)
-	if err != nil {
-		return nil, err
-	}
-	arr, err := json.Marshal(msgs)
-	if err != nil {
-		return nil, err
-	}
-	top["messages"] = arr
-	return json.Marshal(top)
 }
 
 // nudgeText asks the model to compress and lists the ranges that are open now.

@@ -229,7 +229,7 @@ func TestForkRetriesInheritAfterFailure(t *testing.T) {
 	up := newFakeUpstream(t, func(n int, _ map[string]json.RawMessage) (int, string, string) {
 		if n == 0 {
 			return 200, "application/json", `{"id":"msg_a","type":"message","role":"assistant",` +
-				`"content":[{"type":"tool_use","id":"toolu_1","name":"compress","input":{"ranges":[{"startRef":"m00002","endRef":"m00004","summary":"Read parser source; no bug found yet."}]}}],` +
+				`"content":[{"type":"tool_use","id":"toolu_1","name":"compress","input":{"ranges":[{"startRef":"m00002","endRef":"m00004","summary":"Read the parser source and tests in detail; no bug located in the lexer yet."}]}}],` +
 				`"stop_reason":"tool_use","usage":{"input_tokens":900,"output_tokens":40}}`
 		}
 		return 200, "application/json", plainAnswer

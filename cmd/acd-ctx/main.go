@@ -51,7 +51,7 @@ func serve(args []string, stderr io.Writer) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	listen := fs.String("listen", "127.0.0.1:8787", "loopback address to listen on")
-	upstream := fs.String("upstream", "https://api.anthropic.com", "upstream Messages API base URL")
+	upstream := fs.String("upstream", "https://api.anthropic.com", "default upstream API base URL, used when the request has no /ctx/<url>/ prefix")
 	dbPath := fs.String("db", "", "SQLite database path (default ~/.local/share/acd-ctx/acd-ctx.db)")
 	allow := fs.String("allow", "", "comma-separated origins reachable through /ctx/<url>/ (default: the --upstream origin)")
 	if err := fs.Parse(args); err != nil {

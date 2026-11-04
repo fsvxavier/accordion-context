@@ -186,7 +186,7 @@ func transcriptBody(stream bool, n int, extra []string) string {
 		if i%2 == 0 {
 			role = "assistant"
 		}
-		text := "step " + strings.Repeat("reading the parser source and noting details ", 8)
+		text := "step " + strings.Repeat("reading the parser source and noting details ", 300)
 		if i == 1 {
 			text = "Please fix the parser bug in internal/parse."
 		}
@@ -208,7 +208,7 @@ func TestCompressLoopIsHiddenFromClient(t *testing.T) {
 		if n == 0 {
 			return 200, "application/json", `{"id":"msg_a","type":"message","role":"assistant",` +
 				`"content":[{"type":"text","text":"Compressing early work."},` +
-				`{"type":"tool_use","id":"toolu_1","name":"compress","input":{"ranges":[{"startRef":"m00002","endRef":"m00004","summary":"Read parser source; no bug found yet."}]}}],` +
+				`{"type":"tool_use","id":"toolu_1","name":"compress","input":{"ranges":[{"startRef":"m00002","endRef":"m00004","summary":"Read the parser source and tests in detail; no bug located in the lexer yet."}]}}],` +
 				`"stop_reason":"tool_use","usage":{"input_tokens":900,"output_tokens":40}}`
 		}
 		return 200, "application/json", `{"id":"msg_b","type":"message","role":"assistant",` +

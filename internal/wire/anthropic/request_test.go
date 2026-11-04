@@ -420,3 +420,33 @@ func TestEncodeLabelIsByteStable(t *testing.T) {
 		t.Fatal("encode is not deterministic")
 	}
 }
+
+func TestEchoedRefLabelsAreNotStacked(t *testing.T) {
+	body := `{"model":"m","messages":[` +
+		`{"role":"user","content":"hi"},` +
+		`{"role":"assistant","content":[{"type":"text","text":"[m00002] [m00001] answer","cache_control":{"type":"ephemeral"}}]},` +
+		`{"role":"assistant","content":"[m00003] plain"}]}`
+	req, msgs, err := Decode([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msgs[1].Text != "answer" || msgs[2].Text != "plain" {
+		t.Fatalf("echoed labels kept in ledger: %q %q", msgs[1].Text, msgs[2].Text)
+	}
+	for i := range msgs {
+		msgs[i].Ref = kernel.FormatRef(msgs[i].Seq)
+	}
+	out, err := Encode(req, msgs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), "[m00002] [m00001]") || strings.Contains(string(out), "[m00003] [m00003]") ||
+		!strings.Contains(string(out), `"text":"[m00002] answer"`) || !strings.Contains(string(out), `cache_control`) {
+		t.Fatalf("labels stacked or block lost: %s", out)
+	}
+	// A user's own bracketed text is not touched.
+	_, um, _ := Decode([]byte(`{"messages":[{"role":"user","content":"[m00009] mine"}]}`))
+	if um[0].Text != "[m00009] mine" {
+		t.Fatalf("user text altered: %q", um[0].Text)
+	}
+}

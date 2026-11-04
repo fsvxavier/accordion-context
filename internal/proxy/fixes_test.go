@@ -592,3 +592,103 @@ func TestCtxPrefixWithGatewayPathCompacts(t *testing.T) {
 		t.Fatalf("gateway messages path not compacted (calls=%d)", up.count())
 	}
 }
+
+func TestRouteAllowlistAdversarial(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "adv.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	u, _ := url.Parse("https://api.anthropic.com")
+	s, err := New(Config{Upstream: u, Store: st})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ok := []string{
+		"/ctx/https://api.anthropic.com/v1/messages",
+		"/ctx/https://API.Anthropic.COM/v1/messages",
+	}
+	for _, p := range ok {
+		if rt, status, msg := s.route(p); status != 0 || rt.up.Host == "" {
+			t.Errorf("%q refused: %d %s", p, status, msg)
+		}
+	}
+	bad := []string{
+		"/ctx/https://api.anthropic.com@evil.example/v1/messages",
+		"/ctx/https://api.anthropic.com:pw@evil.example/v1/messages",
+		"/ctx/https://evil.example#@api.anthropic.com/v1/messages",
+		"/ctx/https://evil.example?@api.anthropic.com/v1/messages",
+		"/ctx/https://evil.example\\@api.anthropic.com/v1/messages",
+		"/ctx/https://api.anthropic.com%40evil.example/v1/messages",
+		"/ctx/https://api.anthropic.com%2f@evil.example/v1/messages",
+		"/ctx/https://api.anthropic.com.evil.example/v1/messages",
+		"/ctx/https://evil.example/api.anthropic.com/v1/messages",
+		"/ctx/https://api.anthropic.com:443/v1/messages",
+		"/ctx/https://api.anthropic.com:8443/v1/messages",
+		"/ctx/https://api.anthropic.com./v1/messages",
+		"/ctx/http://api.anthropic.com/v1/messages",
+		"/ctx/HTTPS://api.anthropic.com/v1/messages",
+		"/ctx/https:/api.anthropic.com/v1/messages",
+		"/ctx//api.anthropic.com/v1/messages",
+		"/ctx/https://127.0.0.1/v1/messages",
+		"/ctx/https://[::1]/v1/messages",
+		"/ctx/http://2130706433/v1/messages",
+		"/ctx/http://localhost:8787/ctx/https://api.anthropic.com/v1/messages",
+		"/ctx/https://api.anthropic.com\x00.evil.example/v1/messages",
+		"/ctx/https://api.anthropic.com\n.evil.example/v1/messages",
+		"/ctx/https://api.anthropic.com evil.example/v1/messages",
+		"/ctx/file:///etc/passwd",
+		"/ctx/",
+	}
+	for _, p := range bad {
+		if _, status, _ := s.route(p); status == 0 {
+			t.Errorf("%q was routed", p)
+		}
+	}
+}
+
+func TestAllowSetRejectsUserinfo(t *testing.T) {
+	u, _ := url.Parse("https://api.anthropic.com")
+	if _, err := allowSet([]string{"https://user:pw@api.anthropic.com"}, u); err == nil {
+		t.Fatal("allowlist entry with userinfo accepted")
+	}
+}
+
+func TestCtxRedirectNotFollowedAndNoURLInErrors(t *testing.T) {
+	var hits int
+	evil := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits++ }))
+	defer evil.Close()
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, evil.URL+"/steal", http.StatusFound)
+	}))
+	defer up.Close()
+	st, err := store.Open(filepath.Join(t.TempDir(), "redir.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	uu, _ := url.Parse(up.URL)
+	h, err := New(Config{Upstream: uu, Store: st})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ps := httptest.NewServer(h)
+	defer ps.Close()
+	cl := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := cl.Get(ps.URL + "/v1/models")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusFound || hits != 0 {
+		t.Fatalf("redirect status %d, followed hits %d", resp.StatusCode, hits)
+	}
+
+	// A dead upstream must not leak the query string (API keys) through the error.
+	dead, _ := url.Parse("http://127.0.0.1:1")
+	_, err = (&Server{cfg: Config{Upstream: dead}, client: &http.Client{}}).upstreamCall(
+		httptest.NewRequest(http.MethodGet, "/v1/x?key=SECRET-KEY", nil), dead, "/v1/x", nil)
+	if err == nil || strings.Contains(err.Error(), "SECRET-KEY") {
+		t.Fatalf("error leaks the query: %v", err)
+	}
+}

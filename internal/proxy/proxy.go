@@ -41,8 +41,6 @@ const (
 	defaultMaxLoop      = 4
 	maxBodyBytes        = 32 << 20
 	maxToolOutput       = 64 << 10
-	// recentKeep mirrors session.recentKeep: the messages a compress call never touches.
-	recentKeep = 10
 	// maxNudgeSpans caps how many compressible ranges the nudge lists.
 	maxNudgeSpans = 8
 )
@@ -228,7 +226,7 @@ func (s *Server) messages(w http.ResponseWriter, r *http.Request, rt routed) {
 		return
 	}
 	if plan.Decision.Nudge {
-		spans := kernel.CompressibleSpans(snap, recentKeep)
+		spans := kernel.CompressibleSpans(snap, session.RecentKeep)
 		if nudged, err := appendToLastUser(out, nudgeText(plan.Decision.Voice, spans)); err == nil {
 			out = nudged
 		} else {
@@ -627,7 +625,7 @@ func (s *Server) upstreamCall(r *http.Request, up *url.URL, path string, body []
 	u.RawQuery = r.URL.RawQuery
 	req, err := http.NewRequestWithContext(r.Context(), r.Method, u.String(), bytes.NewReader(body))
 	if err != nil {
-		return nil, err
+		return nil, errors.New("build upstream request failed")
 	}
 	for k, vv := range r.Header {
 		if skipRequestHeader(k) {
@@ -637,7 +635,17 @@ func (s *Server) upstreamCall(r *http.Request, up *url.URL, path string, body []
 			req.Header.Add(k, v)
 		}
 	}
-	return s.client.Do(req)
+	resp, err := s.client.Do(req)
+	if err != nil {
+		// url.Error embeds the full URL, query string included (API keys travel
+		// there for some providers). Keep it out of logs and error strings.
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = fmt.Errorf("%s upstream %s: %w", ue.Op, up.Host, ue.Err)
+		}
+		return nil, err
+	}
+	return resp, nil
 }
 
 // resolveProject applies §18.2: URL prefix, then X-Acd-Ctx-Project-Dir, then default.

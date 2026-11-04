@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/fsvxavier/accordion-context/internal/kernel"
@@ -115,6 +116,17 @@ func Decode(body []byte) (*Request, []kernel.Message, error) {
 	return req, out, nil
 }
 
+// echoedRefs matches reference labels ("[m00042] ") at the start of a text. The
+// model sees its history labelled this way and may copy the label into its own
+// answer; the client then resends it as part of the assistant message.
+var echoedRefs = regexp.MustCompile(`^(?:\[m\d{1,18}\] ?)+`)
+
+// stripEchoedRefs removes labels the model echoed in front of its own text, so
+// the ledger holds the text without them and Encode never stacks two labels.
+func stripEchoedRefs(s string) string {
+	return echoedRefs.ReplaceAllString(s, "")
+}
+
 func decodeContent(role string, content json.RawMessage, names map[string]string) ([]block, error) {
 	t := bytes.TrimSpace(content)
 	if len(t) == 0 || bytes.Equal(t, []byte("null")) {
@@ -124,6 +136,9 @@ func decodeContent(role string, content json.RawMessage, names map[string]string
 		var s string
 		if err := json.Unmarshal(t, &s); err != nil {
 			return nil, err
+		}
+		if role == roleAssistant {
+			s = stripEchoedRefs(s)
 		}
 		return []block{{role: role, msg: kernel.Message{Role: roleOf(role), Kind: kernel.KindText, Text: s}}}, nil
 	}
@@ -149,7 +164,11 @@ func decodeContent(role string, content json.RawMessage, names map[string]string
 		var m kernel.Message
 		switch h.Type {
 		case "text":
-			m = kernel.Message{Role: roleOf(role), Kind: kernel.KindText, Text: h.Text}
+			text := h.Text
+			if role == roleAssistant {
+				text = stripEchoedRefs(text)
+			}
+			m = kernel.Message{Role: roleOf(role), Kind: kernel.KindText, Text: text}
 		case "tool_use":
 			names[h.ID] = h.Name
 			m = kernel.Message{Role: kernel.RoleAssistant, Kind: kernel.KindToolCall,
@@ -313,7 +332,7 @@ func (r *Request) blockFor(m kernel.Message) (item, bool) {
 		k.text == m.Text && k.toolID == m.ToolCallID {
 		raw := k.raw
 		if m.Kind == kernel.KindText {
-			raw = withLabel(raw, label)
+			raw = withLabel(raw, label, role == roleAssistant)
 		}
 		return item{role: role, kind: m.Kind, id: m.ToolCallID, raw: raw}, true
 	}
@@ -347,7 +366,7 @@ func (r *Request) blockFor(m kernel.Message) (item, bool) {
 // withLabel puts the reference label in front of a kept text block's text. Other
 // fields of the block, cache_control included, are carried over. Blocks that
 // are not plain text (image placeholders, for example) are returned unchanged.
-func withLabel(raw json.RawMessage, label string) json.RawMessage {
+func withLabel(raw json.RawMessage, label string, stripEcho bool) json.RawMessage {
 	if label == "" {
 		return raw
 	}
@@ -358,6 +377,9 @@ func withLabel(raw json.RawMessage, label string) json.RawMessage {
 	var typ, text string
 	if json.Unmarshal(obj["type"], &typ) != nil || typ != "text" || json.Unmarshal(obj["text"], &text) != nil {
 		return raw
+	}
+	if stripEcho {
+		text = stripEchoedRefs(text)
 	}
 	enc, err := marshalNoEscape(label + text)
 	if err != nil {

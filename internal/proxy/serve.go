@@ -49,6 +49,7 @@ func Run(ctx context.Context, addr string, h http.Handler) error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
+			_ = srv.Close() // streams that outlive the grace period are cut
 			return fmt.Errorf("proxy: shutdown: %w", err)
 		}
 		return nil

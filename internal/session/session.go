@@ -25,6 +25,10 @@ const (
 	charsPerToken = 4
 )
 
+// RecentKeep exports recentKeep so the proxy's nudge lists the same spans that
+// HandleCompress accepts.
+const RecentKeep = recentKeep
+
 // Session binds one store session id to the orchestration steps.
 type Session struct {
 	mu  sync.Mutex

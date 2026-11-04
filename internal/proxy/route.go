@@ -58,8 +58,8 @@ func parseCtxTarget(rest string) (*url.URL, string, error) {
 		return nil, "", errors.New("ctx: invalid upstream host")
 	}
 	up, err := url.Parse(scheme + "://" + host)
-	if err != nil {
-		return nil, "", fmt.Errorf("ctx: upstream: %w", err)
+	if err != nil || up.User != nil || up.Hostname() == "" {
+		return nil, "", errors.New("ctx: invalid upstream host")
 	}
 	return up, "/" + tail, nil
 }
@@ -79,7 +79,7 @@ func allowSet(list []string, upstream *url.URL) (map[string]bool, error) {
 	}
 	for _, raw := range list {
 		u, err := url.Parse(strings.TrimSpace(raw))
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" ||
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil ||
 			(u.Path != "" && u.Path != "/") || u.RawQuery != "" {
 			return nil, fmt.Errorf("proxy: allowed upstream %q must be an http(s) origin", raw)
 		}

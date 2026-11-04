@@ -504,7 +504,7 @@ func fromWire(wm wireMessage) (kernel.Message, error) {
 		return m, fmt.Errorf("unknown role %q", wm.Role)
 	}
 	switch m.Kind {
-	case kernel.KindText, kernel.KindToolCall, kernel.KindToolResult, kernel.KindReasoning:
+	case kernel.KindText, kernel.KindToolCall, kernel.KindToolResult, kernel.KindReasoning, kernel.KindOpaque:
 	default:
 		return m, fmt.Errorf("unknown kind %q", wm.Kind)
 	}

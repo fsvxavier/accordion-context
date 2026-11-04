@@ -10,6 +10,8 @@ package responses
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -47,6 +49,7 @@ type piece struct {
 	toolName string
 	callID   string
 	text     string
+	tokens   int // set for opaque items, whose text is only a fingerprint
 }
 
 // Request is a decoded Responses request.
@@ -62,9 +65,11 @@ type Request struct {
 // the caller must keep them stable for messages it passes back to Encode.
 //
 // Item types message, function_call, function_call_output and reasoning are
-// supported. A message item may omit "type", which is how the API accepts role
-// and content shorthand. Any other item type makes Decode fail, and the caller
-// should forward the request unchanged.
+// modelled. A message item may omit "type", which is how the API accepts role
+// and content shorthand. Any other item type (compaction, compaction_trigger,
+// local_shell_call, web_search_call, ...) is opaque: it becomes one KindOpaque
+// message, is never paired or summarized, and Encode sends its original bytes
+// back in the same place.
 //
 // Decode returns ErrStateful, unwrapped, when previous_response_id or
 // conversation is set to a non-empty value.
@@ -84,7 +89,7 @@ func Decode(body []byte) (*Request, []kernel.Message, error) {
 		req.pieces[seq] = p
 		out = append(out, kernel.Message{
 			Seq: seq, Ref: kernel.FormatRef(seq), Role: p.role, Kind: p.kind,
-			ToolName: p.toolName, ToolCallID: p.callID, Text: p.text,
+			ToolName: p.toolName, ToolCallID: p.callID, Text: p.text, Tokens: p.tokens,
 		})
 	}
 
@@ -121,6 +126,18 @@ func Decode(body []byte) (*Request, []kernel.Message, error) {
 			return nil, nil, fmt.Errorf("responses: decode request: input %d: %w", i, err)
 		}
 		req.items[i] = srcItem{raw: []byte(it), fields: ifields}
+
+		var head struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(it, &head); err != nil {
+			return nil, nil, fmt.Errorf("responses: decode request: input %d: %w", i, err)
+		}
+		if !modelledItem(head.Type) {
+			emit(piece{src: i, role: kernel.RoleAssistant, kind: kernel.KindOpaque,
+				text: opaqueText(head.Type, it), tokens: opaqueTokens(it)})
+			continue
+		}
 
 		var h struct {
 			Type      string          `json:"type"`
@@ -166,11 +183,37 @@ func Decode(body []byte) (*Request, []kernel.Message, error) {
 		case "reasoning":
 			emit(piece{src: i, role: kernel.RoleAssistant, kind: kernel.KindReasoning,
 				text: summaryText(h.Summary)})
-		default:
-			return nil, nil, fmt.Errorf("responses: decode request: input %d: unsupported type %q", i, typ)
 		}
 	}
 	return req, out, nil
+}
+
+// modelledItem reports whether the codec models an input item of this type. The
+// empty type is a message, which may omit "type".
+func modelledItem(typ string) bool {
+	switch typ {
+	case "", "message", "function_call", "function_call_output", "reasoning":
+		return true
+	}
+	return false
+}
+
+// opaqueText is the text of an opaque item in the ledger: its type and a digest
+// of its bytes. The digest tells two items of the same type apart, which the
+// ledger needs when it compares a stored transcript with a new request. The item
+// itself is never rendered from this text; Encode sends its original bytes.
+func opaqueText(typ string, raw []byte) string {
+	if len(typ) > 64 {
+		typ = typ[:64]
+	}
+	sum := sha256.Sum256(raw)
+	return "opaque " + typ + " sha256:" + hex.EncodeToString(sum[:16])
+}
+
+// opaqueTokens estimates the size of an opaque item from its bytes. Encrypted
+// content is dense, so it is counted at about three bytes per token.
+func opaqueTokens(raw []byte) int {
+	return max(1, (len(raw)+2)/3)
 }
 
 // stateful reports whether the request names server-side state.
@@ -293,6 +336,12 @@ func Encode(req *Request, window []kernel.Message) ([]byte, error) {
 		}
 		if it, ok := freshItem(m); ok {
 			items = append(items, it)
+			continue
+		}
+		if m.Kind == kernel.KindOpaque {
+			// An opaque item is only ever sent back as the request carried it. A window
+			// that names one the request does not have is refused, not silently cut.
+			return nil, fmt.Errorf("responses: encode: opaque item %s is not in the request", m.Ref)
 		}
 	}
 	items = dropOrphanReasoning(pairCalls(items))

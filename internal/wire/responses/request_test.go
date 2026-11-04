@@ -65,14 +65,15 @@ func TestDecodeStringInputIsOneUserMessage(t *testing.T) {
 	}
 }
 
+// TestDecodeRejectsUnsupportedInput covers shapes the codec refuses. An unknown
+// item type is not among them: it is opaque (see TestDecodeUnknownItemsAreOpaque).
 func TestDecodeRejectsUnsupportedInput(t *testing.T) {
 	cases := map[string]string{
-		"unknown item type": `{"input":[{"type":"web_search_call","id":"ws_1"}]}`,
-		"bad role":          `{"input":[{"role":"tool","content":"x"}]}`,
-		"input missing":     `{"model":"m"}`,
-		"instructions obj":  `{"instructions":{"a":1},"input":"x"}`,
-		"input number":      `{"input":3}`,
-		"not an object":     `[1,2]`,
+		"bad role":         `{"input":[{"role":"tool","content":"x"}]}`,
+		"input missing":    `{"model":"m"}`,
+		"instructions obj": `{"instructions":{"a":1},"input":"x"}`,
+		"input number":     `{"input":3}`,
+		"not an object":    `[1,2]`,
 	}
 	for name, body := range cases {
 		if _, _, err := Decode([]byte(body)); err == nil {

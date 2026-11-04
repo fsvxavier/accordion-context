@@ -416,6 +416,9 @@ func (s *Session) HandleCompress(ctx context.Context, args CompressArgs) (Compre
 		if hasSystemMessage(snap.Messages, start.Seq, end.Seq) {
 			return CompressResult{}, fmt.Errorf("range %d: covers a system message", i)
 		}
+		if hasOpaqueMessage(snap.Messages, start.Seq, end.Seq) {
+			return CompressResult{}, fmt.Errorf("range %d: covers an opaque input item, which is never compressed", i)
+		}
 		if firstUser != 0 && start.Seq <= firstUser && firstUser <= end.Seq {
 			return CompressResult{}, fmt.Errorf("range %d: covers the pinned first user message", i)
 		}
@@ -651,6 +654,17 @@ func stripForgedMarkers(s string) string {
 func hasSystemMessage(msgs []kernel.Message, lo, hi int64) bool {
 	for _, m := range msgs {
 		if m.Seq >= lo && m.Seq <= hi && m.Role == kernel.RoleSystem {
+			return true
+		}
+	}
+	return false
+}
+
+// hasOpaqueMessage reports whether an opaque input item lies in [lo, hi]. Such an
+// item is kept in place, so no range may cover it.
+func hasOpaqueMessage(msgs []kernel.Message, lo, hi int64) bool {
+	for _, m := range msgs {
+		if m.Seq >= lo && m.Seq <= hi && m.Kind == kernel.KindOpaque {
 			return true
 		}
 	}

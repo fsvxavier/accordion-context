@@ -337,3 +337,60 @@ func TestWatchdogMainRefusesBadArguments(t *testing.T) {
 		t.Fatalf("unknown flag: exit = %d, want 2", code)
 	}
 }
+
+// A relative state path, stray arguments and a descriptor 3 that is not a pipe
+// are all refused before anything is read or run.
+func TestWatchdogMainRefusesRelativeExtraAndNonPipe(t *testing.T) {
+	var buf bytes.Buffer
+	if code := WatchdogMain([]string{"--state", "rel.json", "--parent-pid", "5"}, &buf); code != 2 {
+		t.Fatalf("relative path: exit = %d", code)
+	}
+	if code := WatchdogMain([]string{"--state", "/x.json", "--parent-pid", "5", "extra"}, &buf); code != 2 {
+		t.Fatalf("extra arg: exit = %d", code)
+	}
+	// In the test binary descriptor 3 is not the owner's pipe.
+	if code := WatchdogMain([]string{"--state", "/nonexistent/x.json", "--parent-pid", "5"}, &buf); code != 2 {
+		t.Fatalf("non-pipe fd 3: exit = %d, stderr %q", code, buf.String())
+	}
+}
+
+// The helper must not delete a table once its owner has finished its own restore
+// and removed the state file: a newer run may own a table of the same name.
+func TestWatchdogDoesNothingAfterStateFileGone(t *testing.T) {
+	f := &fakeNFT{}
+	a, path := startFakeTransparent(t, f, nil)
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	f.reset()
+	if err := a.dog.w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.dog.wait(); err != nil {
+		t.Fatalf("helper: %v", err)
+	}
+	if len(f.cmds) != 0 {
+		t.Fatalf("helper ran commands without a state file: %v", f.cmds)
+	}
+}
+
+// attach --restore without privilege must keep the state of a transparent
+// redirect: the unprivileged list probes would look like an absent table.
+func TestRestoreStaleKeepsTransparentStateWithoutPrivilege(t *testing.T) {
+	f := &fakeNFT{}
+	a, path := startFakeTransparent(t, f, nil)
+	_ = a
+	f.reset()
+	e := linuxEnv(f, 1000)
+	e.Alive = func(int, uint64) bool { return false }
+	_, err := RestoreStale(context.Background(), filepath.Dir(path), e)
+	if err == nil || !strings.Contains(err.Error(), "needs root") {
+		t.Fatalf("err = %v", err)
+	}
+	if _, serr := os.Stat(path); serr != nil {
+		t.Fatalf("state removed: %v", serr)
+	}
+	if len(f.cmds) != 0 {
+		t.Fatalf("commands ran: %v", f.cmds)
+	}
+}

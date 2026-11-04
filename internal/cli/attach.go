@@ -30,13 +30,9 @@ func (r *repeated) Set(v string) error {
 // nft, ...). Tests replace it, so they never change the machine.
 var sysRunner sysproxy.Runner = sysproxy.ExecRunner{}
 
-// init handles two things before main runs. The hidden watchdog argument starts
-// the redirect's helper process (sysproxy.WatchdogMain), which never reaches the
-// CLI. doctor's firewall probes get the same runner as the system degrees.
+// init gives doctor's firewall probes the same runner as the system degrees. The
+// hidden watchdog argument is dispatched explicitly by cmd/acd-ctx, not here.
 func init() {
-	if len(os.Args) > 1 && os.Args[1] == sysproxy.WatchdogArg {
-		os.Exit(sysproxy.WatchdogMain(os.Args[2:], os.Stderr))
-	}
 	doctor.SystemRunner = func() sysproxy.Runner { return sysRunner }
 }
 

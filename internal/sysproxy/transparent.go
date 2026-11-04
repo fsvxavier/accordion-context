@@ -422,7 +422,12 @@ func startNFT(ctx context.Context, e Env, r Runner, dir string, p NFTPlan) (*Act
 		return nil, err
 	}
 	if _, err := r.Run(ctx, Command{Name: "nft", Args: []string{"-f", "-"}, Stdin: ruleset}); err != nil {
-		return nil, a.unapplied(fmt.Errorf("apply nft ruleset: %w", err))
+		cause := fmt.Errorf("apply nft ruleset: %w", err)
+		if ctx.Err() != nil {
+			// A canceled apply may have landed: restore (a no-op when absent).
+			return nil, a.rollback(cause)
+		}
+		return nil, a.unapplied(cause)
 	}
 	out, err := r.Run(ctx, nftList())
 	if err != nil {

@@ -23,6 +23,13 @@ const maxJumpDeletes = 8
 // iptTag matches the owner comment in an `iptables -S` listing.
 var iptTag = regexp.MustCompile(`--comment "?` + regexp.QuoteMeta(OwnerTag) + `"?( |$)`)
 
+func natModule(v6 bool) string {
+	if v6 {
+		return "ip6table_nat"
+	}
+	return "iptable_nat"
+}
+
 func iptBin(v6 bool) string {
 	if v6 {
 		return "ip6tables"
@@ -138,6 +145,14 @@ func iptOwned(listing string) bool {
 // redirects IPv6). A chain that already exists is refused before any change.
 func startIptables(ctx context.Context, e Env, r Runner, dir string, p NFTPlan) (*Active, error) {
 	for _, v6 := range p.families() {
+		// The nat table must exist for REDIRECT. ip6tables without it (module
+		// ip6table_nat) fails here, before any family is half installed.
+		if _, err := r.Run(ctx, iptCmd(v6, "-S", "OUTPUT")); err != nil {
+			if isExit(err) {
+				return nil, fmt.Errorf("sysproxy: %s has no usable nat table (%v); load the %s module (nothing was changed)", iptBin(v6), err, natModule(v6))
+			}
+			return nil, err
+		}
 		_, err := r.Run(ctx, iptCmd(v6, "-S", iptChain))
 		if err == nil {
 			return nil, fmt.Errorf("sysproxy: %s chain %s already exists; run acd-ctx attach --restore first", iptBin(v6), iptChain)
@@ -157,7 +172,7 @@ func startIptables(ctx context.Context, e Env, r Runner, dir string, p NFTPlan) 
 		for _, c := range p.iptScript(v6) {
 			if _, err := r.Run(ctx, c); err != nil {
 				cause := fmt.Errorf("apply %s: %w", c, err)
-				if first {
+				if first && ctx.Err() == nil {
 					// The chain was not created: nothing of ours is in place.
 					return nil, a.unapplied(cause)
 				}

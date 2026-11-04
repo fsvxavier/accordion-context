@@ -22,6 +22,7 @@ import (
 	"github.com/fsvxavier/accordion-context/internal/project"
 	"github.com/fsvxavier/accordion-context/internal/proxy"
 	"github.com/fsvxavier/accordion-context/internal/store"
+	"github.com/fsvxavier/accordion-context/internal/sysproxy"
 )
 
 // version is overridden at build time with -ldflags "-X main.version=...".
@@ -39,6 +40,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "serve":
 		return serve(args[1:], stderr)
+	case sysproxy.WatchdogArg:
+		// Hidden helper of a transparent run. It acts only on a trusted state file.
+		return sysproxy.WatchdogMain(args[1:], stderr)
 	case "version":
 		fmt.Fprintln(stdout, "acd-ctx", version)
 		return 0

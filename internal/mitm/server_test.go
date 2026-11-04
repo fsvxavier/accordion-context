@@ -79,7 +79,7 @@ func startProxy(t *testing.T, ca *CA, domains []string, ports []int, h http.Hand
 		return logBuf.Write(p)
 	}), &slog.HandlerOptions{Level: slog.LevelDebug}))
 	s, err := New(Options{
-		CA: ca, Domains: domains, AllowPorts: ports, Handler: h,
+		CA: ca, Domains: domains, AllowPorts: ports, Handler: h, AllowLocalTargets: true,
 		UpstreamTLS: &tls.Config{RootCAs: upstream},
 		Logger:      logger,
 	})

@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
 
@@ -30,6 +31,7 @@ const (
 	handshakeTimeout   = 15 * time.Second
 	readHeaderTimeout  = 30 * time.Second
 	idleTimeout        = 90 * time.Second
+	tunnelIdleTimeout  = 5 * time.Minute
 )
 
 // Options configures a forward proxy Server.
@@ -48,8 +50,13 @@ type Options struct {
 	// token, to be placed in HTTPS_PROXY as http://acd-ctx:<token>@127.0.0.1:port.
 	Token string
 	// Dial reaches real hosts, for both blind tunnels and the upstream transport.
-	// Default: net.Dialer with a 10s timeout.
+	// Default: net.Dialer with a 10s timeout that refuses loopback, link-local
+	// (cloud metadata), unspecified and multicast addresses, checked on the
+	// resolved IP so DNS rebinding cannot bypass it.
 	Dial func(ctx context.Context, network, addr string) (net.Conn, error)
+	// AllowLocalTargets disables the default Dial guard. It has no effect when
+	// Dial is set, because a custom Dial owns its own policy.
+	AllowLocalTargets bool
 	// UpstreamTLS verifies real hosts. Nil means the system roots.
 	UpstreamTLS *tls.Config
 	// Logger receives diagnostics. It never receives tokens, headers or keys.
@@ -128,6 +135,9 @@ func New(o Options) (*Server, error) {
 	dial := o.Dial
 	if dial == nil {
 		d := &net.Dialer{Timeout: defaultDialTimeout}
+		if !o.AllowLocalTargets {
+			d.Control = refuseLocalTargets
+		}
 		dial = d.DialContext
 	}
 	logger := o.Logger
@@ -229,7 +239,12 @@ func (s *Server) intercept(w http.ResponseWriter, host string, port int) {
 // serveDecrypted runs the TLS handshake with a minted leaf for host, then serves
 // the decrypted HTTP/1.1 or h2 traffic through the injected handler.
 func (s *Server) serveDecrypted(conn net.Conn, host, target string) {
-	defer conn.Close()
+	var hijacked atomic.Bool
+	defer func() {
+		if !hijacked.Load() { // a hijacking handler (upgrade) owns the conn
+			_ = conn.Close()
+		}
+	}()
 	tc := tls.Server(conn, &tls.Config{
 		MinVersion: tls.VersionTLS12,
 		NextProtos: []string{"h2", "http/1.1"},
@@ -256,6 +271,9 @@ func (s *Server) serveDecrypted(conn net.Conn, host, target string) {
 		IdleTimeout:       idleTimeout,
 		ErrorLog:          log.New(io.Discard, "", 0),
 		ConnState: func(_ net.Conn, st http.ConnState) {
+			if st == http.StateHijacked {
+				hijacked.Store(true)
+			}
 			if st == http.StateClosed || st == http.StateHijacked {
 				once.Do(func() { close(done) })
 			}
@@ -297,12 +315,47 @@ func (s *Server) tunnel(w http.ResponseWriter, r *http.Request, target string) {
 	}
 	src := bufferedConn{Conn: client, r: buf.Reader}
 	done := make(chan struct{}, 2)
-	go func() { _, _ = io.Copy(up, src); done <- struct{}{} }()
-	go func() { _, _ = io.Copy(src, up); done <- struct{}{} }()
+	go func() { copyIdle(up, src, up, client); done <- struct{}{} }()
+	go func() { copyIdle(client, up, client, up); done <- struct{}{} }()
 	<-done
 	_ = client.Close()
 	_ = up.Close()
 	<-done
+}
+
+// copyIdle copies r to w, failing when either side is idle for
+// tunnelIdleTimeout so a stalled or abandoned tunnel cannot pin goroutines.
+// wc and rc are the connections underlying w and r, for deadlines.
+func copyIdle(w io.Writer, r io.Reader, wc, rc net.Conn) {
+	buf := make([]byte, 32<<10)
+	for {
+		_ = rc.SetReadDeadline(time.Now().Add(tunnelIdleTimeout))
+		n, err := r.Read(buf)
+		if n > 0 {
+			_ = wc.SetWriteDeadline(time.Now().Add(tunnelIdleTimeout))
+			if _, werr := w.Write(buf[:n]); werr != nil {
+				return
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+// refuseLocalTargets is a net.Dialer.Control hook that rejects connections to
+// addresses a tunnel must not reach by default (SSRF to local services).
+func refuseLocalTargets(_, address string, _ syscall.RawConn) error {
+	h, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return err
+	}
+	ip := net.ParseIP(h)
+	if ip == nil || ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsInterfaceLocalMulticast() {
+		return errors.New("mitm: target address refused")
+	}
+	return nil
 }
 
 func (s *Server) noteHandshake(host string, err error) {

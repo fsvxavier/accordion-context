@@ -152,6 +152,8 @@ func (ca *CA) mint(host string, now time.Time) (*tls.Certificate, error) {
 		NotAfter:     notAfter,
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+
+		BasicConstraintsValid: true,
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca.cert, &key.PublicKey, ca.key)
 	if err != nil {
@@ -182,6 +184,7 @@ func generateCA(domains []string, validity time.Duration, now time.Time, cacheSi
 		BasicConstraintsValid:       true,
 		MaxPathLenZero:              true,
 		KeyUsage:                    x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		ExtKeyUsage:                 []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		PermittedDNSDomainsCritical: len(domains) > 0,
 		PermittedDNSDomains:         domains,
 	}
@@ -227,9 +230,12 @@ func loadCA(dir string, cacheSize int) (*CA, error) {
 		return nil, errors.New("mitm: stored certificate is not a CA")
 	}
 	keyPath := filepath.Join(dir, caKeyName)
-	info, err := os.Stat(keyPath)
+	info, err := os.Lstat(keyPath) // never chmod through a symlink
 	if err != nil {
 		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("mitm: CA key is not a regular file")
 	}
 	if info.Mode().Perm()&0o077 != 0 {
 		if err := os.Chmod(keyPath, keyMode); err != nil {
@@ -336,8 +342,19 @@ func canonicalHost(h string) string {
 // that cannot appear in a DNS name.
 func dnsName(h string) (string, error) {
 	c := canonicalHost(h)
-	if c == "" || len(c) > 253 || strings.ContainsAny(c, " /@:[]\\*") {
+	if c == "" || len(c) > 253 {
 		return "", fmt.Errorf("mitm: invalid host %q", h)
+	}
+	for _, label := range strings.Split(c, ".") {
+		if label == "" || len(label) > 63 {
+			return "", fmt.Errorf("mitm: invalid host %q", h)
+		}
+		for i := 0; i < len(label); i++ {
+			b := label[i]
+			if !(b >= 'a' && b <= 'z' || b >= '0' && b <= '9' || b == '-' || b == '_') {
+				return "", fmt.Errorf("mitm: invalid host %q (use punycode for IDN)", h)
+			}
+		}
 	}
 	if net.ParseIP(c) != nil {
 		return "", fmt.Errorf("mitm: IP literal not allowed: %q", h)

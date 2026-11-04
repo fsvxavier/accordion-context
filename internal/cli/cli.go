@@ -109,6 +109,8 @@ func Run(args []string, streams IO) int {
 		return runBackup(args[1:], s)
 	case "restore":
 		return runRestore(args[1:], s)
+	case "clean":
+		return runClean(args[1:], s)
 	case "healthcheck":
 		return runHealthcheck(args[1:], s)
 	case "help", "-h", "--help":
@@ -136,6 +138,8 @@ project list                          projects in the global database
 project move <old> <new>              re-point a moved project's root path
 project migrate --to local|global     copy the project's sessions between databases
 project purge <id> [--yes]            delete all data of a project
+clean --project <id|path|.> | --session <id> | --older-than <dur> | --all
+                                      delete conversation data: [--dry-run] [--yes] [--backup f.db] [--vacuum] [--exports] [--docker c]
 config show --effective               effective configuration with the source of each key
 claude|codex|gemini|opencode [args]   launch a client through the proxy
 run -- <cmd> [args]                   launch any client whose profile is known

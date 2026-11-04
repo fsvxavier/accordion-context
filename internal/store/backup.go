@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -74,7 +76,12 @@ func InspectFile(ctx context.Context, path string) (FileInfo, error) {
 		return FileInfo{}, errors.New("not an SQLite database file")
 	}
 
-	db, err := sql.Open("sqlite", path)
+	// The file is untrusted: no write, and no SQL function calls from views,
+	// triggers, defaults or CHECKs inside it (trusted_schema off).
+	dsn := (&url.URL{Scheme: "file", Path: filepath.ToSlash(path), RawQuery: url.Values{
+		"_pragma": {"trusted_schema(0)", "query_only(1)"},
+	}.Encode()}).String()
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return FileInfo{}, fmt.Errorf("open %s: %w", path, err)
 	}
@@ -87,6 +94,10 @@ func InspectFile(ctx context.Context, path string) (FileInfo, error) {
 	}
 	if info.SchemaVersion > schemaVersion {
 		return FileInfo{}, fmt.Errorf("database schema v%d is newer than supported v%d", info.SchemaVersion, schemaVersion)
+	}
+
+	if err := checkSchemaObjects(ctx, db); err != nil {
+		return FileInfo{}, err
 	}
 
 	var tables int
@@ -132,6 +143,52 @@ func InspectFile(ctx context.Context, path string) (FileInfo, error) {
 		}
 	}
 	return info, nil
+}
+
+// knownTables are the tables an acd-ctx database may hold. search_idx also owns
+// FTS5 shadow tables named search_idx_*.
+var knownTables = map[string]bool{
+	"projects": true, "sessions": true, "contents": true, "messages": true,
+	"blocks": true, "block_messages": true, "block_sources": true, "intents": true,
+	"trigger_state": true, "events": true, "cache_ledger": true, "store_epoch": true,
+	"search_idx": true, "sqlite_sequence": true, "sqlite_stat1": true,
+}
+
+var ftsShadow = map[string]bool{
+	"search_idx_data": true, "search_idx_idx": true, "search_idx_content": true,
+	"search_idx_docsize": true, "search_idx_config": true,
+}
+
+// checkSchemaObjects refuses a database whose schema holds anything an acd-ctx
+// database never has. A file from outside can carry triggers and views that run
+// on the first write or read, tables that shadow ours, and virtual tables of
+// other modules. Indexes are allowed: they only hold data of their own table.
+func checkSchemaObjects(ctx context.Context, db *sql.DB) error {
+	rows, err := db.QueryContext(ctx, `SELECT type, name, COALESCE(sql, '') FROM sqlite_master`)
+	if err != nil {
+		return fmt.Errorf("read schema: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var typ, name, ddl string
+		if err := rows.Scan(&typ, &name, &ddl); err != nil {
+			return fmt.Errorf("read schema: %w", err)
+		}
+		switch typ {
+		case "index":
+		case "table":
+			if !knownTables[name] && !ftsShadow[name] {
+				return fmt.Errorf("unexpected table %q in the database: not an acd-ctx backup", name)
+			}
+			if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(ddl)), "CREATE VIRTUAL") &&
+				(name != "search_idx" || !strings.Contains(strings.ToLower(ddl), "using fts5")) {
+				return fmt.Errorf("unexpected virtual table %q in the database", name)
+			}
+		default:
+			return fmt.Errorf("unexpected %s %q in the database: not an acd-ctx backup", typ, name)
+		}
+	}
+	return rows.Err()
 }
 
 func readHead(path string, n int) ([]byte, error) {

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -308,9 +309,16 @@ func (s *Store) ImportProject(ctx context.Context, d ProjectDump, dst ImportTarg
 	return counts, nil
 }
 
+var identRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
 func insertRow(ctx context.Context, tx *sql.Tx, verb, table string, r Row) error {
 	cols := make([]string, 0, len(r))
 	for c := range r {
+		// Column names come from the source file, which may be hostile: they
+		// are spliced into the statement, so they must be plain identifiers.
+		if !identRE.MatchString(c) {
+			return fmt.Errorf("invalid column name %q in %s", c, table)
+		}
 		cols = append(cols, c)
 	}
 	sort.Strings(cols)

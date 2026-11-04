@@ -96,12 +96,12 @@ const projectsWhere = `id IN (SELECT pid FROM temp.purge_projects)`
 
 // scopeSessionsSQL selects sessions by project ("" = every project) and by
 // last activity: the newest of the session row, its messages, events and cache
-// calls. A zero cutoff applies no age filter. Purge and the CLI share it, so
+// calls. A NULL cutoff applies no age filter. Purge and the CLI share it, so
 // the sessions a dry run lists are the ones the real run removes.
 const scopeSessionsSQL = `
 	SELECT s.id FROM sessions s
 	WHERE (?1 = '' OR s.project_id = ?1)
-	  AND (?2 = 0 OR MAX(s.created_at,
+	  AND (?2 IS NULL OR MAX(s.created_at,
 	      COALESCE((SELECT MAX(m.created_at) FROM messages m WHERE m.session_id = s.id), 0),
 	      COALESCE((SELECT MAX(e.at) FROM events e WHERE e.session_id = s.id), 0),
 	      COALESCE((SELECT MAX(c.at) FROM cache_ledger c WHERE c.session_id = s.id), 0)) < ?2)`
@@ -191,7 +191,9 @@ func (s *Store) PurgeAll(ctx context.Context, o PurgeOpts) (Report, error) {
 // arguments would remove, in ID order. projectID "" covers every project, and
 // a zero olderThan applies no age filter.
 func (s *Store) ScopeSessionIDs(ctx context.Context, projectID string, olderThan time.Time) ([]string, error) {
-	var cut int64
+	// NULL means no age filter. A cutoff of exactly Unix time 0 is a real
+	// cutoff that matches nothing, never "every session".
+	var cut any
 	if !olderThan.IsZero() {
 		cut = olderThan.Unix()
 	}

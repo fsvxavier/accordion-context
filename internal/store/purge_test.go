@@ -332,3 +332,38 @@ func TestPurgeProjectUnknownChangesNothingAndEpochHolds(t *testing.T) {
 		t.Fatalf("failed purge changed messages: %d", n)
 	}
 }
+
+// The cutoff is strict (activity < cutoff) in whole seconds, a session with no
+// messages or events ages by its own row, and a cutoff at Unix time 0 is a real
+// cutoff that matches nothing instead of meaning "no age filter".
+func TestPurgeOlderThanBoundaries(t *testing.T) {
+	s := twoProjects(t)
+	ctx := context.Background()
+	for _, q := range []string{
+		`UPDATE sessions SET created_at = 1000`, `UPDATE messages SET created_at = 1000`,
+		`UPDATE events SET at = 1000`, `UPDATE cache_ledger SET at = 1000`,
+	} {
+		if _, err := s.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.CreateSession(ctx, Session{ID: "empty", ProjectID: "p2", Model: "m", ContextLimit: 1000, Mode: "proxy", Integration: "url"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`UPDATE sessions SET created_at = 500 WHERE id = 'empty'`); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		cut  int64
+		want int
+	}{{0, 0}, {500, 0}, {501, 1}, {1000, 1}, {1001, 3}} {
+		ids, err := s.ScopeSessionIDs(ctx, "", time.Unix(c.cut, 0))
+		if err != nil || len(ids) != c.want {
+			t.Fatalf("cutoff %d: sessions %v, %v; want %d", c.cut, ids, err, c.want)
+		}
+		rep, err := s.PurgeOlderThan(ctx, "", time.Unix(c.cut, 0), PurgeOpts{DryRun: true})
+		if err != nil || int(rep.Sessions) != c.want {
+			t.Fatalf("cutoff %d: dry run %+v, %v; want %d sessions", c.cut, rep, err, c.want)
+		}
+	}
+}

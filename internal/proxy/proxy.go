@@ -41,6 +41,10 @@ const (
 	defaultMaxLoop      = 4
 	maxBodyBytes        = 32 << 20
 	maxToolOutput       = 64 << 10
+	// recentKeep mirrors session.recentKeep: the messages a compress call never touches.
+	recentKeep = 10
+	// maxNudgeSpans caps how many compressible ranges the nudge lists.
+	maxNudgeSpans = 8
 )
 
 var defaultMarkers = []string{"go.mod", "package.json", "pyproject.toml", "composer.json", "Cargo.toml"}
@@ -57,6 +61,9 @@ type Config struct {
 	Markers      []string     // project root markers, default go.mod, package.json, ...
 	Logger       *slog.Logger // default: discard
 	Transport    http.RoundTripper
+	// UpstreamAllow lists the origins (scheme://host[:port]) reachable through the
+	// /ctx/<upstream>/ prefix. Default: the origin of Upstream only.
+	UpstreamAllow []string
 }
 
 // Server is the http.Handler of the proxy.
@@ -64,6 +71,7 @@ type Server struct {
 	cfg     Config
 	client  *http.Client
 	started time.Time
+	allow   map[string]bool // origins allowed for /ctx/ targets
 
 	defaultRequests atomic.Int64 // requests that fell back to the default project (§18.2)
 
@@ -93,13 +101,17 @@ func New(cfg Config) (*Server, error) {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
+	allow, err := allowSet(cfg.UpstreamAllow, cfg.Upstream)
+	if err != nil {
+		return nil, err
+	}
 	client := &http.Client{
 		Transport: cfg.Transport,
 		// Redirects are returned to the client as-is, never followed.
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 	return &Server{
-		cfg: cfg, client: client, started: time.Now(),
+		cfg: cfg, client: client, started: time.Now(), allow: allow,
 		sessions: map[string]*session.Session{},
 		ensured:  map[string]bool{},
 		roots:    map[string]string{},
@@ -108,8 +120,7 @@ func New(cfg Config) (*Server, error) {
 
 // ServeHTTP routes internal endpoints, the compaction path and pass-through.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Path
-	switch path {
+	switch r.URL.Path {
 	case pathHealth:
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 		return
@@ -117,23 +128,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.status(w)
 		return
 	}
-
-	urlProject := ""
-	if rest, ok := strings.CutPrefix(path, "/p/"); ok {
-		id, tail, found := strings.Cut(rest, "/")
-		if !found || !projectIDPattern.MatchString(id) {
-			http.Error(w, "invalid project prefix", http.StatusBadRequest)
-			return
-		}
-		urlProject = id
-		path = "/" + tail
-	}
-
-	if r.Method == http.MethodPost && path == pathMessages {
-		s.messages(w, r, urlProject)
+	rt, status, msg := s.route(r.URL.Path)
+	if status != 0 {
+		http.Error(w, msg, status)
 		return
 	}
-	s.passthrough(w, r, path, nil)
+	if r.Method == http.MethodPost && (rt.path == pathMessages || rt.viaCtx && strings.HasSuffix(rt.path, pathMessages)) {
+		s.messages(w, r, rt)
+		return
+	}
+	s.passthrough(w, r, rt, nil)
 }
 
 func (s *Server) status(w http.ResponseWriter) {
@@ -154,7 +158,7 @@ func (s *Server) status(w http.ResponseWriter) {
 }
 
 // messages runs the compaction pipeline for POST /v1/messages.
-func (s *Server) messages(w http.ResponseWriter, r *http.Request, urlProject string) {
+func (s *Server) messages(w http.ResponseWriter, r *http.Request, rt routed) {
 	ctx := context.WithoutCancel(r.Context())
 	body, err := readLimited(r.Body)
 	if err != nil {
@@ -167,32 +171,39 @@ func (s *Server) messages(w http.ResponseWriter, r *http.Request, urlProject str
 		Stream bool   `json:"stream"`
 	}
 	if json.Unmarshal(body, &meta) != nil {
-		s.passthrough(w, r, pathMessages, body)
+		s.passthrough(w, r, rt, body)
 		return
 	}
 	req, msgs, err := anthropic.Decode(body)
 	if err != nil {
-		s.failOpen(w, r, body, "decode", err)
+		s.failOpen(w, r, rt, body, "decode", err)
 		return
 	}
 	for i := range msgs {
 		msgs[i].Tokens = kernel.EstimateTokens(msgs[i].Text)
 	}
 
-	proj := s.resolveProject(r, urlProject)
-	sid := sessionID(proj.ID, r.Header.Get(headerConv), msgs)
-	sess, err := s.session(ctx, proj, sid, meta.Model)
+	proj := s.resolveProject(r, rt.project)
+	base := sessionID(proj.ID, r.Header.Get(headerConv), msgs)
+	// The walk never returns a session whose ledger differs from the transcript:
+	// an edited or colliding transcript gets its own fork (see fork.go).
+	sid, sess, fk, err := s.resolveLedger(ctx, proj, base, msgs, meta.Model)
 	if err != nil {
-		s.failOpen(w, r, body, "session", err)
+		s.failOpen(w, r, rt, body, "session", err)
 		return
 	}
 	if _, err := sess.Ingest(ctx, msgs); err != nil {
-		s.failOpen(w, r, body, "ingest", err)
+		s.failOpen(w, r, rt, body, "ingest", err)
 		return
+	}
+	if fk != nil {
+		if err := s.inheritBlocks(ctx, sid, fk); err != nil {
+			s.cfg.Logger.Warn("fork did not inherit blocks", "session", sid, "err", err)
+		}
 	}
 	snap, err := s.cfg.Store.Snapshot(ctx, sid)
 	if err != nil {
-		s.failOpen(w, r, body, "snapshot", err)
+		s.failOpen(w, r, rt, body, "snapshot", err)
 		return
 	}
 	// The client resends the whole transcript, so the size that matters is the
@@ -203,21 +214,22 @@ func (s *Server) messages(w http.ResponseWriter, r *http.Request, urlProject str
 	}
 	plan, err := sess.Plan(ctx, visible)
 	if err != nil {
-		s.failOpen(w, r, body, "plan", err)
+		s.failOpen(w, r, rt, body, "plan", err)
 		return
 	}
 	window, err := anthropic.Encode(req, plan.Visible)
 	if err != nil {
-		s.failOpen(w, r, body, "encode", err)
+		s.failOpen(w, r, rt, body, "encode", err)
 		return
 	}
 	out, err := anthropic.InjectTools(window)
 	if err != nil {
-		s.failOpen(w, r, body, "inject", err)
+		s.failOpen(w, r, rt, body, "inject", err)
 		return
 	}
 	if plan.Decision.Nudge {
-		if nudged, err := appendToLastUser(out, nudgeText(plan.Decision.Voice)); err == nil {
+		spans := kernel.CompressibleSpans(snap, recentKeep)
+		if nudged, err := appendToLastUser(out, nudgeText(plan.Decision.Voice, spans)); err == nil {
 			out = nudged
 		} else {
 			s.cfg.Logger.Warn("nudge not injected", "err", err)
@@ -225,7 +237,7 @@ func (s *Server) messages(w http.ResponseWriter, r *http.Request, urlProject str
 	}
 
 	t := &turn{
-		ctx: ctx, sess: sess, sid: sid, stream: meta.Stream, body: out,
+		ctx: ctx, sess: sess, sid: sid, up: rt.up, path: rt.path, stream: meta.Stream, body: out,
 		estTokens: visible, proj: proj.ID,
 	}
 	s.cfg.Logger.Debug("compaction turn", "project", proj.ID, "session", sid,
@@ -239,7 +251,10 @@ type turn struct {
 	sess      *session.Session
 	sid       string
 	proj      string
+	up        *url.URL // upstream base of this request
+	path      string   // upstream path of this request
 	stream    bool
+	begun     bool   // the client stream has started (headers and bytes sent)
 	body      []byte // upstream request body of the current round
 	estTokens int
 	compress  int // successful compress calls so far in this request
@@ -248,26 +263,65 @@ type turn struct {
 // runTurns sends rounds upstream until the model stops asking for compress or
 // decompress. Internal tool_use blocks never reach the client.
 func (s *Server) runTurns(w http.ResponseWriter, r *http.Request, t *turn) {
+	var fw *anthropic.Forwarder
+	if t.stream {
+		fw = anthropic.NewForwarder(flushWriter{w})
+	}
 	for round := 0; ; round++ {
-		resp, err := s.upstreamCall(r, pathMessages, t.body)
+		resp, err := s.upstreamCall(r, t.up, t.path, t.body)
 		if err != nil {
 			s.cfg.Logger.Error("upstream call failed", "session", t.sid, "err", err)
-			http.Error(w, "upstream unavailable", http.StatusBadGateway)
+			s.abort(w, t, "upstream unavailable", http.StatusBadGateway)
 			return
 		}
 		if resp.StatusCode != http.StatusOK {
-			relay(w, resp)
+			s.upstreamError(w, resp, t)
 			return
 		}
 		var done bool
 		if t.stream {
-			done = s.streamRound(w, resp, t, round)
+			done = s.streamRound(w, resp, t, round, fw)
 		} else {
 			done = s.jsonRound(w, resp, t, round)
 		}
 		if done {
 			return
 		}
+	}
+}
+
+// abort ends a request that failed before anything reached the client, or, once
+// the stream has started, with an SSE error event.
+func (s *Server) abort(w http.ResponseWriter, t *turn, msg string, status int) {
+	if !t.begun {
+		http.Error(w, msg, status)
+		return
+	}
+	data, _ := json.Marshal(map[string]any{"type": "error", "error": map[string]string{"type": "api_error", "message": msg}})
+	writeSSEError(w, data)
+}
+
+// upstreamError relays a non-200 answer. Once the stream has started, the body
+// goes out as an SSE error event instead.
+func (s *Server) upstreamError(w http.ResponseWriter, resp *http.Response, t *turn) {
+	defer resp.Body.Close()
+	if !t.begun {
+		relay(w, resp)
+		return
+	}
+	body, err := readLimited(resp.Body)
+	var buf bytes.Buffer
+	if err == nil && json.Compact(&buf, body) == nil && json.Valid(buf.Bytes()) {
+		writeSSEError(w, buf.Bytes())
+		return
+	}
+	s.abort(w, t, "upstream error", http.StatusBadGateway)
+}
+
+func writeSSEError(w http.ResponseWriter, data []byte) {
+	_, _ = fmt.Fprintf(w, "event: error\ndata: %s\n\n", data)
+	if fl, ok := w.(http.Flusher); ok {
+		fl.Flush()
 	}
 }
 
@@ -337,56 +391,62 @@ func (s *Server) jsonRound(w http.ResponseWriter, resp *http.Response, t *turn, 
 	return false
 }
 
-// streamRound buffers one SSE upstream response, so the client receives the
-// answer only once the round is complete. Rounds that only contain
-// internal tools are continued server-side; others are replayed byte for byte.
-func (s *Server) streamRound(w http.ResponseWriter, resp *http.Response, t *turn, round int) bool {
-	var buf bytes.Buffer
-	sum, err := anthropic.StreamPassthrough(&buf, resp.Body)
-	resp.Body.Close()
-	if err != nil {
-		http.Error(w, "upstream stream broken", http.StatusBadGateway)
-		return true
+// streamRound forwards one upstream SSE response as it arrives. Internal blocks
+// are withheld and their calls run after the round. When the round continues
+// server-side, the client keeps receiving the same message, and only the
+// message end waits for the last round.
+func (s *Server) streamRound(w http.ResponseWriter, resp *http.Response, t *turn, round int, fw *anthropic.Forwarder) bool {
+	defer resp.Body.Close()
+	if !t.begun {
+		copyHeaders(w.Header(), resp.Header)
+		w.WriteHeader(http.StatusOK)
+		t.begun = true
 	}
-	s.recordCache(t, sum.Usage)
-
-	var calls []toolCall
-	for _, c := range sum.Calls {
-		if !isInternal(c.Name) {
-			continue
+	fw.BeginRound()
+	sse := anthropic.NewSSEReader(resp.Body)
+	for {
+		ev, err := sse.Next()
+		if errors.Is(err, io.EOF) {
+			break
 		}
-		input := []byte(c.Input)
-		if !json.Valid(input) || len(bytes.TrimSpace(input)) == 0 {
-			input = []byte("{}")
+		if err != nil {
+			s.cfg.Logger.Error("upstream stream broken", "session", t.sid, "err", err)
+			s.abort(w, t, "upstream stream broken", http.StatusBadGateway)
+			return true
 		}
-		calls = append(calls, toolCall{id: c.ID, name: c.Name, input: input})
+		if err := fw.Feed(ev); err != nil {
+			s.cfg.Logger.Warn("client stream write failed", "session", t.sid, "err", err)
+			return true
+		}
 	}
-	if len(calls) == 0 {
-		writeRaw(w, resp, buf.Bytes())
+
+	res := fw.EndRound()
+	s.recordCache(t, res.Usage)
+	if len(res.Internal) == 0 {
+		if err := fw.Finish(false); err != nil {
+			s.cfg.Logger.Warn("client stream write failed", "session", t.sid, "err", err)
+		}
 		return true
 	}
 
-	results := make([]json.RawMessage, 0, len(calls))
-	content := make([]json.RawMessage, 0, len(calls))
-	for _, c := range calls {
-		results = append(results, s.runTool(t, c))
-		raw, _ := json.Marshal(toolUseWire{Type: "tool_use", ID: c.id, Name: c.name, Input: c.input})
-		content = append(content, raw)
+	results := make([]json.RawMessage, 0, len(res.Internal))
+	for _, u := range res.Internal {
+		results = append(results, s.runTool(t, toolCall{id: u.ID, name: u.Name, input: u.Input}))
 	}
-	clientTools := countClientToolUses(buf.Bytes())
-	if clientTools > 0 || round+1 >= s.cfg.MaxLoop {
-		// Streamed bytes cannot be rewritten here, so the internal blocks are
-		// forwarded. The calls were still executed. Known gap.
-		s.cfg.Logger.Warn("internal tool_use streamed to client", "session", t.sid,
-			"client_tools", clientTools, "round", round)
-		writeRaw(w, resp, buf.Bytes())
+	if res.ClientTools > 0 || round+1 >= s.cfg.MaxLoop {
+		// The round cannot continue. The internal blocks were already withheld from the client.
+		s.cfg.Logger.Warn("internal tool_use not continued", "session", t.sid,
+			"client_tools", res.ClientTools, "round", round)
+		if err := fw.Finish(res.ClientTools == 0); err != nil {
+			s.cfg.Logger.Warn("client stream write failed", "session", t.sid, "err", err)
+		}
 		return true
 	}
 
-	next, err := appendTurn(t.body, content, results)
+	next, err := appendTurn(t.body, res.Content, results)
 	if err != nil {
 		s.cfg.Logger.Error("append tool round failed", "session", t.sid, "err", err)
-		writeRaw(w, resp, buf.Bytes())
+		_ = fw.Finish(true)
 		return true
 	}
 	t.body = next
@@ -533,13 +593,13 @@ func (s *Server) recordCache(t *turn, u anthropic.Usage) {
 
 // failOpen forwards the untouched client body. Compaction problems must never
 // break the agent's traffic.
-func (s *Server) failOpen(w http.ResponseWriter, r *http.Request, body []byte, stage string, err error) {
+func (s *Server) failOpen(w http.ResponseWriter, r *http.Request, rt routed, body []byte, stage string, err error) {
 	s.cfg.Logger.Warn("compaction bypassed", "stage", stage, "err", err)
-	s.passthrough(w, r, pathMessages, body)
+	s.passthrough(w, r, rt, body)
 }
 
 // passthrough forwards a request unchanged and streams the answer back.
-func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, path string, body []byte) {
+func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, rt routed, body []byte) {
 	if body == nil {
 		b, err := readLimited(r.Body)
 		if err != nil {
@@ -548,9 +608,9 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, path string
 		}
 		body = b
 	}
-	resp, err := s.upstreamCall(r, path, body)
+	resp, err := s.upstreamCall(r, rt.up, rt.path, body)
 	if err != nil {
-		s.cfg.Logger.Error("upstream call failed", "path", path, "err", err)
+		s.cfg.Logger.Error("upstream call failed", "path", rt.path, "err", err)
 		http.Error(w, "upstream unavailable", http.StatusBadGateway)
 		return
 	}
@@ -560,9 +620,9 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, path string
 	_, _ = io.Copy(flushWriter{w}, resp.Body)
 }
 
-func (s *Server) upstreamCall(r *http.Request, path string, body []byte) (*http.Response, error) {
-	u := *s.cfg.Upstream
-	u.Path = strings.TrimRight(s.cfg.Upstream.Path, "/") + path
+func (s *Server) upstreamCall(r *http.Request, up *url.URL, path string, body []byte) (*http.Response, error) {
+	u := *up
+	u.Path = strings.TrimRight(up.Path, "/") + path
 	u.RawPath = ""
 	u.RawQuery = r.URL.RawQuery
 	req, err := http.NewRequestWithContext(r.Context(), r.Method, u.String(), bytes.NewReader(body))
@@ -666,7 +726,7 @@ func sessionID(projectID, conv string, msgs []kernel.Message) string {
 }
 
 func isInternal(name string) bool {
-	return name == anthropic.ToolCompress || name == anthropic.ToolDecompress
+	return anthropic.IsInternalTool(name)
 }
 
 // stripInternal removes internal tool_use blocks from a JSON message and turns
@@ -772,35 +832,24 @@ func editMessages(body []byte, fn func([]json.RawMessage) ([]json.RawMessage, er
 	return json.Marshal(top)
 }
 
-// countClientToolUses counts tool_use blocks in an SSE buffer that are not internal.
-func countClientToolUses(sse []byte) int {
-	n := 0
-	for _, line := range bytes.Split(sse, []byte("\n")) {
-		data, ok := bytes.CutPrefix(line, []byte("data:"))
-		if !ok {
-			continue
-		}
-		var ev struct {
-			Type         string `json:"type"`
-			ContentBlock *struct {
-				Type string `json:"type"`
-				Name string `json:"name"`
-			} `json:"content_block"`
-		}
-		if json.Unmarshal(data, &ev) != nil || ev.Type != "content_block_start" || ev.ContentBlock == nil {
-			continue
-		}
-		if ev.ContentBlock.Type == "tool_use" && !isInternal(ev.ContentBlock.Name) {
-			n++
+// nudgeText asks the model to compress and lists the ranges that are open now.
+func nudgeText(v kernel.Voice, spans []kernel.Span) string {
+	var b strings.Builder
+	b.WriteString("<context_nudge>Nota de eficiencia, nao e alerta de limite. Faixas ja concluidas " +
+		"podem ser resumidas com a ferramenta compress; recuse se estiver no meio de algo critico. " +
+		"Cada mensagem comeca com sua referencia, por exemplo [m00042].")
+	if len(spans) > 0 {
+		b.WriteString(" Faixas comprimiveis agora (inicio..fim, tokens aproximados):")
+		for i, sp := range spans {
+			if i == maxNudgeSpans {
+				fmt.Fprintf(&b, " e mais %d", len(spans)-i)
+				break
+			}
+			fmt.Fprintf(&b, " %s..%s (%d tok);", sp.Start, sp.End, sp.Tokens)
 		}
 	}
-	return n
-}
-
-func nudgeText(v kernel.Voice) string {
-	return "<context_nudge>Nota de eficiencia, nao e alerta de limite. Faixas ja concluidas " +
-		"podem ser resumidas com a ferramenta compress; recuse se estiver no meio de algo critico. " +
-		"Voz: " + string(v) + "</context_nudge>"
+	b.WriteString(" Voz: " + string(v) + "</context_nudge>")
+	return b.String()
 }
 
 func readLimited(rd io.Reader) ([]byte, error) {

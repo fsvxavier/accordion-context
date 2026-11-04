@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/fsvxavier/accordion-context/internal/proxy"
@@ -51,8 +52,15 @@ func serve(args []string, stderr io.Writer) int {
 	listen := fs.String("listen", "127.0.0.1:8787", "loopback address to listen on")
 	upstream := fs.String("upstream", "https://api.anthropic.com", "upstream Messages API base URL")
 	dbPath := fs.String("db", "", "SQLite database path (default ~/.local/share/acd-ctx/acd-ctx.db)")
+	allow := fs.String("allow", "", "comma-separated origins reachable through /ctx/<url>/ (default: the --upstream origin)")
 	if err := fs.Parse(args); err != nil {
 		return 2
+	}
+	var allowed []string
+	for _, a := range strings.Split(*allow, ",") {
+		if a = strings.TrimSpace(a); a != "" {
+			allowed = append(allowed, a)
+		}
 	}
 
 	if err := proxy.CheckLoopback(*listen); err != nil {
@@ -86,7 +94,7 @@ func serve(args []string, stderr io.Writer) int {
 	}
 	defer st.Close()
 
-	h, err := proxy.New(proxy.Config{Upstream: up, Store: st, Version: version, Logger: logger})
+	h, err := proxy.New(proxy.Config{Upstream: up, Store: st, Version: version, Logger: logger, UpstreamAllow: allowed})
 	if err != nil {
 		logger.Error("configure proxy", "err", err)
 		return 1
@@ -107,6 +115,6 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, `usage: acd-ctx <command>
 
 commands:
-  serve     run the compaction proxy (--listen, --upstream, --db)
+  serve     run the compaction proxy (--listen, --upstream, --db, --allow)
   version   print the version`)
 }

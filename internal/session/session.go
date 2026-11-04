@@ -101,8 +101,15 @@ func (s *Session) Plan(ctx context.Context, tokenCount int) (Plan, error) {
 	}, s.cfg)
 
 	if d.Nudge {
+		if trig.NudgePending {
+			// Previous nudge was shown and the model never compressed: refusal (spec §8.3).
+			trig.Refusals++
+			if err := s.st.AppendEvent(ctx, s.sid, "refuse", map[string]any{"refusals": trig.Refusals}); err != nil {
+				return Plan{}, err
+			}
+		}
 		trig.NudgePending = true
-		trig.NudgeShownAt = int(lastSeq(snap))
+		trig.NudgeShownAt = tokenCount // schema: tokens when the nudge was shown
 		switch d.Tier {
 		case 2:
 			trig.LastShownT2 = tokenCount
@@ -174,8 +181,12 @@ func (s *Session) HandleCompress(ctx context.Context, args CompressArgs) (Compre
 		if start.Seq > end.Seq {
 			return CompressResult{}, fmt.Errorf("range %d: %s after %s", i, r.StartRef, r.EndRef)
 		}
-		if strings.TrimSpace(r.Summary) == "" {
+		summary := stripForgedMarkers(r.Summary)
+		if strings.TrimSpace(summary) == "" {
 			return CompressResult{}, fmt.Errorf("range %d: empty summary", i)
+		}
+		if hasSystemMessage(snap.Messages, start.Seq, end.Seq) {
+			return CompressResult{}, fmt.Errorf("range %d: covers a system message", i)
 		}
 		if firstUser != 0 && start.Seq <= firstUser && firstUser <= end.Seq {
 			return CompressResult{}, fmt.Errorf("range %d: covers the pinned first user message", i)
@@ -202,13 +213,13 @@ func (s *Session) HandleCompress(ctx context.Context, args CompressArgs) (Compre
 		}
 
 		src := sourceTokens(snap.Messages, start.Seq, end.Seq)
-		sum := estimateTokens(r.Summary)
+		sum := estimateTokens(summary)
 		if sum >= src {
 			return CompressResult{}, fmt.Errorf("range %d: summary %d tokens is not smaller than source %d", i, sum, src)
 		}
 
 		b := store.NewBlock{
-			ID: fmt.Sprintf("b%d", nextID), Tier: 1, Topic: r.Topic, Summary: r.Summary,
+			ID: fmt.Sprintf("b%d", nextID), Tier: 1, Topic: r.Topic, Summary: summary,
 			StartSeq: start.Seq, EndSeq: end.Seq, SrcTokens: src, SumTokens: sum,
 		}
 		nextID++
@@ -244,6 +255,29 @@ func (s *Session) Recall(ctx context.Context, ref string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("recall: unknown ref %q", ref)
+}
+
+// stripForgedMarkers removes lines that imitate the confirmation marker
+// ("📦 ... Compressed ...", spec §10.2): only a compression_events row confirms.
+func stripForgedMarkers(s string) string {
+	lines := strings.Split(s, "\n")
+	out := lines[:0]
+	for _, l := range lines {
+		if strings.Contains(l, "📦") {
+			continue
+		}
+		out = append(out, l)
+	}
+	return strings.Join(out, "\n")
+}
+
+func hasSystemMessage(msgs []kernel.Message, lo, hi int64) bool {
+	for _, m := range msgs {
+		if m.Seq >= lo && m.Seq <= hi && m.Role == kernel.RoleSystem {
+			return true
+		}
+	}
+	return false
 }
 
 func sameMessage(a, b kernel.Message) bool {

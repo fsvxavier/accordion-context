@@ -94,7 +94,9 @@ func findUID(text string, client, server netip.AddrPort) (int, bool) {
 		if err1 != nil || err2 != nil {
 			continue
 		}
-		if local == client && rem == server {
+		// Only an ESTABLISHED row (01) is the live connection. A TIME_WAIT row
+		// reports uid 0 whatever the owner was.
+		if f[3] == "01" && local == client && rem == server {
 			uid, err := strconv.Atoi(f[7])
 			if err == nil && uid >= 0 {
 				return uid, true

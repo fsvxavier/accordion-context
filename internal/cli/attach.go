@@ -107,6 +107,7 @@ func runAttach(args []string, s IO) int {
 			UID:             *txUID,
 			AllDestinations: *all443,
 			NoPeerAuth:      *noPeer,
+			DataDirExplicit: explicitDB(s),
 			Env:             sysEnv(s),
 		}
 	}
@@ -203,4 +204,10 @@ func readProfiles(path string) ([]launcher.Profile, error) {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	return ps, nil
+}
+
+// explicitDB reports whether the user chose the database path with ACD_CTX_DB.
+func explicitDB(s IO) bool {
+	v, ok := s.LookupEnv("ACD_CTX_DB")
+	return ok && strings.TrimSpace(v) != ""
 }

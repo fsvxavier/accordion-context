@@ -58,7 +58,10 @@ func (p NFTPlan) sortedIPv4() []string {
 	var out []netip.Addr
 	for _, a := range p.IPv4 {
 		a = a.Unmap()
-		if a.Is4() && !seen[a] {
+		// Loopback, unspecified and multicast destinations are never redirected:
+		// the router refuses them, and a poisoned DNS answer must not turn the
+		// rule into a way to cut the client off from local services.
+		if a.Is4() && !a.IsLoopback() && !a.IsUnspecified() && !a.IsMulticast() && !seen[a] {
 			seen[a] = true
 			out = append(out, a)
 		}
@@ -96,6 +99,9 @@ func (p NFTPlan) Ruleset() (string, error) {
 	b.WriteString("\n\tchain output {\n")
 	b.WriteString("\t\ttype nat hook output priority -100; policy accept;\n")
 	fmt.Fprintf(&b, "\t\tmeta skuid %d accept comment %q\n", p.ProxyUID, OwnerTag)
+	// Local services on 127.0.0.0/8 are never redirected: the router would
+	// refuse them, which would break the client's own localhost HTTPS.
+	fmt.Fprintf(&b, "\t\tip daddr 127.0.0.0/8 accept comment %q\n", OwnerTag)
 	// The listener is IPv4 only, so IPv6 must never match the redirect. The set
 	// variant is IPv4 by its ip daddr match; the all-443 variant needs nfproto.
 	if p.AllDestinations {

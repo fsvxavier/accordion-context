@@ -130,14 +130,19 @@ var DefaultBypass = []string{"localhost", "127.0.0.0/8", "::1"}
 
 // Validate checks the endpoint before any value is written.
 func (ep Endpoint) Validate() error {
-	if ep.Host == "" || strings.ContainsAny(ep.Host, "'\"; \t\r\n") {
+	if ep.Host == "" || strings.ContainsAny(ep.Host, "'\"\\; \t\r\n") {
 		return fmt.Errorf("sysproxy: invalid endpoint host %q", ep.Host)
+	}
+	// The listener is loopback only; a proxy setting that points elsewhere would
+	// send the user's HTTPS traffic to another machine.
+	if ip, err := netip.ParseAddr(ep.Host); err != nil && ep.Host != "localhost" || err == nil && !ip.IsLoopback() {
+		return fmt.Errorf("sysproxy: endpoint host %q is not a loopback address", ep.Host)
 	}
 	if ep.Port <= 0 || ep.Port > 65535 {
 		return fmt.Errorf("sysproxy: invalid endpoint port %d", ep.Port)
 	}
 	for _, b := range ep.Bypass {
-		if strings.ContainsAny(b, "'\"; \t\r\n,") {
+		if strings.ContainsAny(b, "'\"\\; \t\r\n,") || strings.HasPrefix(b, "-") {
 			return fmt.Errorf("sysproxy: invalid bypass entry %q", b)
 		}
 	}

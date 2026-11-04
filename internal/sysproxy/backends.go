@@ -217,7 +217,7 @@ func darwinActiveServices(ctx context.Context, r Runner, list string) []string {
 	var active []string
 	for i, line := range strings.Split(list, "\n") {
 		line = strings.TrimSpace(line)
-		if i == 0 && strings.HasPrefix(line, "An asterisk") || line == "" || strings.HasPrefix(line, "*") {
+		if i == 0 && strings.HasPrefix(line, "An asterisk") || line == "" || strings.HasPrefix(line, "*") || strings.HasPrefix(line, "-") {
 			continue
 		}
 		info, err := r.Run(ctx, Command{Name: "networksetup", Args: []string{"-getinfo", line}})
@@ -252,6 +252,9 @@ func (*darwin) Read(ctx context.Context, r Runner, key string) (Setting, error) 
 		return Setting{}, fmt.Errorf("macos: malformed key %q", key)
 	}
 	svc, field := rest[:i], rest[i+1:]
+	if svc == "" || strings.HasPrefix(svc, "-") {
+		return Setting{}, fmt.Errorf("macos: invalid service name %q", svc)
+	}
 	switch field {
 	case "https":
 		out, err := r.Run(ctx, Command{Name: "networksetup", Args: []string{"-getsecurewebproxy", svc}})
@@ -290,6 +293,9 @@ func (*darwin) Write(s Setting) ([]Command, error) {
 		return nil, fmt.Errorf("macos: malformed key %q", s.Key)
 	}
 	svc, field := rest[:i], rest[i+1:]
+	if svc == "" || strings.HasPrefix(svc, "-") {
+		return nil, fmt.Errorf("macos: invalid service name %q", svc)
+	}
 	switch field {
 	case "https":
 		parts := strings.Split(s.Value, "\t")

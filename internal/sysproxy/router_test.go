@@ -192,3 +192,14 @@ func TestRouterPanicIsReported(t *testing.T) {
 		t.Fatal("panic not reported")
 	}
 }
+
+// helloBytes returns the SNI and first record of a crypto/tls ClientHello.
+func helloBytes(name string) (string, []byte) {
+	c1, c2 := net.Pipe()
+	defer c2.Close()
+	go func() { _ = tls.Client(c1, &tls.Config{ServerName: name}).Handshake() }()
+	_ = c2.SetReadDeadline(time.Now().Add(5 * time.Second))
+	sni, raw, _ := ReadHello(c2)
+	_ = c1.Close()
+	return sni, raw
+}

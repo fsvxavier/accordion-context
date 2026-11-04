@@ -26,6 +26,7 @@ const wantRulesetSet = `table inet acd_ctx {
 	chain output {
 		type nat hook output priority -100; policy accept;
 		meta skuid 0 accept comment "acd-ctx"
+		ip daddr 127.0.0.0/8 accept comment "acd-ctx"
 		meta skuid 1000 meta l4proto tcp tcp dport 443 ip daddr @mitm_ipv4 redirect to :8443 comment "acd-ctx"
 	}
 }
@@ -36,6 +37,7 @@ const wantRulesetAll443 = `table inet acd_ctx {
 	chain output {
 		type nat hook output priority -100; policy accept;
 		meta skuid 0 accept comment "acd-ctx"
+		ip daddr 127.0.0.0/8 accept comment "acd-ctx"
 		meta skuid 1000 meta nfproto ipv4 meta l4proto tcp tcp dport 443 redirect to :8443 comment "acd-ctx"
 	}
 }

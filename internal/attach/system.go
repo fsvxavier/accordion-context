@@ -16,6 +16,7 @@ import (
 	goruntime "runtime"
 	"slices"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -40,6 +41,10 @@ type SystemOptions struct {
 	// NoPeerAuth is --i-understand-no-peer-auth. It is needed on platforms
 	// without a peer-uid check, where any local process can use the listener.
 	NoPeerAuth bool
+	// DataDirExplicit says the data directory was chosen by the user
+	// (ACD_CTX_DB) instead of derived from HOME. It is one of the two things
+	// that make --transparent under sudo safe when HOME is not the user's.
+	DataDirExplicit bool
 	// StateDir holds the state files. Empty means "sysproxy" beside the database.
 	StateDir string
 	// Env gives access to commands and to the machine. It is required, and
@@ -68,6 +73,9 @@ func runSystem(ctx context.Context, o Options) (res Result, err error) {
 		return res, errors.New("attach: no command runner configured for the system degrees")
 	}
 	env := *sys.Env
+	if err := checkSudoHome(env, sys, o.Transparent); err != nil {
+		return res, err
+	}
 	if o.Transparent && len(o.Args) > 0 {
 		return res, errors.New("attach: --transparent does not run a command; run the client yourself as the target uid")
 	}
@@ -101,6 +109,11 @@ func runSystem(ctx context.Context, o Options) (res Result, err error) {
 	sc.dir = cwd
 	if len(sc.runHosts) == 0 {
 		return res, errors.New("attach: no host to intercept; pass --mitm-domain")
+	}
+	for _, h := range sc.runHosts {
+		if !validHostName(h) {
+			return res, fmt.Errorf("attach: host %q to intercept is not a plain host name", h)
+		}
 	}
 	tmp, err := os.MkdirTemp(o.tmpRoot, "acd-ctx-system-")
 	if err != nil {
@@ -172,6 +185,11 @@ func systemListener(o Options, env sysproxy.Env, sc *scope, st *store.Store, log
 // of the run and restores it on every exit path.
 func runSystemProxy(ctx context.Context, o Options, env sysproxy.Env, sc *scope, st *store.Store, logger *slog.Logger, dir string) (res Result, err error) {
 	res.Degree = DegreeSystemProxy
+	// The signals are held from before the first change until after the
+	// restore (defers run last-in first-out), so SIGHUP cannot kill the run
+	// between the change and its restore.
+	hctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	defer stop()
 	rt, _, err := systemListener(o, env, sc, st, logger)
 	if err != nil {
 		return res, err
@@ -180,7 +198,7 @@ func runSystemProxy(ctx context.Context, o Options, env sysproxy.Env, sc *scope,
 	port := rt.port()
 
 	ep := sysproxy.Endpoint{Host: "127.0.0.1", Port: port, Bypass: sysproxy.DefaultBypass}
-	actx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	actx, cancel := context.WithTimeout(hctx, 60*time.Second)
 	act, err := sysproxy.StartSystemProxy(actx, env, dir, ep)
 	cancel()
 	if err != nil {
@@ -201,12 +219,13 @@ func runSystemProxy(ctx context.Context, o Options, env sysproxy.Env, sc *scope,
 	fmt.Fprintf(o.stderr(), "acd-ctx: system HTTPS proxy set to 127.0.0.1:%d (restored when this run ends)\n", port)
 
 	if len(o.Args) == 0 {
-		hctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
-		defer stop()
 		fmt.Fprintln(o.stderr(), "acd-ctx: the system proxy stays set until you interrupt this run (Ctrl-C restores it)")
 		<-hctx.Done()
 		res.Hits = rt.gate.hits.Load()
 		return res, nil
+	}
+	if hctx.Err() != nil {
+		return res, nil // interrupted while the change was being made
 	}
 	cctx, cancelChild := context.WithCancel(ctx)
 	defer cancelChild()
@@ -261,7 +280,8 @@ func runTransparent(ctx context.Context, o Options, env sysproxy.Env, sc *scope,
 			out = io.Discard
 		}
 		fmt.Fprint(out, text)
-		res.Notes = append(res.Notes, "dry run: nothing changed; the redirect port is chosen when the rules are applied")
+		res.Notes = append(res.Notes, "dry run: nothing changed; the redirect port is chosen when the rules are applied",
+			"IPv6 connections are not redirected and bypass acd-ctx; disable IPv6 for the client if that matters")
 		if resolveErr != nil {
 			res.Notes = append(res.Notes, "some MITM domains did not resolve: "+resolveErr.Error())
 		}
@@ -287,7 +307,9 @@ func runTransparent(ctx context.Context, o Options, env sysproxy.Env, sc *scope,
 		res.Notes = append(res.Notes, "some MITM domains did not resolve: "+resolveErr.Error())
 	}
 
-	act, err := sysproxy.StartTransparent(ctx, env, dir, plan)
+	hctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	defer stop()
+	act, err := sysproxy.StartTransparent(hctx, env, dir, plan)
 	if err != nil {
 		return res, fmt.Errorf("attach: transparent redirect: %w", err)
 	}
@@ -321,8 +343,6 @@ func runTransparent(ctx context.Context, o Options, env sysproxy.Env, sc *scope,
 			return nil
 		},
 	}
-	hctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
-	defer stop()
 	// A panic in a background goroutine would kill the process before the
 	// deferred restore runs. Instead it ends this run, and the restore runs on
 	// the normal path below.
@@ -459,4 +479,65 @@ func sudoUID(e sysproxy.Env) (int, bool) {
 	}
 	n, err := strconv.Atoi(e.Getenv("SUDO_UID"))
 	return n, err == nil && n >= 0
+}
+
+// validHostName accepts plain DNS names and IPv4 literals: lower-case letters,
+// digits, '.', '-' and '_'. Anything else (spaces, CR/LF, quotes, braces,
+// semicolons) could break a CONNECT line or a command, so it is refused.
+func validHostName(h string) bool {
+	if h == "" || len(h) > 253 || h[0] == '-' {
+		return false
+	}
+	for i := 0; i < len(h); i++ {
+		c := h[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '.', c == '-', c == '_':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// lookupHome returns the home directory of a user from /etc/passwd (os/user
+// would pull cgo into cross builds). Tests replace it.
+var lookupHome = func(name string) (string, error) {
+	data, err := os.ReadFile("/etc/passwd")
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		f := strings.Split(line, ":")
+		if len(f) >= 6 && f[0] == name {
+			return f[5], nil
+		}
+	}
+	return "", fmt.Errorf("user %q not found", name)
+}
+
+// checkSudoHome refuses to run under sudo when the data directory would land in
+// another user's home. Under sudo the data dir, the CA and the state files
+// resolve against root's HOME (or the user's, when sudo keeps HOME), and the
+// system proxy settings of root are not the desktop user's. The only safe
+// combination is --transparent with an explicit uid and an explicit data dir.
+func checkSudoHome(env sysproxy.Env, sys *SystemOptions, transparent bool) error {
+	if env.Getenv == nil {
+		return nil
+	}
+	user := env.Getenv("SUDO_USER")
+	if user == "" || env.Euid() != 0 {
+		return nil
+	}
+	home := env.Getenv("HOME")
+	if uh, err := lookupHome(user); err == nil && uh != "" && uh == home {
+		return nil
+	}
+	if transparent && sys.UID >= 0 && sys.DataDirExplicit {
+		return nil
+	}
+	if transparent {
+		return fmt.Errorf("attach: running under sudo (SUDO_USER=%s) with HOME=%q: the CA, database and state would be created in a home that is not %s's; "+
+			"pass --transparent-uid N and set ACD_CTX_DB to an explicit path (or keep the user HOME with sudo --preserve-env=HOME)", user, home, user)
+	}
+	return fmt.Errorf("attach: --system-proxy changes the settings of the invoking desktop user; do not run it under sudo (SUDO_USER=%s)", user)
 }

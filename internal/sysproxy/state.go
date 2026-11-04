@@ -46,6 +46,9 @@ func createState(dir string, st *State) (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("sysproxy: state directory: %w", err)
 	}
+	if err := checkTrusted(dir, true); err != nil {
+		return "", err
+	}
 	st.Version = stateVersion
 	st.Owner = OwnerTag
 	path := filepath.Join(dir, fmt.Sprintf("%s-%d.json", st.Mode, st.PID))
@@ -79,6 +82,12 @@ func createState(dir string, st *State) (string, error) {
 
 // readState loads and checks a state file.
 func readState(path string) (*State, error) {
+	if err := checkTrusted(filepath.Dir(path), true); err != nil {
+		return nil, err
+	}
+	if err := checkTrusted(path, false); err != nil {
+		return nil, err
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err

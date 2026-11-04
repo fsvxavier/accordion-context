@@ -149,7 +149,11 @@ func Run(ctx context.Context, opts Options) (int, error) {
 			return 1, err
 		}
 		t := *prof.TempConfig
-		path, err := WriteTempConfig(dir, t, base, portOf(addr), token)
+		warn := opts.Stderr
+		if warn == nil {
+			warn = os.Stderr
+		}
+		path, err := WriteTempConfig(dir, t, base, portOf(addr), token, warn)
 		if err != nil {
 			return 1, fmt.Errorf("launcher: %w", err)
 		}

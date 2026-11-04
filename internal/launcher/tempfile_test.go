@@ -1,6 +1,7 @@
 package launcher
 
 import (
+	"io"
 	"os"
 	"runtime"
 	"strings"
@@ -10,7 +11,7 @@ import (
 func TestWriteTempConfigModeAndNoOverwrite(t *testing.T) {
 	dir := t.TempDir()
 	tc := TempConfig{PathEnv: "X_CONFIG", Format: "json", Template: `{"u":"{url}"}`}
-	path, err := WriteTempConfig(dir, tc, "http://127.0.0.1:1/p/a", "1", "tok")
+	path, err := WriteTempConfig(dir, tc, "http://127.0.0.1:1/p/a", "1", "tok", io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +26,7 @@ func TestWriteTempConfigModeAndNoOverwrite(t *testing.T) {
 	if !strings.Contains(string(b), "http://127.0.0.1:1/p/a") {
 		t.Fatalf("content = %s", b)
 	}
-	if _, err := WriteTempConfig(dir, tc, "http://x", "1", "tok"); err == nil {
+	if _, err := WriteTempConfig(dir, tc, "http://x", "1", "tok", io.Discard); err == nil {
 		t.Fatal("second write over an existing file succeeded")
 	}
 }

@@ -98,7 +98,7 @@ func (sc *scope) tempPlan(base string) (plan, error) {
 	if err != nil {
 		return plan{}, err
 	}
-	path, err := launcher.WriteTempConfig(sc.tmp, t, base, sc.port(), token)
+	path, err := launcher.WriteTempConfig(sc.tmp, t, base, sc.port(), token, sc.o.stderr())
 	if err != nil {
 		return plan{}, err
 	}

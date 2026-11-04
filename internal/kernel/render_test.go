@@ -127,3 +127,21 @@ func TestCompressibleSpansEmpty(t *testing.T) {
 		t.Fatalf("empty ledger: %+v", got)
 	}
 }
+
+func TestRenderIntentsCapsLongText(t *testing.T) {
+	long := strings.Repeat("é", 5000)
+	out := renderIntents([]Intent{
+		{ID: 1, Status: "open", Text: long},
+		{ID: 2, Status: "done", Text: long + "\nsecond line"},
+		{ID: 3, Status: "open", Text: "short"},
+	})
+	if n := len([]rune(out)); n > 500+120+200 {
+		t.Fatalf("intents block is %d runes, want it bounded", n)
+	}
+	if !strings.Contains(out, "[open #3] short\n") || !strings.Contains(out, "…") {
+		t.Fatalf("unexpected render:\n%s", out)
+	}
+	if strings.Contains(out, "second line") {
+		t.Fatal("done intent must render one line")
+	}
+}

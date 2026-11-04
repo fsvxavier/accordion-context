@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 // Render builds the visible window (spec §11.1): system messages, pinned first
@@ -87,13 +88,31 @@ func renderIntents(in []Intent) string {
 	b.WriteString("<intents>\n")
 	for _, i := range in {
 		if i.Status == "open" {
-			fmt.Fprintf(&b, "[open #%d] %s\n", i.ID, i.Text)
+			fmt.Fprintf(&b, "[open #%d] %s\n", i.ID, clip(i.Text, maxOpenIntentRunes))
 		} else {
-			fmt.Fprintf(&b, "[%s #%d] %s\n", i.Status, i.ID, firstLine(i.Text))
+			fmt.Fprintf(&b, "[%s #%d] %s\n", i.Status, i.ID, clip(firstLine(i.Text), maxDoneIntentRunes))
 		}
 	}
 	b.WriteString("</intents>")
 	return b.String()
+}
+
+// Intent text caps (spec §11.3: "o texto literal (ou o trecho relevante)").
+// The full text stays in the ledger; only the rendering is bounded, so a pasted
+// log in a user message cannot bloat every later turn.
+const (
+	maxOpenIntentRunes = 500
+	maxDoneIntentRunes = 120
+)
+
+// clip cuts s to at most n runes, marking the cut with an ellipsis. The result
+// is a pure function of s, so the rendered block stays byte-stable.
+func clip(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	r := []rune(s)
+	return string(r[:n]) + "…"
 }
 
 func firstLine(s string) string {

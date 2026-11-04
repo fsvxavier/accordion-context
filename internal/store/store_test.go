@@ -700,3 +700,49 @@ func TestImportProjectRoundTripAndRollback(t *testing.T) {
 		t.Fatalf("rollback left %d projects (%v)", n, err)
 	}
 }
+
+func TestListCacheLedgerReturnsLastRowsOldestFirst(t *testing.T) {
+	s := newMemStore(t)
+	setupSession(t, s, "s1")
+	setupSession(t, s, "other")
+	ctx := context.Background()
+	for i := 1; i <= 5; i++ {
+		if err := s.RecordCache(ctx, "s1", CacheCall{InputTokens: 1000 * i, EstTokens: 900 * i, AfterCompress: i == 4}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.RecordCache(ctx, "other", CacheCall{InputTokens: 7, EstTokens: 7}); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := s.ListCacheLedger(ctx, "s1", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("got %d rows, want 3", len(rows))
+	}
+	for i, want := range []int{3, 4, 5} {
+		if rows[i].InputTokens != 1000*want || rows[i].EstTokens != 900*want {
+			t.Fatalf("row %d = %+v, want input %d", i, rows[i], 1000*want)
+		}
+		if rows[i].CallSeq != int64(want) {
+			t.Fatalf("row %d call_seq %d, want %d", i, rows[i].CallSeq, want)
+		}
+	}
+	if !rows[1].AfterCompress || rows[0].AfterCompress {
+		t.Fatalf("after_compress not carried: %+v", rows)
+	}
+
+	all, err := s.ListCacheLedger(ctx, "s1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 5 || all[0].CallSeq != 1 {
+		t.Fatalf("limit 0 should return all five rows oldest first, got %d", len(all))
+	}
+	none, err := s.ListCacheLedger(ctx, "unknown", 10)
+	if err != nil || len(none) != 0 {
+		t.Fatalf("unknown session: rows %v err %v", none, err)
+	}
+}

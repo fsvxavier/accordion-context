@@ -497,6 +497,48 @@ func (s *Store) RecordCache(ctx context.Context, sid string, c CacheCall) error 
 	return nil
 }
 
+// CacheRow is one stored cache_ledger row: the upstream sample of one call.
+type CacheRow struct {
+	CallSeq int64
+	At      int64
+	CacheCall
+}
+
+// ListCacheLedger returns the last limit rows of the session's cache ledger in
+// call order, oldest first. A limit <= 0 returns every row. The proxy replays
+// the rows to rebuild the token calibration after a restart (spec §15).
+func (s *Store) ListCacheLedger(ctx context.Context, sid string, limit int) ([]CacheRow, error) {
+	q := `SELECT call_seq, at, input_tokens, cached_tokens, est_tokens, after_compress
+		FROM cache_ledger WHERE session_id = ? ORDER BY call_seq DESC`
+	args := []any{sid}
+	if limit > 0 {
+		q += ` LIMIT ?`
+		args = append(args, limit)
+	}
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list cache ledger: %w", err)
+	}
+	defer rows.Close()
+	var out []CacheRow
+	for rows.Next() {
+		var r CacheRow
+		var after int
+		if err := rows.Scan(&r.CallSeq, &r.At, &r.InputTokens, &r.CachedTokens, &r.EstTokens, &after); err != nil {
+			return nil, fmt.Errorf("list cache ledger: %w", err)
+		}
+		r.AfterCompress = after != 0
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list cache ledger: %w", err)
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out, nil
+}
+
 // ApplyCompress writes a validated plan in one transaction (spec §10.3).
 // Nothing is deleted: messages stay, only blocks.active changes. Invariants
 // are checked before commit; a violation rolls everything back.

@@ -62,7 +62,7 @@ func serve(args []string, stderr io.Writer) int {
 	allow := fs.String("allow", "", "comma-separated origins reachable through /ctx/<url>/ (default: the --upstream origin)")
 	configPath := fs.String("config", "", "global config file (default: the user config path, spec §18.1)")
 	markers := fs.String("markers", "", "comma-separated project root markers (default: go.mod,package.json,pyproject.toml,composer.json,Cargo.toml)")
-	pluginTokenFile := fs.String("plugin-token-file", "", "file that receives the plugin bearer token, mode 0600 (default ~/.local/share/acd-ctx/plugin.token)")
+	pluginTokenFile := fs.String("plugin-token-file", "", "file that receives the plugin bearer token, mode 0600 (default ~/.local/share/acd-ctx/plugin.token, or plugin-<port>.token for a non-default --listen port)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -105,7 +105,7 @@ func serve(args []string, stderr io.Writer) int {
 	if tokenPath == "" {
 		// Without a home directory the plugin protocol stays off (see below).
 		if home, err := os.UserHomeDir(); err == nil {
-			tokenPath = filepath.Join(home, ".local", "share", "acd-ctx", "plugin.token")
+			tokenPath = filepath.Join(home, ".local", "share", "acd-ctx", defaultTokenName(*listen))
 		}
 	}
 	logger := slog.New(slog.NewJSONHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -186,4 +186,13 @@ commands:
 
 Other commands:`)
 	fmt.Fprint(w, cli.Usage())
+}
+
+// defaultTokenName is plugin.token for the default port and plugin-<port>.token
+// otherwise, so two serve instances on one machine do not overwrite each other's token.
+func defaultTokenName(listen string) string {
+	if _, port, err := net.SplitHostPort(listen); err == nil && port != "" && port != "8787" {
+		return "plugin-" + port + ".token"
+	}
+	return "plugin.token"
 }

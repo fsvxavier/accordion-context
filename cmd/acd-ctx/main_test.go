@@ -155,3 +155,15 @@ func TestServeWithoutPluginTokenServesProxy(t *testing.T) {
 	}
 	stopServe(t, done, stderr)
 }
+
+func TestDefaultTokenName(t *testing.T) {
+	for in, want := range map[string]string{
+		"127.0.0.1:8787": "plugin.token",
+		"127.0.0.1:9000": "plugin-9000.token",
+		"bad":            "plugin.token",
+	} {
+		if got := defaultTokenName(in); got != want {
+			t.Errorf("defaultTokenName(%q)=%q, want %q", in, got, want)
+		}
+	}
+}

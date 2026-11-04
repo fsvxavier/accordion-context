@@ -94,11 +94,16 @@ type execer interface {
 }
 
 // walUnavailable reports whether err is SQLite refusing to open the -wal or -shm
-// file (SQLITE_CANTOPEN, 14), which is what the WAL pragma returns on a file
-// system without shared memory or locking support.
+// file (SQLITE_CANTOPEN, 14), or failing to create the wal-index shared memory
+// (SQLITE_IOERR_SHMOPEN 4618, SQLITE_IOERR_SHMSIZE 4874). Both are what the WAL
+// pragma returns on a file system without shared memory support, such as WSL
+// DrvFs. Other I/O errors (for example 522) are not WAL-specific and are not matched.
 func walUnavailable(err error) bool {
 	m := err.Error()
-	return strings.Contains(m, "unable to open database file") || strings.Contains(m, "(14)")
+	return strings.Contains(m, "unable to open database file") ||
+		strings.Contains(m, "(14)") ||
+		strings.Contains(m, "(4618)") ||
+		strings.Contains(m, "(4874)")
 }
 
 // Open opens (or creates) the database at path, applies pragmas and migrates.

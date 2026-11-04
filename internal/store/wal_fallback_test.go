@@ -12,6 +12,8 @@ func TestWALUnavailable(t *testing.T) {
 	}{
 		{"unable to open database file (14)", true},
 		{"SQL logic error: unable to open database file", true},
+		{"disk I/O error (4618)", true},
+		{"disk I/O error (4874)", true},
 		{"disk I/O error (522)", false},
 		{"database is locked (5)", false},
 	} {

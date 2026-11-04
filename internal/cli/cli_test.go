@@ -448,8 +448,22 @@ func TestClientLaunchErrorsWithoutStartingAProxy(t *testing.T) {
 	if r := f.run("", "run", "--", "nosuchclient", "x"); r.code != ExitFail || !strings.Contains(r.stderr, "no client profile") {
 		t.Fatalf("unknown client: code %d, stderr %q", r.code, r.stderr)
 	}
-	// opencode has no base URL variable, so the launcher refuses before any proxy starts.
-	if r := f.run("", "opencode"); r.code != ExitFail || !strings.Contains(r.stderr, "MITM") {
+}
+
+// TestOpencodeLaunchesThroughTempConfig runs a fake opencode that requires the
+// OPENCODE_CONFIG file, written by the launcher, to point at a provider baseURL.
+func TestOpencodeLaunchesThroughTempConfig(t *testing.T) {
+	bin := t.TempDir()
+	script := "#!/bin/sh\n" +
+		`[ -f "$OPENCODE_CONFIG" ] && grep -q '"baseURL"' "$OPENCODE_CONFIG" || exit 7` + "\n"
+	if err := os.WriteFile(filepath.Join(bin, "opencode"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("CLI_TEST_FAKE_SERVE", "1")
+	t.Setenv("TMPDIR", t.TempDir())
+	f := newFixture(t)
+	if r := f.run("", "opencode"); r.code != ExitOK || strings.Contains(r.stderr, "MITM") {
 		t.Fatalf("opencode: code %d, stderr %q", r.code, r.stderr)
 	}
 }

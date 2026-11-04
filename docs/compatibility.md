@@ -20,9 +20,10 @@ Spec section 19.9. Protocols are the wire codecs under `internal/wire`; clients 
 | claude | claude | https://api.anthropic.com | anthropic | base URL (spec 19.9, degree 3) | `ANTHROPIC_BASE_URL` | supported |
 | codex | codex | https://api.openai.com/v1 | openai, responses | base URL (spec 19.9, degree 3) | `OPENAI_BASE_URL` | supported |
 | gemini | gemini | https://generativelanguage.googleapis.com | google | base URL (spec 19.9, degree 3) | `GOOGLE_GEMINI_BASE_URL` | supported |
-| opencode | opencode |  | none | MITM (spec 19.9, degree 5) | - | not launched: no base URL variable |
+| opencode | opencode | https://api.anthropic.com/v1 | anthropic | temp config (spec 19.9, degree 4) | `OPENCODE_CONFIG` (temp file) | supported |
+| opencode-openai | opencode-openai | https://api.openai.com/v1 | openai, responses | temp config (spec 19.9, degree 4) | `OPENCODE_CONFIG` (temp file) | supported |
 
 ## Status legend
 
-- **supported**: the launcher sets the base URL variable and the protocols above handle the requests.
-- **not launched**: the client has no base URL variable, so the base URL launcher refuses it (`launcher.ErrNoBaseURL`).
+- **supported**: the launcher points the client at the proxy, through the base URL variable or a temp config file, and the protocols above handle the requests.
+- **not launched**: the client has no base URL variable, flag or temp config, so the launcher refuses it (`launcher.ErrNoBaseURL`).

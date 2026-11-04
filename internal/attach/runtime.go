@@ -2,7 +2,6 @@ package attach
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/subtle"
 	"crypto/tls"
 	"crypto/x509"
@@ -20,6 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/fsvxavier/accordion-context/internal/launcher"
 	"github.com/fsvxavier/accordion-context/internal/mitm"
 	"github.com/fsvxavier/accordion-context/internal/proxy"
 	"github.com/fsvxavier/accordion-context/internal/store"
@@ -145,7 +145,7 @@ func startRuntimeOn(o Options, st *store.Store, logger *slog.Logger, sc *scope, 
 }
 
 func newRuntime(o Options, st *store.Store, logger *slog.Logger, sc *scope, ln net.Listener, system bool) (*runtime, error) {
-	nonce, err := randomToken()
+	nonce, err := launcher.RandomToken()
 	if err != nil {
 		return nil, err
 	}
@@ -369,12 +369,4 @@ func (rt *runtime) expectProbe(c *http.Client, req *http.Request) error {
 		return errors.New("probe did not reach the listener")
 	}
 	return nil
-}
-
-func randomToken() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("attach: random token: %w", err)
-	}
-	return base64.RawURLEncoding.EncodeToString(b), nil
 }

@@ -96,7 +96,7 @@ func Run(ctx context.Context, opts Options) (int, error) {
 	if err != nil {
 		return 1, err
 	}
-	if prof.BaseURLEnv == "" {
+	if prof.BaseURLEnv == "" && prof.BaseURLFlag == "" && prof.TempConfig == nil {
 		return 1, fmt.Errorf("%w (profile %q)", ErrNoBaseURL, prof.Name)
 	}
 
@@ -119,12 +119,52 @@ func Run(ctx context.Context, opts Options) (int, error) {
 	}
 	defer stop()
 
-	env := setEnv(os.Environ(), prof.BaseURLEnv, BaseURL(addr, res.ID, prof))
+	// The base URL reaches the client the first way the profile declares, in
+	// the order of attach: variable, flag, then temp config. The temp dir is
+	// created after the signal subscription above, so a signal cannot end the
+	// run before the deferred removal is registered.
+	base := BaseURL(addr, res.ID, prof)
+	env := os.Environ()
+	var flags []string
+	switch {
+	case prof.BaseURLEnv != "":
+		env = setEnv(env, prof.BaseURLEnv, base)
+	case prof.BaseURLFlag != "":
+		token, err := RandomToken()
+		if err != nil {
+			return 1, err
+		}
+		flags, err = BaseURLFlagArgs(prof, base, portOf(addr), token)
+		if err != nil {
+			return 1, fmt.Errorf("launcher: base_url_flag: %w", err)
+		}
+	default:
+		dir, err := os.MkdirTemp("", "acd-ctx-launch-")
+		if err != nil {
+			return 1, fmt.Errorf("launcher: temp dir: %w", err)
+		}
+		defer os.RemoveAll(dir)
+		token, err := RandomToken()
+		if err != nil {
+			return 1, err
+		}
+		t := *prof.TempConfig
+		path, err := WriteTempConfig(dir, t, base, portOf(addr), token)
+		if err != nil {
+			return 1, fmt.Errorf("launcher: %w", err)
+		}
+		if t.PathEnv != "" {
+			env = setEnv(env, t.PathEnv, path)
+		} else if flags, err = PathFlagArgs(t, path); err != nil {
+			return 1, fmt.Errorf("launcher: temp_config path_flag: %w", err)
+		}
+	}
 	for k, v := range prof.Env {
 		env = setEnv(env, k, v)
 	}
 
-	cmd := exec.Command(opts.Args[0], opts.Args[1:]...)
+	argv := ArgvWith(opts.Args, flags, prof.FlagsAfter())
+	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = cwd
 	cmd.Env = env
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = opts.Stdin, opts.Stdout, opts.Stderr
@@ -162,6 +202,12 @@ func Run(ctx context.Context, opts Options) (int, error) {
 	waitErr := cmd.Wait()
 	close(done)
 	return exitStatus(waitErr), nil
+}
+
+// portOf returns the port of a host:port address, or "".
+func portOf(addr string) string {
+	_, port, _ := net.SplitHostPort(addr)
+	return port
 }
 
 // checkLoopback rejects proxy addresses reachable from other hosts; the proxy

@@ -55,7 +55,7 @@ func sysEnv(s IO) *sysproxy.Env {
 func runAttach(args []string, s IO) int {
 	fset := newFlagSet("attach", s)
 	systemProxy := fset.Bool("system-proxy", false, "degree 6: point the desktop HTTPS proxy at acd-ctx for this run (needs --yes)")
-	transparent := fset.Bool("transparent", false, "degree 7: Linux nftables redirect of TCP 443 for one uid (needs --yes, root or CAP_NET_ADMIN)")
+	transparent := fset.Bool("transparent", false, "degree 7: Linux redirect of TCP 443 for one uid over IPv4 and IPv6 (nftables, or iptables when nft is absent; IPv6 only when [::1] is free) (needs --yes, root or CAP_NET_ADMIN)")
 	yes := fset.Bool("yes", false, "confirm the machine-wide change of --system-proxy or --transparent")
 	apply := fset.Bool("apply", false, "with --transparent: install the rules (without it the rules are only printed)")
 	dryRun := fset.Bool("dry-run", false, "with --transparent: print the rules and change nothing (the default)")

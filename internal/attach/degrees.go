@@ -4,16 +4,10 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
-	"path/filepath"
 	"slices"
-	"strings"
 
 	"github.com/fsvxavier/accordion-context/internal/launcher"
 )
-
-// tempFileBase names the temp config file inside the run's temp dir.
-const tempFileBase = "client-config"
 
 // degreeByPreference maps integration.prefer names to base URL degrees.
 var degreeByPreference = map[string]string{
@@ -104,11 +98,7 @@ func (sc *scope) tempPlan(base string) (plan, error) {
 	if err != nil {
 		return plan{}, err
 	}
-	content, err := sc.tempContent(t, base, token)
-	if err != nil {
-		return plan{}, fmt.Errorf("temp_config: %w", err)
-	}
-	path, err := sc.writeTempFile(t.Format, content)
+	path, err := launcher.WriteTempConfig(sc.tmp, t, base, sc.port(), token)
 	if err != nil {
 		return plan{}, err
 	}
@@ -126,63 +116,11 @@ func (sc *scope) tempPlan(base string) (plan, error) {
 	return p, nil
 }
 
-// tempContent returns the file content: the rendered template, or the user's
-// merge_from file with the base URL set at key.
-func (sc *scope) tempContent(t launcher.TempConfig, base, token string) (string, error) {
-	if t.Template != "" {
-		return launcher.RenderTempConfig(t, base, sc.port(), token)
-	}
-	src, err := readMergeSource(t.MergeFrom)
-	if err != nil {
-		return "", err
-	}
-	out, err := launcher.MergeConfig(t.Format, src, t.Key, base)
-	if err != nil {
-		return "", err
-	}
-	return string(out), nil
-}
-
-// readMergeSource reads the user's file. It is the only access to that file:
-// nothing is ever written to it.
-func readMergeSource(path string) ([]byte, error) {
-	if rest, ok := strings.CutPrefix(path, "~/"); ok {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("merge_from: %w", err)
-		}
-		path = filepath.Join(home, rest)
-	}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("merge_from: %w", err)
-	}
-	return b, nil
-}
-
-// writeTempFile creates the config file in the run's 0700 temp dir with mode
-// 0600. It refuses to overwrite an existing file.
-func (sc *scope) writeTempFile(format, content string) (string, error) {
-	path := filepath.Join(sc.tmp, tempFileBase+launcher.ConfigExt(format))
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return "", fmt.Errorf("temp config: %w", err)
-	}
-	if _, err := f.WriteString(content); err != nil {
-		_ = f.Close()
-		return "", fmt.Errorf("temp config: %w", err)
-	}
-	if err := f.Close(); err != nil {
-		return "", fmt.Errorf("temp config: %w", err)
-	}
-	return path, nil
-}
-
 // cfgToken returns the per-run random value of the {token} placeholder. It is
 // not the probe nonce, which is a secret of the proxy.
 func (sc *scope) cfgToken() (string, error) {
 	if sc.token == "" {
-		t, err := randomToken()
+		t, err := launcher.RandomToken()
 		if err != nil {
 			return "", err
 		}

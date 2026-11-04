@@ -105,6 +105,12 @@ func Run(args []string, streams IO) int {
 		return runDoctor(args[1:], s)
 	case "replay":
 		return runReplay(args[1:], s)
+	case "backup":
+		return runBackup(args[1:], s)
+	case "restore":
+		return runRestore(args[1:], s)
+	case "healthcheck":
+		return runHealthcheck(args[1:], s)
 	case "help", "-h", "--help":
 		fmt.Fprint(s.Stdout, Usage())
 		return ExitOK
@@ -136,6 +142,10 @@ run -- <cmd> [args]                   launch any client whose profile is known
 attach [--profiles f] -- <cmd> [args] run any command through the proxy, verifying the integration first
 doctor [--json] [client]              check the installation and, optionally, one client's integration
 replay [--check] <trace.jsonl>           re-run a session trace through the kernel and print the window and events
+backup [--project p] [-o f.db] [--stdout] [--force] [--docker c]
+                                      write a verified backup of the database or one project
+restore <f.db|--stdin> [--project p] [--mode merge|replace] [--yes] [--to local|global] [--dry-run] [--docker c]
+                                      import a backup in one transaction
 mcp                                   serve the companion MCP server on stdio
 help                                  show this help
 

@@ -115,9 +115,6 @@ func runScenario(t *testing.T, sc scenario) {
 	}
 	checkDecompressReturned(t, calls)
 	t.Run("pinned first message is literal on the wire", func(t *testing.T) {
-		if sc.dialect == "anthropic" {
-			t.Skip("TODO(bug): the Anthropic assembler (wire/anthropic assemble) merges the <intents> block (from the second turn) and the <history> envelopes (after a fold) into the pinned first user message, so its bytes change between requests; spec 11.1 says it is fixed and literal, and OpenAI keeps it literal. Unskip once the pinned message is kept as its own wire message.")
-		}
 		checkPinnedLiteral(t, calls, sc.dialect)
 	})
 

@@ -10,10 +10,6 @@ import (
 // (kernel.Render appends the last user message last, render.go), so the model sees
 // its own tool_call and tool result before the request that caused them.
 func TestBugToolRoundKeepsTurnOrder(t *testing.T) {
-	t.Skip("TODO(bug): kernel.Render moves the last user message after the tool round it started " +
-		"(reproduced on Anthropic and OpenAI); the upstream sees assistant tool_call and tool result before 'Turn 2'. Spec 11.1 says the last " +
-		"user message is last in the window, which conflicts with keeping a turn before its own tool round. " +
-		"Unskip when the render keeps the turn before its rounds.")
 	reproToolOrder(t, "openai", "gpt-4o-mini")
 }
 

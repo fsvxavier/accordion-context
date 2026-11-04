@@ -785,7 +785,11 @@ Isso dá ao modelo uma lista explícita e curta do que está pendente, sem depen
 
 ### 11.4 Posição do último turno do usuário
 
-O último turno do usuário é **sempre renderizado depois** de todos os resumos e do bloco `<intents>`. É o equivalente ao `compressAtFoldPoint` do original, mas ligado por padrão. O custo de cache é o mesmo de qualquer fold (a cauda após o anchor já é reescrita, §9).
+O último turno do usuário nunca fica antes dos resumos; mantém a ordem natural em relação à zona bruta. Ele é renderizado depois da mensagem fixada, dos envelopes `<history>` e do bloco `<intents>`, mas **nunca é movido para depois de mensagens brutas posteriores** (por exemplo, a rodada de tool_call + tool_result que ele próprio iniciou): o modelo vê o pedido antes de suas ações. A proteção da zona recente (§10) continua valendo.
+
+O bloco `<intents>` é renderizado a partir do estado do último fold: só entram intenções com `origin_seq <= max(end_seq)` dos blocos ativos (as mensagens mais novas já estão literais na zona bruta), e sem blocos ativos não há bloco `<intents>`. Assim o bloco fica byte-estável entre folds e não desloca o prefixo do prompt cache a cada turno do usuário. `closeIntents` continua válido.
+
+No codec Anthropic, a mensagem fixada do primeiro usuário é sempre uma mensagem de wire própria (byte-idêntica); `<history>` e `<intents>` seguem em mensagem `user` separada.
 
 ### 11.5 Carrier por modo
 

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -483,5 +484,219 @@ func TestApplyDecompressRestoresSourcesAndRejectsStalePlan(t *testing.T) {
 	}
 	if err := s.CheckInvariants(ctx, "s1"); err != nil {
 		t.Fatalf("invariants after decompress: %v", err)
+	}
+}
+
+// foldedFixture builds 10 messages, T1 b1 [1..4] and b2 [5..8], and T2 b3 [1..8]
+// consuming both. The state satisfies every invariant.
+func foldedFixture(t *testing.T) *Store {
+	t.Helper()
+	s := newMemStore(t)
+	setupSession(t, s, "s1")
+	ctx := context.Background()
+	appendN(t, s, "s1", 10)
+	for _, nb := range []NewBlock{
+		{ID: "b1", Tier: 1, Summary: "s", StartSeq: 1, EndSeq: 4, SrcTokens: 40, SumTokens: 4},
+		{ID: "b2", Tier: 1, Summary: "s", StartSeq: 5, EndSeq: 8, SrcTokens: 40, SumTokens: 4},
+	} {
+		if err := s.ApplyCompress(ctx, "s1", CompressPlan{NewBlocks: []NewBlock{nb}, Now: 1, TokensAfter: 10}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.ApplyCompress(ctx, "s1", CompressPlan{
+		NewBlocks:  []NewBlock{{ID: "b3", Tier: 2, Summary: "t", StartSeq: 1, EndSeq: 8, SrcTokens: 8, SumTokens: 2, Sources: []string{"b1", "b2"}}},
+		Deactivate: []string{"b1", "b2"}, ParentOf: map[string]string{"b1": "b3", "b2": "b3"},
+		Now: 2, TokensAfter: 5,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CheckInvariants(ctx, "s1"); err != nil {
+		t.Fatalf("fixture must be valid: %v", err)
+	}
+	return s
+}
+
+// The I6/I7 relaxations (decompressed blocks make no claims) must still flag
+// genuinely corrupted states.
+func TestInvariantsStillCatchCorruption(t *testing.T) {
+	cases := []struct {
+		name string
+		sql  []string
+		want string
+	}{
+		{"T2 source still active", []string{`UPDATE blocks SET active = 1 WHERE block_id = 'b1'`}, "I6"},
+		{"T2 source lost its parent", []string{`UPDATE blocks SET parent_block = NULL WHERE block_id = 'b1'`}, "I6"},
+		{"T2 has no sources", []string{`DELETE FROM block_sources WHERE block_id = 'b3'`}, "I6"},
+		{"hidden message, parent inactive", []string{`UPDATE blocks SET active = 0 WHERE block_id = 'b3'`}, "I7"},
+		{"decompress forgot to reactivate b2", []string{
+			`UPDATE blocks SET active = 0, parent_block = NULL WHERE block_id = 'b3'`,
+			`UPDATE blocks SET active = 1, parent_block = NULL WHERE block_id = 'b1'`}, "I7"},
+		{"double cover, overlapping active T1", []string{
+			`INSERT INTO blocks(session_id, block_id, tier, summary, start_seq, end_seq, src_tokens, sum_tokens, active, created_at)
+			 VALUES ('s1','b9',1,'x',2,3,20,2,1,1)`}, "I2"},
+		{"double cover, same message in two active blocks", []string{
+			`INSERT INTO blocks(session_id, block_id, tier, summary, start_seq, end_seq, src_tokens, sum_tokens, active, created_at)
+			 VALUES ('s1','b9',1,'x',9,10,20,2,1,1)`,
+			`INSERT INTO block_messages(session_id, block_id, seq) VALUES ('s1','b9',9)`,
+			`INSERT INTO block_messages(session_id, block_id, seq) VALUES ('s1','b3',9)`}, "I1"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := foldedFixture(t)
+			for _, q := range tc.sql {
+				if _, err := s.db.Exec(q); err != nil {
+					t.Fatal(err)
+				}
+			}
+			err := s.CheckInvariants(context.Background(), "s1")
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want %s", err, tc.want)
+			}
+		})
+	}
+}
+
+// I3: an active block that covers one half of a tool_call/tool_result pair.
+func TestInvariantI3BrokenToolPair(t *testing.T) {
+	s := newMemStore(t)
+	setupSession(t, s, "s1")
+	ctx := context.Background()
+	appendN(t, s, "s1", 4)
+	for i, k := range []kernel.Kind{kernel.KindToolCall, kernel.KindToolResult} {
+		role := kernel.RoleAssistant
+		if i == 1 {
+			role = kernel.RoleTool
+		}
+		if _, err := s.AppendMessage(ctx, "s1", NewMessage{Role: role, Kind: k, ToolName: "Read", ToolCallID: "c1", Text: "t", Tokens: 10}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	appendN(t, s, "s1", 2)
+	err := s.ApplyCompress(ctx, "s1", CompressPlan{
+		NewBlocks: []NewBlock{{ID: "b1", Tier: 1, Summary: "s", StartSeq: 2, EndSeq: 5, SrcTokens: 40, SumTokens: 4}},
+		Now:       1, TokensAfter: 10,
+	})
+	if err == nil || !strings.Contains(err.Error(), "I3") {
+		t.Fatalf("split tool pair committed: %v", err)
+	}
+}
+
+func TestProjectIDByRoot(t *testing.T) {
+	s := newMemStore(t)
+	setupSession(t, s, "s1")
+	ctx := context.Background()
+	if id, err := s.ProjectIDByRoot(ctx, "/work/p1"); err != nil || id != "p1" {
+		t.Fatalf("got %q, %v", id, err)
+	}
+	if err := s.MoveProject(ctx, "p1", "/work/new"); err != nil {
+		t.Fatal(err)
+	}
+	if id, err := s.ProjectIDByRoot(ctx, "/work/new"); err != nil || id != "p1" {
+		t.Fatalf("after move got %q, %v", id, err)
+	}
+	if _, err := s.ProjectIDByRoot(ctx, "/work/p1"); !errors.Is(err, ErrProjectNotFound) {
+		t.Fatalf("old root err = %v", err)
+	}
+}
+
+// Purge removes one project completely (tiers, lineage, search rows) in FK
+// order, keeps contents another project still references, and leaves the other
+// project valid. An unknown ID changes nothing.
+func TestPurgeProjectIsCompleteAtomicAndSparesSharedContent(t *testing.T) {
+	s := foldedFixture(t)
+	ctx := context.Background()
+	if _, err := s.db.Exec(`INSERT INTO search_idx(session_id, kind, key, body) VALUES ('s1','block','b3','t')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.EnsureProject(ctx, "p2", "/work/p2", "global", 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateSession(ctx, Session{ID: "s2", ProjectID: "p2", Model: "m", ContextLimit: 1000, Mode: "proxy", Integration: "url"}); err != nil {
+		t.Fatal(err)
+	}
+	// "message 1" has the same content hash as s1's first message.
+	appendN(t, s, "s2", 1)
+	count := func(q string) int {
+		var n int
+		if err := s.db.QueryRow(q).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+
+	if _, err := s.PurgeProject(ctx, "nope"); !errors.Is(err, ErrProjectNotFound) {
+		t.Fatalf("unknown project: %v", err)
+	}
+	if count(`SELECT COUNT(*) FROM messages`) != 11 {
+		t.Fatal("failed purge changed data")
+	}
+
+	if _, err := s.PurgeProject(ctx, "p1"); err != nil {
+		t.Fatal(err)
+	}
+	for _, tbl := range []string{"blocks", "block_messages", "block_sources", "intents", "trigger_state", "events", "search_idx"} {
+		if n := count(`SELECT COUNT(*) FROM ` + tbl + ` WHERE session_id = 's1'`); n != 0 {
+			t.Fatalf("%s: %d rows left for purged session", tbl, n)
+		}
+	}
+	if count(`SELECT COUNT(*) FROM sessions WHERE id = 's1'`)+count(`SELECT COUNT(*) FROM projects WHERE id = 'p1'`) != 0 {
+		t.Fatal("session or project survived")
+	}
+	if count(`SELECT COUNT(*) FROM messages WHERE session_id = 's2'`) != 1 {
+		t.Fatal("other project's message lost")
+	}
+	if n := count(`SELECT COUNT(*) FROM contents`); n != 1 {
+		t.Fatalf("contents = %d, want only the shared one", n)
+	}
+	if _, err := s.Snapshot(ctx, "s2"); err != nil {
+		t.Fatalf("other project unreadable: %v", err)
+	}
+	if err := s.CheckInvariants(ctx, "s2"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Export then import into a fresh store reproduces a project with tiers that
+// satisfies the invariants; a corrupted dump rolls back entirely.
+func TestImportProjectRoundTripAndRollback(t *testing.T) {
+	src := foldedFixture(t)
+	ctx := context.Background()
+	dump, err := src.ExportProject(ctx, "p1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dst := newMemStore(t)
+	if _, err := dst.ImportProject(ctx, dump, ImportTarget{ProjectID: "px", RootPath: "/x", Storage: "local"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := dst.CheckInvariants(ctx, "s1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dst.ImportProject(ctx, dump, ImportTarget{ProjectID: "py", RootPath: "/y", Storage: "local"}); err == nil {
+		t.Fatal("re-import of the same session ids must fail")
+	}
+
+	// Corrupt the dump: make b1 active again while b3 still consumes it.
+	bad, err := src.ExportProject(ctx, "p1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tb := range bad.Tables {
+		if tb.Table == "blocks" {
+			for _, r := range tb.Rows {
+				if r["block_id"] == "b1" {
+					r["active"] = int64(1)
+				}
+			}
+		}
+	}
+	fresh := newMemStore(t)
+	if _, err := fresh.ImportProject(ctx, bad, ImportTarget{ProjectID: "pz", RootPath: "/z", Storage: "global"}); err == nil || !strings.Contains(err.Error(), "I6") {
+		t.Fatalf("corrupt import: %v", err)
+	}
+	var n int
+	if err := fresh.db.QueryRow(`SELECT COUNT(*) FROM projects`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("rollback left %d projects (%v)", n, err)
 	}
 }

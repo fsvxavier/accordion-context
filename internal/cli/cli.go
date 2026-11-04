@@ -209,7 +209,7 @@ func localDBPath(root string) string {
 // anything (read-only resolution), loads the configuration for it and picks
 // the database from the effective "storage" key.
 func resolveScope(s IO) (scope, error) {
-	res, err := project.ResolveWith(s.Cwd, projectMarkers, project.Options{ReadOnly: true})
+	res, err := resolveProject(s)
 	if err != nil {
 		return scope{}, err
 	}
@@ -234,6 +234,31 @@ func resolveScope(s IO) (scope, error) {
 		}
 	}
 	return sc, nil
+}
+
+// resolveProject resolves the project of s.Cwd read-only. A global project
+// whose root is registered in the global database keeps that ID, so a project
+// moved with `project move` stays attached to its history.
+func resolveProject(s IO) (project.Resolved, error) {
+	return project.ResolveWith(s.Cwd, projectMarkers, project.Options{
+		ReadOnly: true,
+		IDByRoot: func(root string) (string, bool) { return registeredID(s, root) },
+	})
+}
+
+// registeredID looks root up in the global database, if one exists.
+func registeredID(s IO, root string) (string, bool) {
+	path, err := globalDBPath(s.LookupEnv)
+	if err != nil || !fileExists(path) {
+		return "", false
+	}
+	st, err := store.Open(path)
+	if err != nil {
+		return "", false
+	}
+	defer st.Close()
+	id, err := st.ProjectIDByRoot(context.Background(), root)
+	return id, err == nil
 }
 
 // openStore opens a database, creating its directory when needed.

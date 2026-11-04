@@ -287,3 +287,38 @@ func TestResolveWithReadOnlyNeverWritesProjectID(t *testing.T) {
 		t.Fatalf("read-only after create = %+v, %v; want id %s", again, err, rw.ID)
 	}
 }
+
+func TestIDByRootHookOverridesGlobalHashOnly(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plain, err := ResolveWith(dir, nil, Options{ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var asked string
+	hook := Options{ReadOnly: true, IDByRoot: func(root string) (string, bool) { asked = root; return "moved-id", true }}
+	got, err := ResolveWith(dir, nil, hook)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "moved-id" || asked != plain.Root {
+		t.Fatalf("id %q asked %q, want moved-id / %q", got.ID, asked, plain.Root)
+	}
+	hook.IDByRoot = func(string) (string, bool) { return "", false }
+	if got, _ = ResolveWith(dir, nil, hook); got.ID != plain.ID {
+		t.Fatalf("miss must fall back to the hash: %q != %q", got.ID, plain.ID)
+	}
+	// Local projects ignore the hook: their ID is the project-id file.
+	if err := os.MkdirAll(filepath.Join(dir, ".acd-ctx"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".acd-ctx", "project-id"), []byte("local-1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hook.IDByRoot = func(string) (string, bool) { return "moved-id", true }
+	if got, _ = ResolveWith(dir, nil, hook); got.ID != "local-1" {
+		t.Fatalf("local id = %q", got.ID)
+	}
+}

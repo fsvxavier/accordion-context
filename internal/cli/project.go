@@ -12,7 +12,6 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/fsvxavier/accordion-context/internal/project"
 	"github.com/fsvxavier/accordion-context/internal/store"
 )
 
@@ -58,7 +57,7 @@ func runProject(args []string, s IO) int {
 // global database stay attached. With local set, the database is created now
 // and the config says storage: local.
 func projectInit(s IO, local bool) int {
-	res, err := project.ResolveWith(s.Cwd, projectMarkers, project.Options{ReadOnly: true})
+	res, err := resolveProject(s)
 	if err != nil {
 		return fail(s, err)
 	}
@@ -199,7 +198,14 @@ func projectMove(s IO, oldArg, newArg string) int {
 		if !errors.Is(err, store.ErrProjectNotFound) {
 			return fail(s, err)
 		}
-		id = globalProjectID(absPath(s.Cwd, oldArg))
+		oldPath := absPath(s.Cwd, oldArg)
+		if byRoot, rerr := st.ProjectIDByRoot(ctx, oldPath); rerr == nil {
+			id = byRoot
+		} else if errors.Is(rerr, store.ErrProjectNotFound) {
+			id = globalProjectID(oldPath)
+		} else {
+			return fail(s, rerr)
+		}
 	}
 	if err := st.MoveProject(ctx, id, newRoot); err != nil {
 		return fail(s, fmt.Errorf("move %s: %w", id, err))
@@ -425,7 +431,7 @@ func purgeCandidates(s IO) ([]string, error) {
 	if fileExists(globalPath) {
 		out = append(out, globalPath)
 	}
-	res, err := project.ResolveWith(s.Cwd, projectMarkers, project.Options{ReadOnly: true})
+	res, err := resolveProject(s)
 	if err != nil {
 		return nil, err
 	}

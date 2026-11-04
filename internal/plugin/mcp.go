@@ -72,7 +72,14 @@ func NewMCP(cfg MCPConfig) (*MCP, error) {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	res, err := project.ResolveWith(cfg.Cwd, cfg.Markers, project.Options{ReadOnly: true})
+	opts := project.Options{ReadOnly: true}
+	if cfg.Store != nil {
+		opts.IDByRoot = func(root string) (string, bool) {
+			id, err := cfg.Store.ProjectIDByRoot(context.Background(), root)
+			return id, err == nil
+		}
+	}
+	res, err := project.ResolveWith(cfg.Cwd, cfg.Markers, opts)
 	if err != nil {
 		return nil, fmt.Errorf("plugin: resolve project: %w", err)
 	}

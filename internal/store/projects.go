@@ -69,6 +69,21 @@ func queryProjects(ctx context.Context, q rowSource, query string, args ...any) 
 	return out, rows.Err()
 }
 
+// ProjectIDByRoot returns the ID of the project registered at root, or
+// ErrProjectNotFound. After MoveProject the ID no longer equals the hash of the
+// root, so callers look it up here before deriving one.
+func (s *Store) ProjectIDByRoot(ctx context.Context, root string) (string, error) {
+	var id string
+	err := s.db.QueryRowContext(ctx, `SELECT id FROM projects WHERE root_path = ?1`, root).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("%w: root %s", ErrProjectNotFound, root)
+	}
+	if err != nil {
+		return "", fmt.Errorf("project by root %s: %w", root, err)
+	}
+	return id, nil
+}
+
 // MoveProject points an existing project at a new root path. Its ID does not
 // change (spec §18.2). It fails with ErrProjectNotFound for an unknown ID and
 // with a unique-index error when another project already owns newRoot.

@@ -294,6 +294,20 @@ func TestMoveRepointsRootAndKeepsID(t *testing.T) {
 		t.Fatalf("after move: root %q id %q, want root %q id %q", info.RootPath, info.ID, f.root, id)
 	}
 
+	// Moved project keeps its history: resolving the new root finds the old ID.
+	if out := f.mustRun("project", "show").stdout; !strings.Contains(out, id) {
+		t.Fatalf("project show after move lacks the preserved id %s:\n%s", id, out)
+	}
+	// A second move addressed by the current path still finds it (not by hash).
+	newer := filepath.Join(filepath.Dir(f.root), "newer-app")
+	if err := os.MkdirAll(newer, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f.mustRun("project", "move", f.root, newer)
+	if info, err := st.GetProject(context.Background(), id); err != nil || info.RootPath != newer {
+		t.Fatalf("second move: %+v, %v", info, err)
+	}
+
 	if r := f.run("", "project", "move", "no-such-project", f.root); r.code != ExitFail {
 		t.Fatalf("move of unknown project: code %d, want %d", r.code, ExitFail)
 	}

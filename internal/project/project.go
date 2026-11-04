@@ -45,6 +45,12 @@ type Options struct {
 	// ReadOnly forbids writes. A local project without .acd-ctx/project-id is
 	// not given one; it gets the ID derived from its root path instead.
 	ReadOnly bool
+	// IDByRoot, when set, is asked for the ID already registered for a global
+	// project root before the path hash is used. It keeps the identity of a
+	// project that was moved (`project move` re-points root_path but keeps the
+	// ID). It lives here as a hook so this package does not import the store.
+	// Returning ok=false falls back to the hash of the root.
+	IDByRoot func(root string) (id string, ok bool)
 }
 
 // Resolve finds the project root for cwd. markers are file names (e.g.
@@ -74,16 +80,16 @@ func ResolveWith(cwd string, markers []string, opts Options) (Resolved, error) {
 				return Resolved{}, err
 			}
 			if id == "" { // read-only and no project-id yet
-				return globalProject(d, sourceLocalDir), nil
+				return globalProjectWith(d, sourceLocalDir, opts), nil
 			}
 			return Resolved{ID: id, Root: d, Storage: storageLocal, Source: sourceLocalDir}, nil
 		}
 		if exists(filepath.Join(d, ".git")) {
-			return globalProject(d, sourceGit), nil
+			return globalProjectWith(d, sourceGit, opts), nil
 		}
 		for _, m := range markers {
 			if m != "" && exists(filepath.Join(d, m)) {
-				return globalProject(d, sourceMarker), nil
+				return globalProjectWith(d, sourceMarker, opts), nil
 			}
 		}
 		parent := filepath.Dir(d)
@@ -91,7 +97,7 @@ func ResolveWith(cwd string, markers []string, opts Options) (Resolved, error) {
 			break // filesystem root reached
 		}
 	}
-	return globalProject(dir, sourceCWD), nil
+	return globalProjectWith(dir, sourceCWD, opts), nil
 }
 
 // localID reads <localDir>/project-id. When the file is missing it is created
@@ -122,6 +128,17 @@ func localID(localDir string, readOnly bool) (string, error) {
 		return "", fmt.Errorf("write project id: %w", err)
 	}
 	return id, nil
+}
+
+// globalProjectWith is globalProject, preferring the ID registered for root.
+func globalProjectWith(root, source string, opts Options) Resolved {
+	r := globalProject(root, source)
+	if opts.IDByRoot != nil {
+		if id, ok := opts.IDByRoot(root); ok && id != "" {
+			r.ID = id
+		}
+	}
+	return r
 }
 
 // globalProject derives a stable ID from the absolute root path.

@@ -206,14 +206,26 @@ func readFile(path string) (map[string]any, error) {
 	return m, nil
 }
 
-// flatten turns nested maps into dotted keys. Lists and scalars are leaves.
+// isMapKey reports whether key is a known key whose value is a mapping. Such a
+// mapping is one leaf, so flatten must not split it into dotted keys.
+func isMapKey(key string) bool {
+	s, ok := specByKey[key]
+	if !ok {
+		return false
+	}
+	_, isMap := s.field(&Config{}).(*map[string]int)
+	return isMap
+}
+
+// flatten turns nested maps into dotted keys. Lists, scalars and mappings
+// under a map-valued key (window.models) are leaves.
 func flatten(prefix string, m map[string]any, out map[string]any) {
 	for k, v := range m {
 		key := k
 		if prefix != "" {
 			key = prefix + "." + k
 		}
-		if sub, ok := v.(map[string]any); ok {
+		if sub, ok := v.(map[string]any); ok && !isMapKey(key) {
 			flatten(key, sub, out)
 			continue
 		}

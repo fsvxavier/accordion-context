@@ -11,6 +11,9 @@ type problem struct {
 	msg  string
 }
 
+// minWindow is the smallest context window a configuration may set, in tokens.
+const minWindow = 1000
+
 // validate applies the §18.8 rules plus basic range checks.
 func validate(c Config) []problem {
 	var ps []problem
@@ -81,6 +84,17 @@ func validate(c Config) []problem {
 	}
 	if c.RecallMinAcceptRate.Sign() < 0 || c.RecallMinAcceptRate.Cmp(&one) > 0 {
 		add([]string{"recall.min_accept_rate"}, "must be in [0, 1]")
+	}
+	if c.WindowLimit != 0 && c.WindowLimit < minWindow {
+		add([]string{"window.context_limit"}, "must be 0 (derive from model) or >= %d", minWindow)
+	}
+	for m, n := range c.WindowModels {
+		if m == "" {
+			add([]string{"window.models"}, "model prefix must not be empty")
+		}
+		if n < minWindow {
+			add([]string{"window.models"}, "window for %q must be >= %d tokens, got %d", m, minWindow, n)
+		}
 	}
 	if c.Storage != "global" && c.Storage != "local" {
 		add([]string{"storage"}, "must be \"global\" or \"local\", got %q", c.Storage)

@@ -8,6 +8,7 @@ package config
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -56,6 +57,10 @@ type Config struct {
 	RecallAssist        bool        // recall.assist
 	RecallMinAcceptRate apd.Decimal // recall.min_accept_rate
 
+	// window.* (§8.1, §4): the context window the trigger measures against.
+	WindowLimit  int            // window.context_limit: 0 derives the window from the model
+	WindowModels map[string]int // window.models: model prefix (lower case) -> tokens
+
 	// storage: "global" (default) or "local" (§18.1, §18.3).
 	Storage string // storage
 }
@@ -91,6 +96,8 @@ func Defaults() Config {
 
 		RecallAssist:        true,
 		RecallMinAcceptRate: dec("0.05"),
+
+		WindowModels: map[string]int{},
 
 		Storage: "global",
 	}
@@ -153,6 +160,9 @@ var specs = []keySpec{
 
 	{"recall.assist", true, func(c *Config) any { return &c.RecallAssist }},
 	{"recall.min_accept_rate", true, func(c *Config) any { return &c.RecallMinAcceptRate }},
+
+	{"window.context_limit", true, func(c *Config) any { return &c.WindowLimit }},
+	{"window.models", true, func(c *Config) any { return &c.WindowModels }},
 
 	{"storage", true, func(c *Config) any { return &c.Storage }},
 }
@@ -224,6 +234,24 @@ func parseRaw(field any, raw string) (any, error) {
 			}
 		}
 		return out, nil
+	case *map[string]int:
+		// "model-prefix=tokens,model-prefix=tokens"
+		out := map[string]any{}
+		for _, pair := range strings.Split(raw, ",") {
+			if strings.TrimSpace(pair) == "" {
+				continue
+			}
+			k, v, ok := strings.Cut(pair, "=")
+			if !ok {
+				return nil, fmt.Errorf("want prefix=tokens pairs, got %q", pair)
+			}
+			n, err := strconv.Atoi(strings.TrimSpace(v))
+			if err != nil {
+				return nil, fmt.Errorf("want integer tokens in %q", pair)
+			}
+			out[strings.TrimSpace(k)] = n
+		}
+		return out, nil
 	}
 	return nil, fmt.Errorf("unsupported field type %T", field)
 }
@@ -284,6 +312,27 @@ func assign(field any, v any) error {
 			*f = out
 			return nil
 		}
+	case *map[string]int:
+		// Layers merge: a key set by a later layer replaces the earlier value,
+		// and other keys stay. Model keys are stored in lower case.
+		m, ok := v.(map[string]any)
+		if !ok {
+			break
+		}
+		if *f == nil {
+			*f = map[string]int{}
+		}
+		for k, raw := range m {
+			n, ok := raw.(int)
+			if x, isF := raw.(float64); !ok && isF && x == float64(int(x)) {
+				n, ok = int(x), true
+			}
+			if !ok {
+				return fmt.Errorf("window.models %q: want integer tokens, got %v", k, raw)
+			}
+			(*f)[strings.ToLower(strings.TrimSpace(k))] = n
+		}
+		return nil
 	default:
 		return fmt.Errorf("unsupported field type %T", field)
 	}
@@ -305,6 +354,17 @@ func formatValue(field any) string {
 		return f.String()
 	case *[]string:
 		return strings.Join(*f, ",")
+	case *map[string]int:
+		keys := make([]string, 0, len(*f))
+		for k := range *f {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		parts := make([]string, 0, len(keys))
+		for _, k := range keys {
+			parts = append(parts, k+"="+strconv.Itoa((*f)[k]))
+		}
+		return strings.Join(parts, ",")
 	}
 	return ""
 }

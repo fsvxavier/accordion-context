@@ -15,6 +15,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/fsvxavier/accordion-context/internal/cli"
 	"github.com/fsvxavier/accordion-context/internal/proxy"
 	"github.com/fsvxavier/accordion-context/internal/store"
 )
@@ -41,9 +42,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		usage(stdout)
 		return 0
 	default:
-		fmt.Fprintf(stderr, "acd-ctx: unknown command %q\n", args[0])
-		usage(stderr)
-		return 2
+		// project, config, mcp and the client launchers live in internal/cli.
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return cli.Run(args, cli.IO{Ctx: ctx, Stdin: os.Stdin, Stdout: stdout, Stderr: stderr, Version: version})
 	}
 }
 
@@ -127,5 +129,8 @@ func usage(w io.Writer) {
 
 commands:
   serve     run the compaction proxy (--listen, --upstream, --db, --allow, --config, --markers)
-  version   print the version`)
+  version   print the version
+
+Other commands:`)
+	fmt.Fprint(w, cli.Usage())
 }

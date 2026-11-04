@@ -41,6 +41,13 @@ func serveListen(ctx context.Context, addr string, h http.Handler) error {
 		return err
 	}
 	srv := &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second}
+	// Hijacked WebSocket connections are not tracked by http.Server, so the handler
+	// closes them itself when the server shuts down.
+	srv.RegisterOnShutdown(func() {
+		if c, ok := h.(interface{ CloseWebSockets() }); ok {
+			c.CloseWebSockets()
+		}
+	})
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
 

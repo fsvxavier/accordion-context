@@ -88,6 +88,12 @@ type Config struct {
 	// accepts (replacing the loopback defaults and ListenHost). Set by serve for
 	// non-loopback listening; see CheckListen.
 	AllowedHosts []string
+	// WSIdleTimeout closes a WebSocket connection that has had no client frame for
+	// this long. Zero means defaultWSIdleTimeout.
+	WSIdleTimeout time.Duration
+	// WSMaxFrameBytes caps one WebSocket message in either direction. Zero means
+	// maxBodyBytes.
+	WSMaxFrameBytes int64
 }
 
 // Server is the http.Handler of the proxy.
@@ -109,8 +115,12 @@ type Server struct {
 	roots    map[string]string       // project id -> root_path last seen
 	tunes    map[string]*tune        // per session: calibration, cache gate state (tune.go)
 	cfgs     map[string]cachedConfig // project root ("" = global only) -> configuration
+	epoch    int64                   // store epoch the caches above were built at (epoch.go)
 
 	telemetry *telemetry // metrics and recall-hint tracking (obs.go)
+
+	wsMu       sync.Mutex
+	wsSessions map[*wsSession]struct{} // live WebSocket sessions (ws.go)
 }
 
 // New validates cfg and builds the handler.
@@ -135,6 +145,12 @@ func New(cfg Config) (*Server, error) {
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
+	}
+	if cfg.WSIdleTimeout <= 0 {
+		cfg.WSIdleTimeout = defaultWSIdleTimeout
+	}
+	if cfg.WSMaxFrameBytes <= 0 {
+		cfg.WSMaxFrameBytes = maxBodyBytes
 	}
 	allow, err := allowSet(cfg.UpstreamAllow, cfg.Upstream)
 	if err != nil {
@@ -212,6 +228,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, msg, status)
 		return
 	}
+	if _, ok := protocolFor(rt).(responsesProtocol); ok && isWebSocketUpgrade(r) {
+		// WebSocket mode of /v1/responses (ws.go). Other upgrades pass through as before.
+		s.serveResponsesWS(w, r, rt)
+		return
+	}
 	if r.Method == http.MethodPost {
 		if p := protocolFor(rt); p != nil {
 			s.compactTurn(w, r, rt, p)
@@ -264,6 +285,23 @@ func (s *Server) compactTurn(w http.ResponseWriter, r *http.Request, rt routed, 
 		s.failOpen(w, r, rt, body, "decode", err)
 		return
 	}
+	// The compaction prelude is shared with the WebSocket path (ws.go), which
+	// passes frames already decoded by its codec.
+	t, stage, err := s.prepareTurn(ctx, r, rt, p, model, req, msgs)
+	if err != nil {
+		s.failOpen(w, r, rt, body, stage, err)
+		return
+	}
+	t.stream = stream
+	s.runTurns(w, r, t)
+	s.countRequest(p.Name(), obs.OutcomeCompact)
+}
+
+// prepareTurn runs the compaction pipeline for one decoded request: session and
+// ledger, ingest, plan, encode, tool injection and the nudge. On failure it
+// returns the stage name, and the caller forwards the request unchanged.
+func (s *Server) prepareTurn(ctx context.Context, r *http.Request, rt routed, p protocol, model string, req request, msgs []kernel.Message) (*turn, string, error) {
+	s.syncEpoch(ctx)
 	for i := range msgs {
 		msgs[i].Tokens = kernel.EstimateTokens(msgs[i].Text)
 	}
@@ -275,8 +313,7 @@ func (s *Server) compactTurn(w http.ResponseWriter, r *http.Request, rt routed, 
 	// an edited or colliding transcript gets its own fork (see fork.go).
 	sid, sess, fk, err := s.resolveLedger(ctx, proj, base, msgs, model, s.contextWindow(model, cfg))
 	if err != nil {
-		s.failOpen(w, r, rt, body, "session", err)
-		return
+		return nil, "session", err
 	}
 	// An existing session follows the configured window (spec §8.1, §18.8).
 	if err := s.applyContextLimit(ctx, sid, cfg); err != nil {
@@ -285,8 +322,7 @@ func (s *Server) compactTurn(w http.ResponseWriter, r *http.Request, rt routed, 
 	// The session takes the settings of the project's configuration (spec §18.5).
 	sess.SetOptions(sessionOptions(cfg))
 	if _, err := sess.Ingest(ctx, msgs); err != nil {
-		s.failOpen(w, r, rt, body, "ingest", err)
-		return
+		return nil, "ingest", err
 	}
 	if fk != nil {
 		// Retried on every turn of the fork until it succeeds (see inheritBlocks).
@@ -296,8 +332,7 @@ func (s *Server) compactTurn(w http.ResponseWriter, r *http.Request, rt routed, 
 	}
 	snap, err := s.cfg.Store.Snapshot(ctx, sid)
 	if err != nil {
-		s.failOpen(w, r, rt, body, "snapshot", err)
-		return
+		return nil, "snapshot", err
 	}
 	// The client resends the whole transcript, so the size that matters is the
 	// rendered window, after CCR and crush (spec §14), not the raw transcript.
@@ -311,26 +346,22 @@ func (s *Server) compactTurn(w http.ResponseWriter, r *http.Request, rt routed, 
 		Tokens: tokenCount, Messages: len(snap.Messages), ContextLimit: snap.ContextLimit,
 		Settings: obs.SettingsOf(opts.Kernel, opts.RecentKeep, opts.MinCompressRange, opts.MinSummaryChars),
 	}); err != nil {
-		s.failOpen(w, r, rt, body, "turn", err)
-		return
+		return nil, "turn", err
 	}
 	plan, err := sess.Plan(ctx, tokenCount)
 	if err != nil {
-		s.failOpen(w, r, rt, body, "plan", err)
-		return
+		return nil, "plan", err
 	}
 	s.telemetry.turnHints(sid, plan.Hints)
 	s.observeTurn(ctx, sid, sess, snap, plan, tokenCount, cfg)
 	window := reduceWindow(plan.Visible, cfg.CCRThresholdTokens, cfg.CrushEnabled)
 	encoded, err := req.encode(window)
 	if err != nil {
-		s.failOpen(w, r, rt, body, "encode", err)
-		return
+		return nil, "encode", err
 	}
 	out, err := p.InjectTools(encoded)
 	if err != nil {
-		s.failOpen(w, r, rt, body, "inject", err)
-		return
+		return nil, "inject", err
 	}
 	held := s.takeHeld(sid)
 	if plan.Decision.Nudge {
@@ -360,13 +391,13 @@ func (s *Server) compactTurn(w http.ResponseWriter, r *http.Request, rt routed, 
 	}
 
 	t := &turn{
-		ctx: ctx, sess: sess, sid: sid, proto: p, up: rt.up, path: rt.path, stream: stream, body: out,
+		ctx: ctx, sess: sess, sid: sid, proto: p, up: rt.up, path: rt.path, body: out,
 		estTokens: sumTokens(window), proj: proj.ID,
 	}
 	s.cfg.Logger.Debug("compaction turn", "protocol", p.Name(), "project", proj.ID, "session", sid,
 		"rule", plan.Decision.Row, "nudge", plan.Decision.Nudge, "tokens", tokenCount, "est_tokens", t.estTokens)
-	s.runTurns(w, r, t)
-	s.countRequest(p.Name(), obs.OutcomeCompact)
+	return t, "", nil
+
 }
 
 // turn is the per-client-request state of the server-side tool loop.

@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cockroachdb/apd/v3"
+
 	"github.com/fsvxavier/accordion-context/internal/kernel"
 )
 
@@ -81,7 +83,7 @@ func TestSpecLocalExampleLoadsWithoutWarnings(t *testing.T) {
 		t.Fatalf("warnings = %v, want none", r.Warnings)
 	}
 	c := r.Config
-	if c.StepBase != 80000 || c.UFloor != 0.25 || c.Storage != "local" || c.CCRThresholdTokens != 3000 || !c.RecallAssist {
+	if c.StepBase != 80000 || !decEq(c.UFloor, "0.25") || c.Storage != "local" || c.CCRThresholdTokens != 3000 || !c.RecallAssist {
 		t.Fatalf("unexpected config: %+v", c)
 	}
 	if len(c.ProtectedTools) != 1 || c.ProtectedTools[0] != "db_migrate" {
@@ -351,14 +353,14 @@ func TestTypeAndValueErrors(t *testing.T) {
 
 func TestValidateRules(t *testing.T) {
 	cases := map[string]func(*Config){
-		"u_floor>u_high": func(c *Config) { c.UFloor = 0.9 },
-		"u_high>u_emerg": func(c *Config) { c.UHigh = 0.99 },
-		"u_emerg>1":      func(c *Config) { c.UEmerg = 1.1 },
+		"u_floor>u_high": func(c *Config) { c.UFloor = dec("0.9") },
+		"u_high>u_emerg": func(c *Config) { c.UHigh = dec("0.99") },
+		"u_emerg>1":      func(c *Config) { c.UEmerg = dec("1.1") },
 		"step_min<=0":    func(c *Config) { c.StepMin = 0 },
 		"step_base>max":  func(c *Config) { c.StepBase = 200000 },
-		"negative price": func(c *Config) { c.PriceCached = -1 },
+		"negative price": func(c *Config) { c.PriceCached = dec("-1") },
 		"summary bounds": func(c *Config) { c.MaxSummaryChars = 10 },
-		"accept rate":    func(c *Config) { c.RecallMinAcceptRate = 2 },
+		"accept rate":    func(c *Config) { c.RecallMinAcceptRate = dec("2") },
 		"bad storage":    func(c *Config) { c.Storage = "cloud" },
 		"negative ttl":   func(c *Config) { c.CacheTTL = -time.Second },
 	}
@@ -375,7 +377,11 @@ func TestValidateRules(t *testing.T) {
 }
 
 func TestDefaultsMatchKernel(t *testing.T) {
-	if got, want := Defaults().Kernel(), kernel.DefaultConfig(); got != want {
+	got, want := Defaults().Kernel(), kernel.DefaultConfig()
+	if !decEq(got.UFloor, want.UFloor.String()) || !decEq(got.UHigh, want.UHigh.String()) ||
+		!decEq(got.UEmerg, want.UEmerg.String()) || !decEq(got.StepReadGain, want.StepReadGain.String()) ||
+		got.StepBase != want.StepBase || got.StepMin != want.StepMin || got.StepMax != want.StepMax ||
+		got.MinGrowthFloor != want.MinGrowthFloor || got.TiersEnabled != want.TiersEnabled {
 		t.Fatalf("Kernel() = %+v\nkernel.DefaultConfig() = %+v", got, want)
 	}
 }
@@ -408,4 +414,10 @@ func TestEnvVarName(t *testing.T) {
 	if got := EnvName("trigger.step_base"); got != "ACD_CTX_TRIGGER_STEP_BASE" {
 		t.Fatalf("EnvName = %s", got)
 	}
+}
+
+// decEq reports whether d equals the decimal literal s.
+func decEq(d apd.Decimal, s string) bool {
+	want := dec(s)
+	return d.Cmp(&want) == 0
 }

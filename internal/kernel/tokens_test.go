@@ -1,7 +1,6 @@
 package kernel
 
 import (
-	"math"
 	"strings"
 	"testing"
 )
@@ -58,29 +57,29 @@ func TestCalibZeroValue(t *testing.T) {
 func TestCalibUpdate(t *testing.T) {
 	tests := []struct {
 		name       string
-		alpha      float64
+		alpha      string
 		samples    [][2]int // estimated, reported
-		wantFactor float64
+		wantFactor string
 		wantTokens int // Tokens(100) after samples
 		wantN      int
 	}{
-		{"no samples keeps factor 1", 0.2, nil, 1, 100, 0},
-		{"single sample EMA from 1", 0.2, [][2]int{{100, 200}}, 1.2, 120, 1},
-		{"two samples", 0.2, [][2]int{{100, 200}, {100, 200}}, 1.36, 136, 2},
-		{"zero estimate ignored", 0.2, [][2]int{{0, 200}}, 1, 100, 0},
-		{"zero reported ignored", 0.2, [][2]int{{100, 0}}, 1, 100, 0},
-		{"negative ignored", 0.2, [][2]int{{-5, 10}, {10, -1}}, 1, 100, 0},
-		{"alpha 1 takes sample", 1, [][2]int{{100, 50}}, 0.5, 50, 1},
-		{"bad alpha uses default", 7, [][2]int{{100, 200}}, 1.2, 120, 1},
+		{"no samples keeps factor 1", "0.2", nil, "1", 100, 0},
+		{"single sample EMA from 1", "0.2", [][2]int{{100, 200}}, "1.2", 120, 1},
+		{"two samples", "0.2", [][2]int{{100, 200}, {100, 200}}, "1.36", 136, 2},
+		{"zero estimate ignored", "0.2", [][2]int{{0, 200}}, "1", 100, 0},
+		{"zero reported ignored", "0.2", [][2]int{{100, 0}}, "1", 100, 0},
+		{"negative ignored", "0.2", [][2]int{{-5, 10}, {10, -1}}, "1", 100, 0},
+		{"alpha 1 takes sample", "1", [][2]int{{100, 50}}, "0.5", 50, 1},
+		{"bad alpha uses default", "7", [][2]int{{100, 200}}, "1.2", 120, 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := NewCalib(tt.alpha)
+			c := NewCalib(dec(tt.alpha))
 			for _, s := range tt.samples {
 				c.Update(s[0], s[1])
 			}
-			if math.Abs(c.Factor-tt.wantFactor) > 1e-9 {
-				t.Fatalf("Factor = %v, want %v", c.Factor, tt.wantFactor)
+			if cmp(c.Factor, dec(tt.wantFactor)) != 0 {
+				t.Fatalf("Factor = %s, want %s", c.Factor.String(), tt.wantFactor)
 			}
 			if got := c.Tokens(100); got != tt.wantTokens {
 				t.Fatalf("Tokens(100) = %d, want %d", got, tt.wantTokens)
@@ -93,24 +92,24 @@ func TestCalibUpdate(t *testing.T) {
 }
 
 func TestCalibMAE(t *testing.T) {
-	c := NewCalib(0.2)
+	c := NewCalib(dec("0.2"))
 	c.Update(100, 200) // pred 100, err 0.5 -> MAE 0.5
-	if math.Abs(c.MAE-0.5) > 1e-9 {
-		t.Fatalf("first MAE = %v, want 0.5", c.MAE)
+	if cmp(c.MAE, dec("0.5")) != 0 {
+		t.Fatalf("first MAE = %s, want 0.5", c.MAE.String())
 	}
 	c.Update(100, 200) // pred 120, err 0.4 -> MAE 0.5*0.8+0.4*0.2 = 0.48
-	if math.Abs(c.MAE-0.48) > 1e-9 {
-		t.Fatalf("second MAE = %v, want 0.48", c.MAE)
+	if cmp(c.MAE, dec("0.48")) != 0 {
+		t.Fatalf("second MAE = %s, want 0.48", c.MAE.String())
 	}
 }
 
 func TestCalibConverges(t *testing.T) {
-	c := NewCalib(0.2)
+	c := NewCalib(dec("0.2"))
 	for i := 0; i < 200; i++ {
 		c.Update(100, 150)
 	}
-	if math.Abs(c.Factor-1.5) > 1e-6 {
-		t.Fatalf("Factor = %v, want ~1.5", c.Factor)
+	if cmp(abs(sub(c.Factor, dec("1.5"))), dec("0.000001")) > 0 {
+		t.Fatalf("Factor = %s, want ~1.5", c.Factor.String())
 	}
 	if got := c.Tokens(1000); got != 1500 {
 		t.Fatalf("Tokens(1000) = %d, want 1500", got)

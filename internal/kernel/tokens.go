@@ -1,13 +1,14 @@
 package kernel
 
 import (
-	"math"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/cockroachdb/apd/v3"
 )
 
 // DefaultCalibAlpha is the EMA smoothing factor for calibration (spec §15).
-const DefaultCalibAlpha = 0.2
+var DefaultCalibAlpha = dec("0.2")
 
 // EstimateTokens is a fast local heuristic by character class (spec §15.1):
 // runs of ASCII letters/digits cost ceil(len/4); each other ASCII symbol costs
@@ -52,31 +53,36 @@ func isASCIIWord(r rune) bool {
 // DefaultCalibAlpha. Only feed clean samples (no images, no failures); the
 // kernel does not judge cleanliness.
 type Calib struct {
-	Alpha   float64 // EMA weight of a new sample
-	Factor  float64 // reported/estimated ratio, EMA-smoothed
+	Alpha   apd.Decimal // EMA weight of a new sample
+	Factor  apd.Decimal // reported/estimated ratio, EMA-smoothed
 	Samples int
-	MAE     float64 // EMA of |reported - predicted| / reported, before each update
+	MAE     apd.Decimal // EMA of |reported - predicted| / reported, before each update
 }
 
 // NewCalib returns a calibrator with Factor 1.0 and the given alpha
 // (DefaultCalibAlpha when alpha <= 0 or > 1).
-func NewCalib(alpha float64) Calib {
-	if alpha <= 0 || alpha > 1 {
+func NewCalib(alpha apd.Decimal) Calib {
+	if !validAlpha(alpha) {
 		alpha = DefaultCalibAlpha
 	}
-	return Calib{Alpha: alpha, Factor: 1}
+	return Calib{Alpha: alpha, Factor: dec("1")}
 }
 
-func (c *Calib) alpha() float64 {
-	if c.Alpha <= 0 || c.Alpha > 1 {
+// validAlpha reports whether a is in (0, 1].
+func validAlpha(a apd.Decimal) bool {
+	return a.Sign() > 0 && cmp(a, dec("1")) <= 0
+}
+
+func (c *Calib) alpha() apd.Decimal {
+	if !validAlpha(c.Alpha) {
 		return DefaultCalibAlpha
 	}
 	return c.Alpha
 }
 
-func (c *Calib) factor() float64 {
-	if c.Factor <= 0 {
-		return 1
+func (c *Calib) factor() apd.Decimal {
+	if c.Factor.Sign() <= 0 {
+		return dec("1")
 	}
 	return c.Factor
 }
@@ -87,15 +93,16 @@ func (c *Calib) Update(estimated, reported int) {
 		return
 	}
 	a := c.alpha()
+	oneMinusA := sub(dec("1"), a)
 	pred := c.Tokens(estimated)
-	err := math.Abs(float64(reported-pred)) / float64(reported)
+	err := quo(abs(intDec(reported-pred)), intDec(reported))
 	if c.Samples == 0 {
 		c.MAE = err
 	} else {
-		c.MAE = c.MAE*(1-a) + err*a
+		c.MAE = add(mul(c.MAE, oneMinusA), mul(err, a))
 	}
-	r := float64(reported) / float64(estimated)
-	c.Factor = c.factor()*(1-a) + r*a
+	r := quo(intDec(reported), intDec(estimated))
+	c.Factor = add(mul(c.factor(), oneMinusA), mul(r, a))
 	c.Samples++
 }
 
@@ -104,5 +111,5 @@ func (c *Calib) Tokens(estimated int) int {
 	if estimated <= 0 {
 		return 0
 	}
-	return int(math.Round(float64(estimated) * c.factor()))
+	return roundInt(mul(intDec(estimated), c.factor()))
 }

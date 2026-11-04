@@ -142,19 +142,19 @@ func TestAdaptiveStep(t *testing.T) {
 	cfg := DefaultConfig()
 	tests := []struct {
 		name    string
-		density float64
+		density string
 		want    int
 	}{
-		{"pure dialogue", 0, 50_000},
-		{"half reads", 0.5, 75_000},
-		{"all reads", 1, 100_000},
-		{"over 1 clamps to max", 3, 100_000},
-		{"negative clamps to min", -1, 30_000},
+		{"pure dialogue", "0", 50_000},
+		{"half reads", "0.5", 75_000},
+		{"all reads", "1", 100_000},
+		{"over 1 clamps to max", "3", 100_000},
+		{"negative clamps to min", "-1", 30_000},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := adaptiveStep(cfg, tt.density); got != tt.want {
-				t.Fatalf("adaptiveStep(%v) = %d, want %d", tt.density, got, tt.want)
+			if got := adaptiveStep(cfg, dec(tt.density)); got != tt.want {
+				t.Fatalf("adaptiveStep(%s) = %d, want %d", tt.density, got, tt.want)
 			}
 		})
 	}
@@ -184,7 +184,7 @@ func TestAdaptiveStepChangesThreshold(t *testing.T) {
 	if got := DecideNudge(in, cfg); !got.Nudge || got.Row != "row6" {
 		t.Fatalf("dialogue: got %+v, want row6", got)
 	}
-	in.ReadDensity = 1
+	in.ReadDensity = dec("1")
 	if got := DecideNudge(in, cfg); got.Nudge || got.Row != "row9" {
 		t.Fatalf("read-heavy: got %+v, want row9", got)
 	}
@@ -258,7 +258,7 @@ func TestDecideNudgeBoundaries(t *testing.T) {
 
 func TestDecideNudgeUFloorZeroDisablesFloor(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.UFloor = 0
+	cfg.UFloor = dec("0")
 	got := DecideNudge(TriggerInput{ContextLimit: 200_000, TokenCount: 10_000, Pending: map[int]int{1: 60_000}, Trigger: TriggerState{LowWater: 0}}, cfg)
 	if got.Row == "row4" {
 		t.Fatalf("floor still active: %+v", got)

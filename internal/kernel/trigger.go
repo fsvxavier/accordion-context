@@ -1,6 +1,10 @@
 package kernel
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/cockroachdb/apd/v3"
+)
 
 // Voice is the tone of a nudge shown to the model (spec §8.3).
 type Voice string
@@ -15,15 +19,15 @@ const (
 // Config holds the compression trigger thresholds (spec §8.1, §8.4).
 // DefaultConfig returns the values from the spec.
 type Config struct {
-	StepBase       int     // S before adaptation: 50K
-	StepMin        int     // 30K
-	StepMax        int     // 100K
-	StepReadGain   float64 // 1.0
-	MinGrowthFloor int     // 20K
-	UFloor         float64 // 0.30; 0 disables the floor (original behaviour)
-	UHigh          float64 // 0.75
-	UEmerg         float64 // 0.95
-	TiersEnabled   bool    // gates rows 7 and 8
+	StepBase       int         // S before adaptation: 50K
+	StepMin        int         // 30K
+	StepMax        int         // 100K
+	StepReadGain   apd.Decimal // 1.0
+	MinGrowthFloor int         // 20K
+	UFloor         apd.Decimal // 0.30; 0 disables the floor (original behaviour)
+	UHigh          apd.Decimal // 0.75
+	UEmerg         apd.Decimal // 0.95
+	TiersEnabled   bool        // gates rows 7 and 8
 }
 
 // DefaultConfig returns the spec §8.1 defaults.
@@ -32,11 +36,11 @@ func DefaultConfig() Config {
 		StepBase:       50_000,
 		StepMin:        30_000,
 		StepMax:        100_000,
-		StepReadGain:   1.0,
+		StepReadGain:   dec("1"),
 		MinGrowthFloor: 20_000,
-		UFloor:         0.30,
-		UHigh:          0.75,
-		UEmerg:         0.95,
+		UFloor:         dec("0.30"),
+		UHigh:          dec("0.75"),
+		UEmerg:         dec("0.95"),
 		TiersEnabled:   true,
 	}
 }
@@ -45,7 +49,7 @@ func DefaultConfig() Config {
 type TriggerInput struct {
 	TokenCount   int         // current context size in tokens
 	ContextLimit int         // L
-	ReadDensity  float64     // share of recent growth from tool_result (0..1)
+	ReadDensity  apd.Decimal // share of recent growth from tool_result (0..1)
 	Pending      map[int]int // compressible tokens per tier (keys 1..3)
 	Trigger      TriggerState
 }
@@ -66,21 +70,22 @@ func DecideNudge(in TriggerInput, cfg Config) Decision {
 	if in.ContextLimit <= 0 {
 		return none("guard", "context limit not set")
 	}
-	U := float64(in.TokenCount) / float64(in.ContextLimit)
 	S := adaptiveStep(cfg, in.ReadDensity)
 	F := growthFloor(cfg, S)
 	G := in.TokenCount - in.Trigger.LowWater
 	Bmin := max(5000, in.ContextLimit/100)
 	best, bestP := argmaxTier(in.Pending)
 
+	// U = TokenCount / ContextLimit, compared without dividing (exact).
+	L := in.ContextLimit
 	switch {
-	case U >= cfg.UEmerg && bestP >= Bmin:
+	case geFrac(in.TokenCount, L, cfg.UEmerg) && bestP >= Bmin:
 		return nudge(best, VoiceEmergency, "row1")
-	case U >= cfg.UEmerg:
+	case geFrac(in.TokenCount, L, cfg.UEmerg):
 		return none("row2", "emergency, nothing compressible")
-	case U >= cfg.UHigh && bestP >= Bmin:
+	case geFrac(in.TokenCount, L, cfg.UHigh) && bestP >= Bmin:
 		return nudge(best, VoiceFirm, "row3")
-	case U < cfg.UFloor:
+	case ltFrac(in.TokenCount, L, cfg.UFloor):
 		return none("row4", "below usage floor")
 	}
 
@@ -96,7 +101,7 @@ func DecideNudge(in TriggerInput, cfg Config) Decision {
 	}
 
 	p1, p2, p3 := in.Pending[1], in.Pending[2], in.Pending[3]
-	t23 := int(1.5 * float64(S))
+	t23 := truncInt(mul(dec("1.5"), intDec(S)))
 	switch {
 	case p1 >= S:
 		return nudge(1, VoiceGentle, "row6")
@@ -119,14 +124,14 @@ func UpdateLowWater(prev, tokenCount int) int {
 }
 
 // adaptiveStep returns the growth step S for a read density (spec §8.4).
-func adaptiveStep(cfg Config, readDensity float64) int {
-	s := float64(cfg.StepBase) * (1 + cfg.StepReadGain*readDensity)
-	return clamp(int(s), cfg.StepMin, cfg.StepMax)
+func adaptiveStep(cfg Config, readDensity apd.Decimal) int {
+	s := mul(intDec(cfg.StepBase), add(dec("1"), mul(cfg.StepReadGain, readDensity)))
+	return clamp(truncInt(s), cfg.StepMin, cfg.StepMax)
 }
 
 // growthFloor is F = max(MinGrowthFloor, 0.45 * S) (spec §8.1).
 func growthFloor(cfg Config, step int) int {
-	return max(cfg.MinGrowthFloor, int(0.45*float64(step)))
+	return max(cfg.MinGrowthFloor, truncInt(mul(dec("0.45"), intDec(step))))
 }
 
 // argmaxTier returns the tier with the most pending tokens among 1..3.

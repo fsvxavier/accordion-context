@@ -22,7 +22,7 @@ func TestEstimateFold(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := EstimateFold(m, tt.src, tt.sum, tt.tail, tt.calls)
 			if got.Worth != tt.wantWorth {
-				t.Fatalf("Worth = %v (cost %.0f benefit %.0f), want %v", got.Worth, got.Cost, got.Benefit, tt.wantWorth)
+				t.Fatalf("Worth = %v (cost %s benefit %s), want %v", got.Worth, got.Cost.String(), got.Benefit.String(), tt.wantWorth)
 			}
 		})
 	}
@@ -30,7 +30,7 @@ func TestEstimateFold(t *testing.T) {
 
 func TestEstimateFoldValues(t *testing.T) {
 	got := EstimateFold(DefaultCostModel(), 100_000, 50_000, 60_000, 20)
-	if got.Recovered != 50_000 || got.Cost != 54_000 || got.Benefit != 100_000 {
+	if got.Recovered != 50_000 || cmp(got.Cost, dec("54000")) != 0 || cmp(got.Benefit, dec("100000")) != 0 {
 		t.Fatalf("got %+v, want R=50000 cost=54000 benefit=100000", got)
 	}
 }
@@ -39,26 +39,26 @@ func TestExpectedCalls(t *testing.T) {
 	tests := []struct {
 		name   string
 		gaps   []int
-		factor float64
+		factor string
 		limit  int
 		want   int
 	}{
-		{"no history", nil, 2, 50, 0},
-		{"odd median", []int{3, 9, 5}, 2, 50, 10},
-		{"even median averages middle pair", []int{4, 8, 2, 6}, 1, 50, 5},
-		{"clamped to limit", []int{100}, 1, 20, 20},
-		{"factor rounds", []int{5}, 1.5, 50, 8},
-		{"does not mutate input order", []int{9, 1, 5}, 1, 50, 5},
+		{"no history", nil, "2", 50, 0},
+		{"odd median", []int{3, 9, 5}, "2", 50, 10},
+		{"even median averages middle pair", []int{4, 8, 2, 6}, "1", 50, 5},
+		{"clamped to limit", []int{100}, "1", 20, 20},
+		{"factor rounds", []int{5}, "1.5", 50, 8},
+		{"does not mutate input order", []int{9, 1, 5}, "1", 50, 5},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ExpectedCalls(tt.gaps, tt.factor, tt.limit); got != tt.want {
+			if got := ExpectedCalls(tt.gaps, dec(tt.factor), tt.limit); got != tt.want {
 				t.Fatalf("ExpectedCalls = %d, want %d", got, tt.want)
 			}
 		})
 	}
 	gaps := []int{9, 1, 5}
-	ExpectedCalls(gaps, 1, 50)
+	ExpectedCalls(gaps, dec("1"), 50)
 	if gaps[0] != 9 || gaps[1] != 1 || gaps[2] != 5 {
 		t.Fatalf("input mutated: %v", gaps)
 	}

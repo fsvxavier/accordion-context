@@ -18,16 +18,17 @@ func validate(c Config) []problem {
 		ps = append(ps, problem{keys: keys, msg: fmt.Sprintf(format, args...)})
 	}
 
-	if c.UFloor < 0 {
+	one := dec("1")
+	if c.UFloor.Sign() < 0 {
 		add([]string{"trigger.u_floor"}, "must be >= 0")
 	}
-	if c.UFloor > c.UHigh {
+	if c.UFloor.Cmp(&c.UHigh) > 0 {
 		add([]string{"trigger.u_floor", "trigger.u_high"}, "u_floor must be <= u_high")
 	}
-	if c.UHigh > c.UEmerg {
+	if c.UHigh.Cmp(&c.UEmerg) > 0 {
 		add([]string{"trigger.u_high", "trigger.u_emerg"}, "u_high must be <= u_emerg")
 	}
-	if c.UEmerg > 1 {
+	if c.UEmerg.Cmp(&one) > 0 {
 		add([]string{"trigger.u_emerg"}, "must be <= 1 (fraction of the context window)")
 	}
 	if c.StepMin <= 0 {
@@ -39,7 +40,7 @@ func validate(c Config) []problem {
 	if c.StepBase > c.StepMax {
 		add([]string{"trigger.step_base", "trigger.step_max"}, "step_base must be <= step_max")
 	}
-	if c.StepReadGain < 0 {
+	if c.StepReadGain.Sign() < 0 {
 		add([]string{"trigger.step_read_gain"}, "must be >= 0")
 	}
 	if c.MinGrowthFloor < 0 {
@@ -51,13 +52,13 @@ func validate(c Config) []problem {
 	if c.CacheTTL < 0 {
 		add([]string{"cache.ttl"}, "must be >= 0")
 	}
-	if c.CacheMargin < 0 {
+	if c.CacheMargin.Sign() < 0 {
 		add([]string{"cache.margin"}, "must be >= 0")
 	}
-	if c.PriceUncached < 0 {
+	if c.PriceUncached.Sign() < 0 {
 		add([]string{"cache.price_uncached"}, "must be >= 0")
 	}
-	if c.PriceCached < 0 {
+	if c.PriceCached.Sign() < 0 {
 		add([]string{"cache.price_cached"}, "must be >= 0")
 	}
 	for _, f := range []struct {
@@ -78,7 +79,7 @@ func validate(c Config) []problem {
 	if c.MaxSummaryChars < c.MinSummaryChars {
 		add([]string{"compress.min_summary_chars", "compress.max_summary_chars"}, "min_summary_chars must be <= max_summary_chars")
 	}
-	if c.RecallMinAcceptRate < 0 || c.RecallMinAcceptRate > 1 {
+	if c.RecallMinAcceptRate.Sign() < 0 || c.RecallMinAcceptRate.Cmp(&one) > 0 {
 		add([]string{"recall.min_accept_rate"}, "must be in [0, 1]")
 	}
 	if c.Storage != "global" && c.Storage != "local" {

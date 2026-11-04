@@ -12,28 +12,30 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cockroachdb/apd/v3"
+
 	"github.com/fsvxavier/accordion-context/internal/kernel"
 )
 
 // Config is the merged, typed configuration. Field comments give the YAML key.
 type Config struct {
 	// trigger.* (§8.1, §8.4)
-	UFloor         float64 // trigger.u_floor
-	UHigh          float64 // trigger.u_high
-	UEmerg         float64 // trigger.u_emerg
-	StepBase       int     // trigger.step_base
-	StepMin        int     // trigger.step_min
-	StepMax        int     // trigger.step_max
-	StepReadGain   float64 // trigger.step_read_gain
-	MinGrowthFloor int     // trigger.min_growth_floor
-	MaxRefusals    int     // trigger.max_refusals
-	TiersEnabled   bool    // trigger.tiers_enabled
+	UFloor         apd.Decimal // trigger.u_floor
+	UHigh          apd.Decimal // trigger.u_high
+	UEmerg         apd.Decimal // trigger.u_emerg
+	StepBase       int         // trigger.step_base
+	StepMin        int         // trigger.step_min
+	StepMax        int         // trigger.step_max
+	StepReadGain   apd.Decimal // trigger.step_read_gain
+	MinGrowthFloor int         // trigger.min_growth_floor
+	MaxRefusals    int         // trigger.max_refusals
+	TiersEnabled   bool        // trigger.tiers_enabled
 
 	// cache.* (§9). Global only: TTL and prices depend on the provider.
 	CacheTTL      time.Duration // cache.ttl
-	CacheMargin   float64       // cache.margin
-	PriceUncached float64       // cache.price_uncached
-	PriceCached   float64       // cache.price_cached
+	CacheMargin   apd.Decimal   // cache.margin
+	PriceUncached apd.Decimal   // cache.price_uncached
+	PriceCached   apd.Decimal   // cache.price_cached
 
 	// compress.* (§10, §11)
 	PreserveRecentMessages int      // compress.preserve_recent_messages
@@ -51,8 +53,8 @@ type Config struct {
 	CrushEnabled       bool // ccr.crush
 
 	// recall.* (§13)
-	RecallAssist        bool    // recall.assist
-	RecallMinAcceptRate float64 // recall.min_accept_rate
+	RecallAssist        bool        // recall.assist
+	RecallMinAcceptRate apd.Decimal // recall.min_accept_rate
 
 	// storage: "global" (default) or "local" (§18.1, §18.3).
 	Storage string // storage
@@ -61,19 +63,19 @@ type Config struct {
 // Defaults returns the built-in values (spec §18.8 and §8.1).
 func Defaults() Config {
 	return Config{
-		UFloor:         0.30,
-		UHigh:          0.75,
-		UEmerg:         0.95,
+		UFloor:         dec("0.30"),
+		UHigh:          dec("0.75"),
+		UEmerg:         dec("0.95"),
 		StepBase:       50_000,
 		StepMin:        30_000,
 		StepMax:        100_000,
-		StepReadGain:   1.0,
+		StepReadGain:   dec("1.0"),
 		MinGrowthFloor: 20_000,
 		MaxRefusals:    3,
 		TiersEnabled:   true,
 
 		CacheTTL:    5 * time.Minute,
-		CacheMargin: 1.5,
+		CacheMargin: dec("1.5"),
 
 		PreserveRecentMessages: 3,
 		PreserveRecentTokens:   5_000,
@@ -88,7 +90,7 @@ func Defaults() Config {
 		CrushEnabled:       true,
 
 		RecallAssist:        true,
-		RecallMinAcceptRate: 0.05,
+		RecallMinAcceptRate: dec("0.05"),
 
 		Storage: "global",
 	}
@@ -195,8 +197,8 @@ func parseRaw(field any, raw string) (any, error) {
 			return nil, fmt.Errorf("want integer, got %q", raw)
 		}
 		return v, nil
-	case *float64:
-		v, err := strconv.ParseFloat(raw, 64)
+	case *apd.Decimal:
+		v, err := parseDecimal(raw)
 		if err != nil {
 			return nil, fmt.Errorf("want number, got %q", raw)
 		}
@@ -234,13 +236,20 @@ func assign(field any, v any) error {
 			*f = n
 			return nil
 		}
-	case *float64:
+	case *apd.Decimal:
 		switch n := v.(type) {
-		case float64:
+		case apd.Decimal:
 			*f = n
 			return nil
+		case float64:
+			d, err := decimalFromFloat(n)
+			if err != nil {
+				return err
+			}
+			*f = d
+			return nil
 		case int:
-			*f = float64(n)
+			*f = intDec(n)
 			return nil
 		}
 	case *bool:
@@ -286,8 +295,8 @@ func formatValue(field any) string {
 	switch f := field.(type) {
 	case *int:
 		return strconv.Itoa(*f)
-	case *float64:
-		return strconv.FormatFloat(*f, 'g', -1, 64)
+	case *apd.Decimal:
+		return formatDecimal(*f)
 	case *bool:
 		return strconv.FormatBool(*f)
 	case *string:

@@ -11,6 +11,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/cockroachdb/apd/v3"
+
 	"github.com/fsvxavier/accordion-context/internal/kernel"
 	"github.com/fsvxavier/accordion-context/internal/store"
 )
@@ -381,8 +383,17 @@ func pending(snap kernel.Snapshot) map[int]int {
 	return p
 }
 
+// sessionDecCtx does the readDensity division: 34 digits, round half to even.
+// Traps is empty, so the operation cannot fail.
+var sessionDecCtx = func() *apd.Context {
+	c := apd.BaseContext.WithPrecision(34)
+	c.Rounding = apd.RoundHalfEven
+	c.Traps = 0
+	return c
+}()
+
 // readDensity is the share of tool_result tokens in the whole ledger (spec §8.4 input).
-func readDensity(snap kernel.Snapshot) float64 {
+func readDensity(snap kernel.Snapshot) apd.Decimal {
 	total, reads := 0, 0
 	for _, m := range snap.Messages {
 		total += m.Tokens
@@ -390,10 +401,15 @@ func readDensity(snap kernel.Snapshot) float64 {
 			reads += m.Tokens
 		}
 	}
+	var r apd.Decimal
 	if total == 0 {
-		return 0
+		return r
 	}
-	return float64(reads) / float64(total)
+	var num, den apd.Decimal
+	num.SetInt64(int64(reads))
+	den.SetInt64(int64(total))
+	_, _ = sessionDecCtx.Quo(&r, &num, &den)
+	return r
 }
 
 // tokensAfter renders the window as it would be with the new blocks active and

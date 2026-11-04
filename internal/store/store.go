@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/klauspost/compress/zstd"
@@ -68,11 +69,12 @@ type NewBlock struct {
 
 // CompressPlan is the already-validated output of kernel validation (spec §10.1).
 type CompressPlan struct {
-	NewBlocks   []NewBlock
-	Deactivate  []string          // active blocks consumed by NewBlocks
-	ParentOf    map[string]string // consumed block -> new parent block
-	TokensAfter int               // low-water mark after the fold
-	Now         int64
+	NewBlocks    []NewBlock
+	Deactivate   []string          // active blocks consumed by NewBlocks
+	ParentOf     map[string]string // consumed block -> new parent block
+	CloseIntents []int64           // open intents completed by NewBlocks (§11.3)
+	TokensAfter  int               // low-water mark after the fold
+	Now          int64
 }
 
 // CacheCall is one row of cache_ledger (spec §9.4).
@@ -202,6 +204,17 @@ func (s *Store) CreateSession(ctx context.Context, sess Session) error {
 // AppendMessage stores the content (deduplicated by sha256) and appends the
 // message at the next seq. Returns the ledger view with seq and ref filled.
 func (s *Store) AppendMessage(ctx context.Context, sid string, m NewMessage) (kernel.Message, error) {
+	return s.appendMessage(ctx, sid, m, false)
+}
+
+// AppendMessageWithIntent is AppendMessage that also opens an intent (spec §11.3)
+// when m is a user text message. The message and its intent commit together, so
+// a crash cannot leave a user turn without its intent.
+func (s *Store) AppendMessageWithIntent(ctx context.Context, sid string, m NewMessage) (kernel.Message, error) {
+	return s.appendMessage(ctx, sid, m, true)
+}
+
+func (s *Store) appendMessage(ctx context.Context, sid string, m NewMessage, withIntent bool) (kernel.Message, error) {
 	sum := sha256.Sum256([]byte(m.Text))
 	hash := hex.EncodeToString(sum[:])
 	data := s.enc.EncodeAll([]byte(m.Text), nil)
@@ -233,6 +246,11 @@ func (s *Store) AppendMessage(ctx context.Context, sid string, m NewMessage) (ke
 		nullable(m.ToolName), nullable(m.ToolCallID),
 		hash, m.Tokens, time.Now().Unix()); err != nil {
 		return kernel.Message{}, fmt.Errorf("insert message %s: %w", ref, err)
+	}
+	if withIntent && m.Role == kernel.RoleUser && m.Kind == kernel.KindText {
+		if _, err := addIntentTx(ctx, tx, sid, seq, m.Text); err != nil {
+			return kernel.Message{}, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return kernel.Message{}, err
@@ -348,7 +366,18 @@ func (s *Store) loadBlocks(ctx context.Context, sid string, snap *kernel.Snapsho
 			snap.Blocks[i].Sources = append(snap.Blocks[i].Sources, sourceID)
 		}
 	}
-	return src.Err()
+	if err := src.Err(); err != nil {
+		return err
+	}
+	// Sources come back in block_id text order ("b10" before "b9"). The kernel
+	// reads a block's sources as a run in ledger order, so sort them by seq.
+	for i := range snap.Blocks {
+		srcs := snap.Blocks[i].Sources
+		sort.SliceStable(srcs, func(a, b int) bool {
+			return snap.Blocks[index[srcs[a]]].StartSeq < snap.Blocks[index[srcs[b]]].StartSeq
+		})
+	}
+	return nil
 }
 
 func (s *Store) loadIntents(ctx context.Context, sid string, snap *kernel.Snapshot) error {
@@ -409,6 +438,14 @@ func (s *Store) AddIntent(ctx context.Context, sid string, originSeq int64, text
 		return 0, err
 	}
 	defer tx.Rollback()
+	id, err := addIntentTx(ctx, tx, sid, originSeq, text)
+	if err != nil {
+		return 0, err
+	}
+	return id, tx.Commit()
+}
+
+func addIntentTx(ctx context.Context, tx *sql.Tx, sid string, originSeq int64, text string) (int64, error) {
 	var id int64
 	if err := tx.QueryRowContext(ctx,
 		`SELECT COALESCE(MAX(intent_id), 0) + 1 FROM intents WHERE session_id = ?`, sid).Scan(&id); err != nil {
@@ -419,7 +456,7 @@ func (s *Store) AddIntent(ctx context.Context, sid string, originSeq int64, text
 		VALUES (?,?,?,?,'open')`, sid, id, originSeq, text); err != nil {
 		return 0, fmt.Errorf("insert intent: %w", err)
 	}
-	return id, tx.Commit()
+	return id, nil
 }
 
 // CloseIntent moves an open intent to done or superseded.
@@ -518,6 +555,22 @@ func (s *Store) ApplyCompress(ctx context.Context, sid string, p CompressPlan) e
 		}
 	}
 
+	var closedSeq int64
+	for _, b := range p.NewBlocks {
+		closedSeq = max(closedSeq, b.EndSeq)
+	}
+	for _, id := range p.CloseIntents {
+		res, err := tx.ExecContext(ctx, `
+			UPDATE intents SET status = 'done', closed_seq = ?
+			WHERE session_id = ? AND intent_id = ? AND status = 'open'`, closedSeq, sid, id)
+		if err != nil {
+			return fmt.Errorf("close intent %d: %w", id, err)
+		}
+		if n, _ := res.RowsAffected(); n != 1 {
+			return fmt.Errorf("close intent %d: not open", id)
+		}
+	}
+
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE trigger_state
 		SET low_water_tokens = ?, nudge_pending = 0, nudge_shown_at = 0, refusals = 0
@@ -530,13 +583,66 @@ func (s *Store) ApplyCompress(ctx context.Context, sid string, p CompressPlan) e
 		blocks = append(blocks, b.ID)
 	}
 	if err := appendEvent(ctx, tx, sid, "compress", map[string]any{
-		"blocks":      blocks,
-		"deactivated": p.Deactivate,
-		"tokensAfter": p.TokensAfter,
+		"blocks":        blocks,
+		"deactivated":   p.Deactivate,
+		"closedIntents": p.CloseIntents,
+		"tokensAfter":   p.TokensAfter,
 	}); err != nil {
 		return err
 	}
 
+	if err := checkInvariants(ctx, tx, sid); err != nil {
+		return fmt.Errorf("invariant violated, rolling back: %w", err)
+	}
+	return tx.Commit()
+}
+
+// ApplyDecompress writes a decompress plan in one transaction (spec §13.1,
+// mode "context"). The target block becomes inactive with no parent, and each
+// direct source becomes active again with parent_block cleared. Nothing is
+// deleted. Every row update must match exactly one row, so a plan built from a
+// stale snapshot fails instead of corrupting the block set. Invariants are
+// checked before commit.
+func (s *Store) ApplyDecompress(ctx context.Context, sid string, p kernel.DecompressPlan) error {
+	if p.Target == "" {
+		return errors.New("apply decompress: empty target")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.ExecContext(ctx, `
+		UPDATE blocks SET active = 0, parent_block = NULL
+		WHERE session_id = ? AND block_id = ? AND active = 1`, sid, p.Target)
+	if err != nil {
+		return fmt.Errorf("deactivate %s: %w", p.Target, err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return fmt.Errorf("decompress %s: block not active (concurrent change?)", p.Target)
+	}
+	for _, id := range p.Reactivate {
+		res, err := tx.ExecContext(ctx, `
+			UPDATE blocks SET active = 1, parent_block = NULL
+			WHERE session_id = ? AND block_id = ? AND active = 0 AND parent_block = ?`,
+			sid, id, p.Target)
+		if err != nil {
+			return fmt.Errorf("reactivate %s: %w", id, err)
+		}
+		if n, _ := res.RowsAffected(); n != 1 {
+			return fmt.Errorf("decompress %s: source %s is not folded under it (concurrent change?)", p.Target, id)
+		}
+	}
+
+	if err := appendEvent(ctx, tx, sid, "decompress", map[string]any{
+		"requested":   p.Requested,
+		"target":      p.Target,
+		"reactivated": p.Reactivate,
+		"redirected":  p.Redirected,
+	}); err != nil {
+		return err
+	}
 	if err := checkInvariants(ctx, tx, sid); err != nil {
 		return fmt.Errorf("invariant violated, rolling back: %w", err)
 	}

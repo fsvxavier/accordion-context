@@ -403,3 +403,85 @@ func TestPropertyConsecutiveFoldsKeepInvariants(t *testing.T) {
 		}
 	})
 }
+
+// I7 accepts an inactive block with no parent (a decompressed T1 whose messages
+// are raw again), and rejects a message hidden under a parent with no active
+// covering block.
+func TestI7DecompressedRawBlockIsNotViolation(t *testing.T) {
+	s := newMemStore(t)
+	setupSession(t, s, "s1")
+	ctx := context.Background()
+	appendN(t, s, "s1", 10)
+	if err := s.ApplyCompress(ctx, "s1", CompressPlan{
+		NewBlocks: []NewBlock{{ID: "b1", Tier: 1, Summary: "sum", StartSeq: 1, EndSeq: 5, SrcTokens: 50, SumTokens: 5}},
+		Now:       1, TokensAfter: 10,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`UPDATE blocks SET active = 0 WHERE block_id = 'b1'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CheckInvariants(ctx, "s1"); err != nil {
+		t.Fatalf("raw decompressed block flagged: %v", err)
+	}
+	if _, err := s.db.Exec(`UPDATE blocks SET parent_block = 'b9' WHERE block_id = 'b1'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CheckInvariants(ctx, "s1"); err == nil || !strings.Contains(err.Error(), "I7") {
+		t.Fatalf("hidden message with no active cover: err = %v, want I7", err)
+	}
+}
+
+// ApplyDecompress restores the folded sources in one transaction and rejects a
+// plan whose target or sources no longer match the stored state.
+func TestApplyDecompressRestoresSourcesAndRejectsStalePlan(t *testing.T) {
+	s := newMemStore(t)
+	setupSession(t, s, "s1")
+	ctx := context.Background()
+	appendN(t, s, "s1", 10)
+	if err := s.ApplyCompress(ctx, "s1", CompressPlan{
+		NewBlocks: []NewBlock{{ID: "b1", Tier: 1, Summary: "sum", StartSeq: 1, EndSeq: 5, SrcTokens: 50, SumTokens: 5}},
+		Now:       1, TokensAfter: 10,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ApplyCompress(ctx, "s1", CompressPlan{
+		NewBlocks:  []NewBlock{{ID: "b2", Tier: 2, Summary: "t2", StartSeq: 1, EndSeq: 5, SrcTokens: 5, SumTokens: 1, Sources: []string{"b1"}}},
+		Deactivate: []string{"b1"}, ParentOf: map[string]string{"b1": "b2"},
+		Now: 2, TokensAfter: 5,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.ApplyDecompress(ctx, "s1", kernel.DecompressPlan{Target: "b2", Reactivate: []string{"b9"}}); err == nil {
+		t.Fatal("plan with unknown source accepted")
+	}
+	if err := s.ApplyDecompress(ctx, "s1", kernel.DecompressPlan{Target: "b1"}); err == nil {
+		t.Fatal("plan targeting an inactive block accepted")
+	}
+	snap, _ := s.Snapshot(ctx, "s1")
+	active := map[string]bool{}
+	for _, b := range snap.Blocks {
+		active[b.ID] = b.Active
+	}
+	if active["b1"] || !active["b2"] {
+		t.Fatalf("rejected plans changed state: %v", active)
+	}
+
+	if err := s.ApplyDecompress(ctx, "s1", kernel.DecompressPlan{
+		Requested: "b2", Target: "b2", Reactivate: []string{"b1"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	snap, _ = s.Snapshot(ctx, "s1")
+	active = map[string]bool{}
+	for _, b := range snap.Blocks {
+		active[b.ID] = b.Active
+	}
+	if !active["b1"] || active["b2"] || len(snap.Messages) != 10 {
+		t.Fatalf("after decompress active=%v messages=%d", active, len(snap.Messages))
+	}
+	if err := s.CheckInvariants(ctx, "s1"); err != nil {
+		t.Fatalf("invariants after decompress: %v", err)
+	}
+}

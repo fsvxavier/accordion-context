@@ -11,13 +11,18 @@ import (
 	"github.com/fsvxavier/accordion-context/internal/store"
 )
 
+// okSummary is a valid summary: at least MinSummaryChars and shorter than the
+// ranges these tests fold.
+const okSummary = "o agente leu o arquivo e corrigiu o erro de compilação"
+
 // transcript returns 30 messages (seq 1..30). Index 0 is the first user message,
-// seq 15/16 is a tool_call/tool_result pair, each message is 100 tokens.
+// seq 15/16 is a tool_call/tool_result pair, each message is 1000 tokens, so a
+// range of five or more messages reaches MinCompressRange (5000).
 func transcript() []kernel.Message {
 	out := make([]kernel.Message, 0, 30)
 	for i := range 30 {
 		m := kernel.Message{
-			Role: kernel.RoleUser, Kind: kernel.KindText, Tokens: 100,
+			Role: kernel.RoleUser, Kind: kernel.KindText, Tokens: 1000,
 			Text: fmt.Sprintf("message %d %s", i+1, strings.Repeat("x", 380)),
 		}
 		if i%2 == 1 {
@@ -103,15 +108,16 @@ func TestPlanCompressRenderRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Visible) != 30 {
-		t.Fatalf("pre-compress visible=%d, want 30", len(plan.Visible))
+	// 30 messages plus the open-intents block (§11.3).
+	if len(plan.Visible) != 31 {
+		t.Fatalf("pre-compress visible=%d, want 31", len(plan.Visible))
 	}
 	if lw, _ := st.GetTrigger(ctx, "s1"); lw.LowWater != 3000 {
 		t.Fatalf("low-water=%d, want 3000", lw.LowWater)
 	}
 
 	res, err := s.HandleCompress(ctx, CompressArgs{Ranges: []CompressRange{
-		{StartRef: "m00002", EndRef: "m00010", Summary: "resumo curto", Topic: "leitura"},
+		{StartRef: "m00002", EndRef: "m00010", Summary: okSummary, Topic: "leitura"},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -127,8 +133,8 @@ func TestPlanCompressRenderRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Visible) != 30-9+1 {
-		t.Fatalf("visible=%d, want %d", len(plan.Visible), 30-9+1)
+	if len(plan.Visible) != 30-9+1+1 {
+		t.Fatalf("visible=%d, want %d", len(plan.Visible), 30-9+1+1)
 	}
 	var hist, raw int
 	for _, m := range plan.Visible {
@@ -159,22 +165,26 @@ func TestPlanCompressRenderRoundTrip(t *testing.T) {
 }
 
 func TestHandleCompressRejections(t *testing.T) {
-	long := strings.Repeat("y", 2000)
+	long := strings.Repeat("y", 40000) // 10000 tokens, more than the 9000 of m2..m10
 	cases := []struct {
 		name string
 		args CompressArgs
 	}{
-		{"unknown start", CompressArgs{[]CompressRange{{"m00099", "m00010", "r", ""}}}},
-		{"unknown end", CompressArgs{[]CompressRange{{"m00002", "m00099", "r", ""}}}},
-		{"inverted", CompressArgs{[]CompressRange{{"m00010", "m00005", "r", ""}}}},
-		{"empty summary", CompressArgs{[]CompressRange{{"m00002", "m00005", "  ", ""}}}},
-		{"covers first user", CompressArgs{[]CompressRange{{"m00001", "m00005", "r", ""}}}},
-		{"recent zone", CompressArgs{[]CompressRange{{"m00015", "m00025", "r", ""}}}},
-		{"ends on tool_call", CompressArgs{[]CompressRange{{"m00012", "m00015", "r", ""}}}},
-		{"starts on tool_result", CompressArgs{[]CompressRange{{"m00016", "m00018", "r", ""}}}},
-		{"summary not smaller", CompressArgs{[]CompressRange{{"m00002", "m00004", long, ""}}}},
-		{"overlap inside call", CompressArgs{[]CompressRange{
-			{"m00002", "m00005", "r", ""}, {"m00005", "m00008", "r", ""}}}},
+		{"unknown start", CompressArgs{Ranges: []CompressRange{{"m00099", "m00010", okSummary, ""}}}},
+		{"unknown end", CompressArgs{Ranges: []CompressRange{{"m00002", "m00099", okSummary, ""}}}},
+		{"inverted", CompressArgs{Ranges: []CompressRange{{"m00010", "m00005", okSummary, ""}}}},
+		{"empty summary", CompressArgs{Ranges: []CompressRange{{"m00002", "m00010", "  ", ""}}}},
+		{"short summary", CompressArgs{Ranges: []CompressRange{{"m00002", "m00010", "curto", ""}}}},
+		{"short range", CompressArgs{Ranges: []CompressRange{{"m00002", "m00004", okSummary, ""}}}},
+		{"covers first user", CompressArgs{Ranges: []CompressRange{{"m00001", "m00005", okSummary, ""}}}},
+		{"recent zone", CompressArgs{Ranges: []CompressRange{{"m00015", "m00025", okSummary, ""}}}},
+		{"ends on tool_call", CompressArgs{Ranges: []CompressRange{{"m00012", "m00015", okSummary, ""}}}},
+		{"starts on tool_result", CompressArgs{Ranges: []CompressRange{{"m00016", "m00020", okSummary, ""}}}},
+		{"summary not smaller", CompressArgs{Ranges: []CompressRange{{"m00002", "m00010", long, ""}}}},
+		{"overlap inside call", CompressArgs{Ranges: []CompressRange{
+			{"m00002", "m00010", okSummary, ""}, {"m00010", "m00014", okSummary, ""}}}},
+		{"unknown close intent", CompressArgs{
+			Ranges: []CompressRange{{"m00002", "m00010", okSummary, ""}}, CloseIntents: []int64{999}}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -190,7 +200,6 @@ func TestHandleCompressRejections(t *testing.T) {
 	}
 }
 
-// A tool pair whose call and result are not adjacent must not be split.
 func TestHandleCompressSplitNonAdjacentPair(t *testing.T) {
 	ctx := context.Background()
 	s, _ := newSession(t)
@@ -201,12 +210,12 @@ func TestHandleCompressSplitNonAdjacentPair(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := s.HandleCompress(ctx, CompressArgs{Ranges: []CompressRange{
-		{StartRef: "m00002", EndRef: "m00006", Summary: "r", Topic: ""}}})
+		{StartRef: "m00002", EndRef: "m00006", Summary: okSummary, Topic: ""}}})
 	if err == nil {
 		t.Fatal("range splitting non-adjacent tool pair accepted")
 	}
 	if _, err := s.HandleCompress(ctx, CompressArgs{Ranges: []CompressRange{
-		{StartRef: "m00002", EndRef: "m00009", Summary: "r", Topic: ""}}}); err != nil {
+		{StartRef: "m00002", EndRef: "m00009", Summary: okSummary, Topic: ""}}}); err != nil {
 		t.Fatalf("range containing whole pair rejected: %v", err)
 	}
 }
@@ -215,15 +224,15 @@ func TestHandleCompressOverlapWithActiveBlock(t *testing.T) {
 	ctx := context.Background()
 	s, st := ingested(t)
 	if _, err := s.HandleCompress(ctx, CompressArgs{Ranges: []CompressRange{
-		{"m00002", "m00010", "primeiro", "a"}}}); err != nil {
+		{"m00002", "m00010", okSummary, "a"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.HandleCompress(ctx, CompressArgs{Ranges: []CompressRange{
-		{"m00005", "m00008", "dentro", "b"}}}); err == nil {
+		{"m00005", "m00008", okSummary, "b"}}}); err == nil {
 		t.Fatal("range inside active block accepted")
 	}
 	res, err := s.HandleCompress(ctx, CompressArgs{Ranges: []CompressRange{
-		{"m00011", "m00014", "depois", "c"}}})
+		{"m00011", "m00019", okSummary, "c"}}})
 	if err != nil {
 		t.Fatalf("adjacent range rejected: %v", err)
 	}

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/cockroachdb/apd/v3"
 
+	"github.com/fsvxavier/accordion-context/internal/config"
 	"github.com/fsvxavier/accordion-context/internal/kernel"
 	"github.com/fsvxavier/accordion-context/internal/store"
 )
@@ -23,6 +25,19 @@ const (
 	recentKeep = 10
 	// charsPerToken is the token estimate used until the §15 calibration exists.
 	charsPerToken = 4
+)
+
+// defaults supplies the §10.2 minimums (MinCompressRange, MinSummaryChars).
+// Config wiring is not in place yet, so the spec defaults apply.
+var defaults = config.Defaults()
+
+// MinCompressRange and MinSummaryChars are the §10.2 minimums that HandleCompress
+// enforces. The proxy must filter the spans it advertises (kernel.CompressibleSpans
+// has no token floor) by MinCompressRange, or it offers ranges that compress
+// then rejects.
+var (
+	MinCompressRange = defaults.MinCompressRange
+	MinSummaryChars  = defaults.MinSummaryChars
 )
 
 // RecentKeep exports recentKeep so the proxy's nudge lists the same spans that
@@ -64,7 +79,7 @@ func (s *Session) Ingest(ctx context.Context, msgs []kernel.Message) (int, error
 			}
 			continue
 		}
-		if _, err := s.st.AppendMessage(ctx, s.sid, store.NewMessage{
+		if _, err := s.st.AppendMessageWithIntent(ctx, s.sid, store.NewMessage{
 			Role: m.Role, Kind: m.Kind, ToolName: m.ToolName,
 			ToolCallID: m.ToolCallID, Text: m.Text, Tokens: m.Tokens,
 		}); err != nil {
@@ -75,11 +90,14 @@ func (s *Session) Ingest(ctx context.Context, msgs []kernel.Message) (int, error
 	return added, nil
 }
 
-// Plan is the per-turn result: the trigger decision and the visible window.
+// Plan is the per-turn result: the trigger decision, the visible window and the
+// recall hints for this turn (spec §13.2). Hints are ephemeral: they are
+// returned for the proxy to inject, and also logged as 'recall_hint' events.
 type Plan struct {
 	Decision kernel.Decision
 	LowWater int
 	Visible  []kernel.Message
+	Hints    []kernel.RecallHint
 }
 
 // Plan updates the low-water mark for tokenCount, asks the kernel whether to
@@ -106,6 +124,15 @@ func (s *Session) Plan(ctx context.Context, tokenCount int) (Plan, error) {
 		Trigger:      trig,
 	}, s.cfg)
 
+	hints := kernel.DetectRecall(snap)
+	for _, h := range hints {
+		if err := s.st.AppendEvent(ctx, s.sid, "recall_hint", map[string]any{
+			"kind": string(h.Kind), "block": h.BlockID, "ref": h.Ref, "path": h.Path,
+		}); err != nil {
+			return Plan{}, err
+		}
+	}
+
 	if d.Nudge {
 		if trig.NudgePending {
 			// Previous nudge was shown and the model never compressed: refusal (spec §8.3).
@@ -126,10 +153,39 @@ func (s *Session) Plan(ctx context.Context, tokenCount int) (Plan, error) {
 	if err := s.st.SetTrigger(ctx, s.sid, trig); err != nil {
 		return Plan{}, err
 	}
-	return Plan{Decision: d, LowWater: trig.LowWater, Visible: kernel.Render(snap)}, nil
+	return Plan{Decision: d, LowWater: trig.LowWater, Visible: kernel.Render(snap), Hints: hints}, nil
 }
 
-// CompressRange is one range of a compress tool call (spec §16).
+// DecompressResult reports what a decompress call expanded.
+type DecompressResult struct {
+	Target      string   // the block that became inactive
+	Reactivated []string // its direct sources, visible again
+	Redirected  bool     // the requested block was folded; its active ancestor was expanded
+}
+
+// Decompress expands one level of folding (spec §13.1, mode "context"): the
+// target block is deactivated and its direct sources are reactivated. Nothing
+// is deleted, and the change commits only if the invariants hold.
+func (s *Session) Decompress(ctx context.Context, id string) (DecompressResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	snap, err := s.st.Snapshot(ctx, s.sid)
+	if err != nil {
+		return DecompressResult{}, err
+	}
+	plan, err := kernel.PlanDecompress(snap, id)
+	if err != nil {
+		return DecompressResult{}, fmt.Errorf("decompress %q: %w", id, err)
+	}
+	if err := s.st.ApplyDecompress(ctx, s.sid, plan); err != nil {
+		return DecompressResult{}, err
+	}
+	return DecompressResult{Target: plan.Target, Reactivated: plan.Reactivate, Redirected: plan.Redirected}, nil
+}
+
+// CompressRange is one range of a compress tool call (spec §16), by message refs.
+// It creates a T1 block.
 type CompressRange struct {
 	StartRef string
 	EndRef   string
@@ -137,9 +193,22 @@ type CompressRange struct {
 	Topic    string
 }
 
+// FoldRange is a T2 or T3 fold (spec §12), by block ids. StartBlock and EndBlock
+// name the first and last of a contiguous run of active blocks one tier below
+// Tier. Every active block of that tier between them is consumed.
+type FoldRange struct {
+	Tier       int
+	StartBlock string
+	EndBlock   string
+	Summary    string
+	Topic      string
+}
+
 // CompressArgs is the validated-shape input of the compress tool.
 type CompressArgs struct {
-	Ranges []CompressRange
+	Ranges       []CompressRange
+	Folds        []FoldRange
+	CloseIntents []int64 // open intents completed by the summarized ranges (§11.3)
 }
 
 // CompressResult reports the blocks written and the token count after the fold.
@@ -148,13 +217,15 @@ type CompressResult struct {
 	TokensAfter int
 }
 
-// HandleCompress validates every range against the current snapshot and then
-// writes all of them in one store transaction. Invalid input writes nothing.
+// HandleCompress validates every range and fold against the current snapshot
+// and then writes all of them in one store transaction. Invalid input writes
+// nothing. Folds are checked by kernel.ApplyTierPlan, so the same invariants
+// (I1, I2, I5, I6) guard the in-memory plan and the stored one.
 func (s *Session) HandleCompress(ctx context.Context, args CompressArgs) (CompressResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if len(args.Ranges) == 0 {
+	if len(args.Ranges) == 0 && len(args.Folds) == 0 {
 		return CompressResult{}, errors.New("compress: no ranges")
 	}
 	snap, err := s.st.Snapshot(ctx, s.sid)
@@ -188,8 +259,8 @@ func (s *Session) HandleCompress(ctx context.Context, args CompressArgs) (Compre
 			return CompressResult{}, fmt.Errorf("range %d: %s after %s", i, r.StartRef, r.EndRef)
 		}
 		summary := stripForgedMarkers(r.Summary)
-		if strings.TrimSpace(summary) == "" {
-			return CompressResult{}, fmt.Errorf("range %d: empty summary", i)
+		if err := checkSummary(summary); err != nil {
+			return CompressResult{}, fmt.Errorf("range %d: %w", i, err)
 		}
 		if hasSystemMessage(snap.Messages, start.Seq, end.Seq) {
 			return CompressResult{}, fmt.Errorf("range %d: covers a system message", i)
@@ -219,6 +290,9 @@ func (s *Session) HandleCompress(ctx context.Context, args CompressArgs) (Compre
 		}
 
 		src := sourceTokens(snap.Messages, start.Seq, end.Seq)
+		if src < defaults.MinCompressRange {
+			return CompressResult{}, fmt.Errorf("range %d: covers %d tokens, minimum is %d", i, src, defaults.MinCompressRange)
+		}
 		sum := estimateTokens(summary)
 		if sum >= src {
 			return CompressResult{}, fmt.Errorf("range %d: summary %d tokens is not smaller than source %d", i, sum, src)
@@ -233,7 +307,80 @@ func (s *Session) HandleCompress(ctx context.Context, args CompressArgs) (Compre
 		spans = append(spans, span{start.Seq, end.Seq})
 	}
 
-	plan.TokensAfter = tokensAfter(snap, plan.NewBlocks)
+	for i, f := range args.Folds {
+		if !s.cfg.TiersEnabled {
+			return CompressResult{}, errors.New("fold: tiers are disabled")
+		}
+		if f.Tier != 2 && f.Tier != 3 {
+			return CompressResult{}, fmt.Errorf("fold %d: tier %d is not 2 or 3", i, f.Tier)
+		}
+		tp, err := resolveFold(snap.Blocks, f)
+		if err != nil {
+			return CompressResult{}, fmt.Errorf("fold %d: %w", i, err)
+		}
+		if tp.EndSeq > last-recentKeep {
+			return CompressResult{}, fmt.Errorf("fold %d: %s..%s reaches the protected recent zone", i, kernel.FormatRef(tp.StartSeq), kernel.FormatRef(tp.EndSeq))
+		}
+		if firstUser != 0 && tp.StartSeq <= firstUser && firstUser <= tp.EndSeq {
+			return CompressResult{}, fmt.Errorf("fold %d: covers the pinned first user message", i)
+		}
+		for _, p := range spans {
+			if tp.StartSeq <= p.hi && p.lo <= tp.EndSeq {
+				return CompressResult{}, fmt.Errorf("fold %d: overlaps another range of the same call", i)
+			}
+		}
+		// The raw tokens are the messages in the span, whatever the tier of the
+		// sources: a T3 fold's sources carry only their summary tokens.
+		if raw := sourceTokens(snap.Messages, tp.StartSeq, tp.EndSeq); raw < defaults.MinCompressRange {
+			return CompressResult{}, fmt.Errorf("fold %d: covers %d tokens, minimum is %d", i, raw, defaults.MinCompressRange)
+		}
+		summary := stripForgedMarkers(f.Summary)
+		if err := checkSummary(summary); err != nil {
+			return CompressResult{}, fmt.Errorf("fold %d: %w", i, err)
+		}
+		sum := estimateTokens(summary)
+		if sum >= tp.SrcTokens {
+			return CompressResult{}, fmt.Errorf("fold %d: summary %d tokens is not smaller than source %d", i, sum, tp.SrcTokens)
+		}
+
+		id := fmt.Sprintf("b%d", nextID)
+		nb := kernel.Block{ID: id, Topic: f.Topic, Summary: summary, SumTokens: sum}
+		if _, err := kernel.ApplyTierPlan(snap.Blocks, tp, nb); err != nil {
+			return CompressResult{}, fmt.Errorf("fold %d: %w", i, err)
+		}
+		nextID++
+		plan.NewBlocks = append(plan.NewBlocks, store.NewBlock{
+			ID: id, Tier: tp.Tier, Topic: f.Topic, Summary: summary,
+			StartSeq: tp.StartSeq, EndSeq: tp.EndSeq, SrcTokens: tp.SrcTokens, SumTokens: sum,
+			Sources: tp.Sources,
+		})
+		for src, parent := range tp.ParentOf(id) {
+			plan.Deactivate = append(plan.Deactivate, src)
+			plan.ParentOf[src] = parent
+		}
+		sort.Strings(plan.Deactivate)
+		spans = append(spans, span{tp.StartSeq, tp.EndSeq})
+	}
+
+	open := make(map[int64]bool, len(snap.Intents))
+	for _, in := range snap.Intents {
+		if in.Status == "open" {
+			open[in.ID] = true
+		}
+	}
+	seenClose := make(map[int64]bool, len(args.CloseIntents))
+	for _, id := range args.CloseIntents {
+		if !open[id] {
+			return CompressResult{}, fmt.Errorf("closeIntents: intent %d is not open", id)
+		}
+		if seenClose[id] {
+			return CompressResult{}, fmt.Errorf("closeIntents: intent %d listed twice", id)
+		}
+		seenClose[id] = true
+		plan.CloseIntents = append(plan.CloseIntents, id)
+	}
+
+	plan.TokensAfter = tokensAfter(snap, plan)
 
 	if err := s.st.ApplyCompress(ctx, s.sid, plan); err != nil {
 		return CompressResult{}, err
@@ -261,6 +408,67 @@ func (s *Session) Recall(ctx context.Context, ref string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("recall: unknown ref %q", ref)
+}
+
+// checkSummary applies the non-empty and MinSummaryChars rules of spec §10.2 to a
+// summary whose forged markers are already stripped.
+func checkSummary(summary string) error {
+	t := strings.TrimSpace(summary)
+	if t == "" {
+		return errors.New("empty summary")
+	}
+	if n := utf8.RuneCountInString(t); n < defaults.MinSummaryChars {
+		return fmt.Errorf("summary has %d characters, minimum is %d", n, defaults.MinSummaryChars)
+	}
+	return nil
+}
+
+// resolveFold turns a FoldRange into a kernel.TierPlan: the active blocks one
+// tier below, from StartBlock to EndBlock, in ledger order. The plan is only
+// shaped here. kernel.ApplyTierPlan checks contiguity and the rest.
+func resolveFold(blocks []kernel.Block, f FoldRange) (kernel.TierPlan, error) {
+	var lo, hi *kernel.Block
+	for i := range blocks {
+		b := &blocks[i]
+		if b.ID == f.StartBlock {
+			lo = b
+		}
+		if b.ID == f.EndBlock {
+			hi = b
+		}
+	}
+	if lo == nil || hi == nil {
+		return kernel.TierPlan{}, fmt.Errorf("unknown block %q or %q", f.StartBlock, f.EndBlock)
+	}
+	if lo.StartSeq > hi.StartSeq {
+		return kernel.TierPlan{}, fmt.Errorf("%s after %s", f.StartBlock, f.EndBlock)
+	}
+	tp := kernel.TierPlan{Tier: f.Tier}
+	for _, b := range blocks {
+		if !b.Active || b.Tier != f.Tier-1 || b.StartSeq < lo.StartSeq || b.EndSeq > hi.EndSeq {
+			continue
+		}
+		tp.Sources = append(tp.Sources, b.ID)
+		tp.SrcTokens += b.SumTokens
+	}
+	if len(tp.Sources) < 2 {
+		return kernel.TierPlan{}, fmt.Errorf("%s..%s has %d foldable tier-%d blocks, need at least 2", f.StartBlock, f.EndBlock, len(tp.Sources), f.Tier-1)
+	}
+	if tp.Sources[0] != f.StartBlock || tp.Sources[len(tp.Sources)-1] != f.EndBlock {
+		return kernel.TierPlan{}, fmt.Errorf("%s..%s does not start and end on active tier-%d blocks", f.StartBlock, f.EndBlock, f.Tier-1)
+	}
+	first, last := blockByID(blocks, tp.Sources[0]), blockByID(blocks, tp.Sources[len(tp.Sources)-1])
+	tp.StartSeq, tp.EndSeq = first.StartSeq, last.EndSeq
+	return tp, nil
+}
+
+func blockByID(blocks []kernel.Block, id string) kernel.Block {
+	for _, b := range blocks {
+		if b.ID == id {
+			return b
+		}
+	}
+	return kernel.Block{}
 }
 
 // stripForgedMarkers removes lines that imitate the confirmation marker
@@ -369,8 +577,9 @@ func covered(blocks []kernel.Block, seq int64) bool {
 	return false
 }
 
-// pending is the compressible tokens per tier. Only tier 1 is produced so far:
-// uncovered, non-system, non-pinned messages outside the recent zone.
+// pending is the compressible tokens per tier. Tier 1 is the uncovered,
+// non-system, non-pinned messages outside the recent zone. Tiers 2 and 3 are the
+// best foldable run of active blocks one tier below (kernel.FoldablePending).
 func pending(snap kernel.Snapshot) map[int]int {
 	p := map[int]int{}
 	first := firstUserSeq(snap)
@@ -384,6 +593,8 @@ func pending(snap kernel.Snapshot) map[int]int {
 		}
 		p[1] += m.Tokens
 	}
+	p[2] = kernel.FoldablePending(snap, 2)
+	p[3] = kernel.FoldablePending(snap, 3)
 	return p
 }
 
@@ -416,17 +627,37 @@ func readDensity(snap kernel.Snapshot) apd.Decimal {
 	return r
 }
 
-// tokensAfter renders the window as it would be with the new blocks active and
-// sums the visible tokens (the value stored as trigger low-water after a fold).
-func tokensAfter(snap kernel.Snapshot, nb []store.NewBlock) int {
+// tokensAfter renders the window as it would be with the plan applied (new
+// blocks active, consumed blocks inactive, closed intents done) and sums the
+// visible tokens. The result is stored as the trigger low-water after a fold.
+func tokensAfter(snap kernel.Snapshot, p store.CompressPlan) int {
 	hyp := snap
 	hyp.Blocks = append([]kernel.Block(nil), snap.Blocks...)
-	for _, b := range nb {
+	consumed := make(map[string]bool, len(p.Deactivate))
+	for _, id := range p.Deactivate {
+		consumed[id] = true
+	}
+	for i := range hyp.Blocks {
+		if consumed[hyp.Blocks[i].ID] {
+			hyp.Blocks[i].Active = false
+		}
+	}
+	for _, b := range p.NewBlocks {
 		hyp.Blocks = append(hyp.Blocks, kernel.Block{
 			ID: b.ID, Tier: b.Tier, Topic: b.Topic, Summary: b.Summary,
 			StartSeq: b.StartSeq, EndSeq: b.EndSeq, SrcTokens: b.SrcTokens,
-			SumTokens: b.SumTokens, Active: true,
+			SumTokens: b.SumTokens, Active: true, Sources: b.Sources,
 		})
+	}
+	closing := make(map[int64]bool, len(p.CloseIntents))
+	for _, id := range p.CloseIntents {
+		closing[id] = true
+	}
+	hyp.Intents = append([]kernel.Intent(nil), snap.Intents...)
+	for i := range hyp.Intents {
+		if closing[hyp.Intents[i].ID] {
+			hyp.Intents[i].Status = "done"
+		}
 	}
 	total := 0
 	for _, m := range kernel.Render(hyp) {

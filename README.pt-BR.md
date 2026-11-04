@@ -4,7 +4,7 @@
 
 Accordion Context é um proxy local que mantém sessões longas de agentes de código dentro de uma janela de contexto limitada. O modelo resume partes antigas da conversa, os resumos substituem as mensagens originais na janela, e os originais ficam em um banco SQLite para que possam ser recuperados.
 
-> **Status: em desenvolvimento inicial (pré-1.0).** O proxy, os launchers de clientes, o caminho `attach` (incluindo os graus opcionais de proxy do sistema e transparente), backup, restauração, limpeza, os endpoints de observabilidade, o protocolo HTTP de plugin com seus clientes e a biblioteca `pkg/acdctx` estão implementados e passam em `go test ./...`. Nada foi validado contra as APIs reais dos provedores nem contra os binários reais dos clientes. Veja [Status](#status).
+> **Status: em desenvolvimento inicial (pré-1.0).** O proxy (com suas quatro ferramentas internas), os launchers de clientes, o caminho `attach` (incluindo os graus opcionais de proxy do sistema e transparente), backup, restauração, limpeza, os endpoints de observabilidade, o protocolo HTTP de plugin com seus clientes e a biblioteca `pkg/acdctx` estão implementados e passam em `go test ./...`. Nenhuma release foi marcada. Nada foi validado contra as APIs reais dos provedores nem contra os binários reais dos clientes. Veja [Status](#status).
 
 ## O que é
 
@@ -31,7 +31,7 @@ Diferenças em relação ao billion-context, conforme a especificação de desig
 3. Quando é devida, o proxy adiciona um nudge que lista os intervalos compactáveis. O modelo responde com uma chamada `compress`: intervalos mais um resumo.
 4. O proxy valida a chamada e grava o bloco e os intervalos ocultos em uma única transação.
 5. A janela seguinte mostra o resumo no lugar das mensagens dobradas. Os originais permanecem no SQLite.
-6. Quando o modelo precisa de detalhes, chama `decompress`. As chamadas internas de `compress` e `decompress` rodam dentro do proxy (até 4 rodadas por requisição, por padrão) e não chegam ao cliente.
+6. O proxy adiciona quatro ferramentas internas a cada requisição, nesta ordem: `compress`, `decompress`, `search_context` e `retrieve`. Quando o modelo chama `decompress`, `search_context` ou `retrieve`, o proxy responde a partir do banco. As chamadas internas rodam dentro do proxy (até 4 rodadas por requisição, por padrão) e não chegam ao cliente.
 7. Qualquer falha no caminho de compactação é fail-open: a requisição original é encaminhada sem alteração.
 
 ## Protocolos suportados
@@ -60,7 +60,7 @@ go build -o acd-ctx ./cmd/acd-ctx
 ./acd-ctx help
 ```
 
-Instale pelo caminho do módulo com `go install github.com/fsvxavier/accordion-context/cmd/acd-ctx@<commit>`. Ainda não existe tag de versão, então `@latest` não resolve. O valor de `version` é `dev`, a menos que o binário seja compilado com `-ldflags "-X main.version=<tag>"`.
+Instale pelo caminho do módulo com `go install github.com/fsvxavier/accordion-context/cmd/acd-ctx@<commit>`. Ainda não existe tag de versão, então `@latest` não resolve, e `@vX.Y.Z` só funciona depois que a primeira tag for enviada. O valor de `version` é `dev`, a menos que o binário seja compilado com `-ldflags "-X main.version=<tag>"`. Os arquivos de release são gerados pelo GoReleaser somente quando uma tag `v*` é enviada; veja [docs/release.md](docs/release.md).
 
 ## Docker
 
@@ -125,14 +125,14 @@ Flags do `serve` (todas opcionais):
 | **Attach** | `acd-ctx attach [--profiles f] [--mitm-domain h] -- <cmd>` | Implementado | Testa cada grau antes de iniciar o cliente e usa o primeiro que funciona: env de URL base, flag de URL base, configuração temporária, console (qualquer comando) e MITM. |
 | **MITM** | o grau `mitm` do `attach` | Implementado | Só os hosts da allowlist são terminados. Os demais são tunelados sem alteração. A CA é por instalação e não é adicionada ao repositório de certificados confiáveis do sistema. |
 | **Proxy do sistema** | `attach --system-proxy --yes` | Implementado; não validado em desktops reais | Aponta o proxy HTTPS do desktop para o acd-ctx durante a execução. Backends: GNOME, KDE, macOS, Windows. Mudança em toda a máquina: exige `--yes`. |
-| **Transparente** | `attach --transparent --yes --apply` | Implementado apenas para nftables no Linux | Redireciona o TCP 443 de um uid (por padrão, os domínios MITM) para o listener local. Exige root ou CAP_NET_ADMIN. Sem `--apply`, apenas as regras são impressas. |
+| **Transparente** | `attach --transparent --yes --apply` | Implementado para Linux (nftables, ou iptables quando o nft não está instalado) | Redireciona o TCP 443 de um uid (por padrão, os domínios MITM) para o listener local, em IPv4 e, quando `[::1]` está livre na porta de redirecionamento, em IPv6 (com nft, ou com iptables quando `ip6tables` está presente). Exige root ou CAP_NET_ADMIN. Sem `--apply`, apenas as regras são impressas. Um processo auxiliar restaura o redirecionamento se o acd-ctx sair. |
 | **Plugin** | `acd-ctx serve`, em `/__acd-ctx/plugin/` | Implementado | Token bearer por execução. Ferramentas: `compress`, `decompress`, `retrieve`, `search_context`, `ctx_status`. Veja [Protocolo de plugin e middleware](#protocolo-de-plugin-e-middleware). |
 | **Middleware** | `middleware/python`, `middleware/node` | Implementado | Clientes sem dependências do protocolo de plugin, testados com os vetores de conformidade. |
 | **Companheiro MCP** | `acd-ctx mcp` (stdio) | Implementado | Ferramentas: `decompress`, `retrieve`, `search_context`, `ctx_status`. |
 | **Biblioteca Go** | `pkg/acdctx` | Implementado | `Open` e `Client` (Turn, Compress, Decompress, Recall, Close), `NewTransport` (um `http.RoundTripper`) e `Handler`. Pode mudar antes da 1.0. |
 | **Doctor** | `acd-ctx doctor [--json] [cliente]` | Implementado | Verifica a instalação e a integração. Código de saída 0 para PASS, 3 para WARN, 1 para FAIL. |
 
-`attach --profiles arquivo.yaml` adiciona perfis que são comparados antes dos embutidos. Um perfil define `match`, `upstream`, `base_url_env` ou `base_url_flag` (com `flag_position`), um `temp_config` (`file`, `format`, `template`, `merge_from`, `key`; `merge_from` aceita apenas JSON e YAML, não TOML), `env`, `detect` (`binaries`, `config_paths`, `version_regex`), `integration` (`prefer`, `base_url_env`, `https_proxy`, `ca_env`, `domains`), `model_info` e `quirks`.
+`attach --profiles arquivo.yaml` adiciona perfis que são comparados antes dos embutidos. Um perfil define `match`, `upstream`, `base_url_env` ou `base_url_flag` (com `flag_position`), um `temp_config` (`file`, `format`, `template`, `merge_from`, `key`; `merge_from` lê um arquivo existente nos formatos `json`, `yaml`, `toml`, `env` ou `ini` e define uma `key` com pontos; somente a cópia temporária é gravada, nunca a origem, e json, yaml e toml são reserializados, então os comentários da cópia mesclada se perdem), `env`, `detect` (`binaries`, `config_paths`, `version_regex`), `integration` (`prefer`, `base_url_env`, `https_proxy`, `ca_env`, `domains`), `model_info` e `quirks`.
 
 ## Configuração
 
@@ -231,7 +231,7 @@ Endpoints de controle (`/__acd-ctx/` recusa qualquer requisição com cabeçalho
 |---|---|---|
 | `/__acd-ctx/health` | qualquer Host permitido | `{"ok":true}` |
 | `/__acd-ctx/status` | qualquer Host permitido | JSON: `status`, `version`, `uptime_seconds`, `upstream_host`, `context_limit`, `max_loop`, `sessions_loaded`, `projects_seen`, `default_project_requests`, `protocols`. |
-| `/__acd-ctx/metrics` | somente peers de loopback | Texto Prometheus. Famílias: `acd_ctx_requests_total`, `acd_ctx_request_duration_seconds`, `acd_ctx_upstream_duration_seconds`, `acd_ctx_context_tokens`, `acd_ctx_compress_total`, `acd_ctx_compress_ratio`, `acd_ctx_cache_read_ratio`, `acd_ctx_fold_cache_cost_tokens`, `acd_ctx_recall_hint_total`, `acd_ctx_token_calib_factor`. Os rótulos são um conjunto fechado: sem IDs de sessão, projeto ou mensagem. |
+| `/__acd-ctx/metrics` | somente peers de loopback | Texto Prometheus. Famílias: `acd_ctx_requests_total`, `acd_ctx_request_duration_seconds`, `acd_ctx_upstream_duration_seconds`, `acd_ctx_context_tokens`, `acd_ctx_compress_total`, `acd_ctx_compress_ratio`, `acd_ctx_cache_read_ratio`, `acd_ctx_fold_cache_cost_tokens`, `acd_ctx_recall_hint_total`, `acd_ctx_token_calib_factor`, `acd_ctx_tool_calls_total{tool,outcome}` (`tool` é um dos quatro nomes de ferramenta interna ou `unknown`; `outcome` é `accepted` ou `rejected`). Os rótulos são um conjunto fechado: sem IDs de sessão, projeto ou mensagem. |
 | `/__acd-ctx/sessions/{id}/status` | somente peers de loopback | Contagens, estado do gatilho, tamanho da janela, blocos, intenções abertas e decisões recentes (`?decisions=N`). Sem texto de mensagens ou blocos. |
 | `/__acd-ctx/sessions/{id}/trace.jsonl` | somente peers de loopback | Trace da sessão em JSON lines. `?anonymize=1` troca os textos pelo tamanho e pelo SHA-256. Reproduza com `acd-ctx replay`. |
 
@@ -251,6 +251,8 @@ O protocolo de plugin (spec §19.4) permite que um programa que monta os própri
 | `compact` | POST | Oferece os trechos compactáveis e arma um nudge para o próximo turno. Conversa desconhecida: 404. |
 
 `search_context` é uma busca de texto completo (FTS5) sobre as mensagens e os resumos de bloco da sessão; todas as palavras precisam casar. O modo `file` do `decompress` grava o texto original do bloco no diretório de exportação do projeto e devolve o caminho.
+
+O proxy também injeta essas quatro ferramentas na requisição do modelo, em todos os dialetos, pelos caminhos HTTP e pelo modo WebSocket do Responses: `compress`, `decompress`, `search_context` e `retrieve`. O proxy executa todas elas e nunca envia suas chamadas ao cliente. Os resultados voltam em um envelope `<history>` que informa ao modelo que são dados passados, não instruções. `search_context` devolve no máximo 20 resultados (10 por padrão), com trechos de no máximo 300 runas. O escopo `project` também busca nas outras conversas do mesmo projeto, mas somente como trechos; `retrieve` lê apenas a conversa atual. O resultado de `retrieve` é limitado a cerca de 32K tokens.
 
 Os clientes ficam em `middleware/python` (pacote `acd_ctx`, somente biblioteca padrão) e `middleware/node` (pacote `acd-ctx`, ESM, Node.js 18.13 ou superior, sem dependências). Ambos leem `ACD_CTX_URL` (padrão `http://127.0.0.1:8787`), `ACD_CTX_TOKEN` ou o arquivo em `ACD_CTX_TOKEN_FILE` (padrão `~/.local/share/acd-ctx/plugin.token`), e `ACD_CTX_CONVERSATION`. Em qualquer erro do cliente, a compactação é ignorada e a requisição segue.
 
@@ -291,7 +293,7 @@ acd-ctx clean --all --docker acd-ctx --dry-run
 - `--backup <arquivo.db>` grava um backup verificado de cada banco antes de apagar. Se um backup falhar, nada é apagado.
 - Confirmação: sem `--yes`, é preciso digitar a palavra exibida: o ID do projeto, o ID da sessão, ou `delete` para `--all` e `--older-than`. Uma entrada que não é terminal, sem `--yes`, é recusada.
 - `--exports` remove também os arquivos de bloco exportados das sessões apagadas. `--vacuum` compacta os arquivos depois.
-- `--include-local` limpa também o banco local do diretório atual, em `--all` ou `--older-than` sem `--project`.
+- `--include-local` limpa também o banco local do diretório atual, em `--all`, `--older-than` ou `--session` sem `--project`.
 - Configuração, a CA do MITM e o token de plugin nunca são apagados (`--keep-config` fica sempre ativo).
 - Uma purga incrementa o epoch do store na mesma transação. Um `serve` ou plugin em execução descarta o estado em memória das sessões afetadas na próxima requisição. `restore --mode replace` faz o mesmo.
 
@@ -302,7 +304,7 @@ acd-ctx clean --all --docker acd-ctx --dry-run
 - **Proteções de Host e de navegador.** Só são atendidos nomes de Host permitidos (por padrão `localhost`, `127.0.0.1`, `::1` e o host de escuta); os demais recebem HTTP 403, o que visa impedir DNS rebinding (testado com cabeçalhos `Host` forjados, não com um navegador real). Preflights CORS recebem 403, e `/__acd-ctx/` recusa qualquer requisição com cabeçalho `Origin`. Nenhum dos dois é autenticação.
 - **Allowlist de upstream.** Um alvo `/ctx/<url>/` só é usado se sua origem estiver em `--allow`. Redirecionamentos são devolvidos ao cliente, não seguidos.
 - **CA do MITM.** Uma CA por instalação, com a chave em arquivo `0600`. Só os domínios permitidos são interceptados, e o `attach` entrega a CA apenas ao processo do cliente que ele inicia, por variáveis de ambiente.
-- **Proxy do sistema e modo transparente.** Ambos alteram o caminho de rede da máquina e exigem consentimento explícito (`--yes`). `--system-proxy` muda as configurações de proxy do desktop; `--transparent` exige root ou CAP_NET_ADMIN, instala regras do nftables para um uid e se recusa a rodar com sudo quando o `HOME` não é o do usuário que chamou, a menos que o uid e o diretório de dados sejam explícitos. Ambos gravam arquivos de estado que são verificados antes de serem confiados, e `attach --restore` desfaz uma execução que travou.
+- **Proxy do sistema e modo transparente.** Ambos alteram o caminho de rede da máquina e exigem consentimento explícito (`--yes`). `--system-proxy` muda as configurações de proxy do desktop; `--transparent` exige root ou CAP_NET_ADMIN, instala regras do nftables (ou do iptables, quando o nft não está instalado) para um uid e se recusa a rodar com sudo quando o `HOME` não é o do usuário que chamou, a menos que o uid e o diretório de dados sejam explícitos. A tabela do nftables é criada do zero: o acd-ctx se recusa a adotar uma tabela existente. Ambos gravam arquivos de estado que são verificados antes de serem confiados. Antes da primeira alteração, um processo auxiliar de watchdog é iniciado; ele restaura o redirecionamento quando o acd-ctx morre. Se o próprio auxiliar receber SIGKILL, o redirecionamento permanece até que `attach --restore` seja executado, e o `doctor` o reporta. `attach --restore` sem privilégio mantém o arquivo de estado do modo transparente, porque o firewall não pode ser lido para restaurá-lo.
 - **Credenciais e limites.** Os cabeçalhos de credencial são encaminhados ao upstream e o proxy não os registra em log (os testes cobrem apenas que as mensagens de erro não vazam a query string). Um erro de compactação encaminha a requisição sem alteração. Corpos de requisição e frames WebSocket são limitados a 32 MiB.
 
 ## Desenvolvimento
@@ -319,7 +321,7 @@ go run ./scripts/gen-compat-matrix             # imprime docs/compatibility.md
 
 `CLAUDE.md` está em inglês. A especificação de design `compactacao-contexto-go-sqlite.md` (em português) é a fonte de verdade; §N nos comentários do código se refere a ela.
 
-A CI (`.github/workflows/ci.yml`) roda `gofmt`, `go vet`, `go test -race`, os vetores de conformidade, os testes dos clientes Python e Node, uma checagem de que `docs/compatibility.md` está atualizado, e um build da imagem Docker com teste de fumaça do health.
+A CI (`.github/workflows/ci.yml`) roda `gofmt`, `go vet`, `go test -race`, um vet cruzado para darwin e windows com `CGO_ENABLED=0`, os vetores de conformidade, os testes dos clientes Python e Node, uma checagem de que `docs/compatibility.md` está atualizado, e um build da imagem Docker com teste de fumaça do health. O workflow de release (`.github/workflows/release.yml`) roda somente com uma tag `v*` enviada ou manualmente; veja [docs/release.md](docs/release.md).
 
 | Pacote | Papel |
 |---|---|
@@ -332,7 +334,7 @@ A CI (`.github/workflows/ci.yml`) roda `gofmt`, `go vet`, `go test -race`, os ve
 | `internal/project` | Detecção da raiz e do ID do projeto. |
 | `internal/launcher` | Perfis de clientes, execução com variáveis de ambiente, configurações temporárias. |
 | `internal/attach` | Escada de integração do `attach`: sondagens, graus de console, MITM e de sistema. |
-| `internal/sysproxy` | Backends de proxy do sistema e o backend transparente com nftables, com arquivos de estado e restauração. |
+| `internal/sysproxy` | Backends de proxy do sistema e os backends transparentes com nftables e iptables, com arquivos de estado, o processo auxiliar de watchdog e restauração. |
 | `internal/mitm` | CA local, certificados de folha e interceptação TLS restrita. |
 | `internal/backup` | Backup e restauração verificados, e os executores de `--docker`. |
 | `internal/obs` | Métricas Prometheus, relatórios de status e exportação de trace. |
@@ -342,6 +344,7 @@ A CI (`.github/workflows/ci.yml`) roda `gofmt`, `go vet`, `go test -race`, os ve
 | `middleware/python`, `middleware/node` | Clientes do protocolo de plugin (sem dependências). |
 | `conformance` | Vetores do plugin neutros em relação à linguagem e o executor em Go. |
 | `scripts/gen-compat-matrix` | Gera `docs/compatibility.md`. |
+| `.goreleaser.yaml`, `.github/workflows/release.yml` | Builds e arquivos de release, executados somente para uma tag `v*`. |
 
 ## Status
 
@@ -353,6 +356,8 @@ Validado por testes automatizados, sem acesso à rede além do loopback. `go tes
 - Testes do proxy com upstreams falsos (`httptest` em loopback) para os quatro dialetos, inclusive streaming e o modo WebSocket do Responses. Launchers, `attach` e MITM rodam com binários de cliente substitutos.
 - Testes ponta a ponta (`e2e/`) rodam o binário real contra um upstream falso para Anthropic Messages e OpenAI Chat Completions: 80 turnos além de duas vezes a janela de 128K, dobras e um ciclo de decompress, invariantes verificados ao final, e um reinício do proxy no meio da execução.
 - Vetores de conformidade do plugin, reproduzidos por Go, Python e Node.
+- As ferramentas internas `search_context` e `retrieve`, nos caminhos HTTP e WebSocket, com os limites de resultados, trechos e tokens.
+- Dependências atualizadas com `go get -u`; a suíte passa com elas.
 - A imagem Docker foi compilada e executada uma vez, localmente, em uma etapa anterior. Não foi verificada de novo nesta revisão.
 
 Não validado:
@@ -360,16 +365,14 @@ Não validado:
 - As APIs reais dos provedores (Anthropic, OpenAI, Google): detalhes de wire, casos extremos de streaming, valores de `usage`, comportamento de cache e preços.
 - O endpoint WebSocket real da OpenAI Responses.
 - Os clientes de agente reais (Claude Code, Codex, Gemini CLI, OpenCode) rodando pelo proxy, MITM, proxy do sistema ou modo transparente.
-- `attach --system-proxy` e `--transparent`, e os backends de proxy do sistema de macOS e Windows, em sistemas reais.
-- Uma execução do workflow de CI no GitHub Actions (incluindo o job do Docker), e a qualidade dos resumos em sessões reais longas.
+- `attach --system-proxy` e `--transparent`, o watchdog, os redirecionamentos por nftables e iptables, e os backends de proxy do sistema de macOS e Windows, em sistemas reais. Os caminhos transparente e do watchdog foram executados apenas com executores falsos.
+- Uma execução do workflow de CI no GitHub Actions (incluindo o job do Docker) e do workflow de release: builds do GoReleaser, releases em rascunho e o push da imagem para o ghcr.io. `goreleaser check` não foi executado.
+- A qualidade dos resumos em sessões reais longas.
 
 Não implementado:
 
-- O fallback com iptables para o modo transparente (somente nftables).
-- Interceptação IPv6: o redirecionamento transparente casa apenas IPv4.
-- Merge TOML em configurações temporárias (somente JSON e YAML).
-- `search_context` e `retrieve` como ferramentas que o proxy injeta na requisição do modelo. Estão disponíveis pelo plugin e pelo companheiro MCP.
-- Fail-open para um redirecionamento transparente que travou: a recuperação é `attach --restore`, executado manualmente.
+- Um watchdog morto por SIGKILL: o redirecionamento permanece até que `attach --restore` seja executado manualmente. O `doctor` o reporta.
+- Redirecionamento IPv6 quando `[::1]` não está livre na porta de redirecionamento: o IPv6 então contorna o acd-ctx, e a saída do attach informa isso.
 
 ## Limitações e riscos
 

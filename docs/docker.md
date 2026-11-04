@@ -2,7 +2,7 @@
 
 acd-ctx also ships as a container image: one proxy for the whole machine,
 running in the background, with its data in a named volume. You can run it
-next to the local install (`go install` or a release binary). The host-side
+next to the local install (`go install`, or a release binary once a tag is published; none exists yet). The host-side
 `acd-ctx claude` command reuses the container when it is running.
 
 The image is built from the repository [Dockerfile](../Dockerfile). The

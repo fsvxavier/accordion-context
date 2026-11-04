@@ -200,8 +200,12 @@ func (rt *runtime) decrypted(cwd string) http.Handler {
 			http.Error(w, "unsupported request target", http.StatusBadRequest)
 			return
 		}
+		esc := ""
+		if r.URL.RawPath != "" {
+			esc = "/ctx/https://" + r.URL.Hostname() + r.URL.EscapedPath() // keeps %2F
+		}
 		r.URL.Path = "/ctx/https://" + r.URL.Hostname() + path
-		r.URL.RawPath = ""
+		r.URL.RawPath = esc
 		r.URL.Scheme = ""
 		r.URL.Host = ""
 		r.Host = rt.addr

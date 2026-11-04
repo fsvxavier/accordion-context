@@ -1,0 +1,70 @@
+[
+  {
+    "type": "compress",
+    "payload": {
+      "blocks": [
+        "b1"
+      ],
+      "closedIntents": null,
+      "deactivated": null,
+      "tokensAfter": 16132
+    },
+    "ranges": {
+      "b1": "tier=1 seq=3..139"
+    }
+  },
+  {
+    "type": "compress",
+    "payload": {
+      "blocks": [
+        "b2"
+      ],
+      "closedIntents": null,
+      "deactivated": null,
+      "tokensAfter": 16232
+    },
+    "ranges": {
+      "b2": "tier=1 seq=140..284"
+    }
+  },
+  {
+    "type": "compress",
+    "payload": {
+      "blocks": [
+        "b3"
+      ],
+      "closedIntents": null,
+      "deactivated": null,
+      "tokensAfter": 5040
+    },
+    "ranges": {
+      "b3": "tier=1 seq=285..417"
+    }
+  },
+  {
+    "type": "decompress",
+    "payload": {
+      "reactivated": null,
+      "redirected": false,
+      "requested": "b1",
+      "target": "b1"
+    },
+    "ranges": {
+      "b1": "tier=1 seq=3..139"
+    }
+  },
+  {
+    "type": "compress",
+    "payload": {
+      "blocks": [
+        "b4"
+      ],
+      "closedIntents": null,
+      "deactivated": null,
+      "tokensAfter": 49008
+    },
+    "ranges": {
+      "b4": "tier=1 seq=3..139"
+    }
+  }
+]

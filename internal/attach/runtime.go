@@ -195,8 +195,10 @@ func (rt *runtime) decrypted(cwd string) http.Handler {
 			return
 		}
 		path := r.URL.Path
-		if path == "" {
-			path = "/"
+		if !strings.HasPrefix(path, "/") {
+			// "" or "*" (OPTIONS *) would otherwise glue onto the host name.
+			http.Error(w, "unsupported request target", http.StatusBadRequest)
+			return
 		}
 		r.URL.Path = "/ctx/https://" + r.URL.Hostname() + path
 		r.URL.RawPath = ""

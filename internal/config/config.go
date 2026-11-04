@@ -88,6 +88,7 @@ func Defaults() Config {
 		MinSummaryChars:        50,
 		MaxSummaryChars:        20_000,
 		ProtectedTools:         []string{},
+		FramingCheck:           false,
 		UserTurnAfterSummaries: true,
 		IntentLedger:           true,
 

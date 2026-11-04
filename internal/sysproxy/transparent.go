@@ -18,21 +18,38 @@ import (
 // comments, and restore checks for it before it deletes anything.
 const NFTTable = "acd_ctx"
 
-// nftSet is the destination set, filled from the mitm domains.
-const nftSet = "mitm_ipv4"
+// Destination set names, filled from the mitm domains.
+const (
+	nftSet4 = "mitm_ipv4"
+	nftSet6 = "mitm_ipv6"
+)
+
+// Redirect tools. nft is preferred; iptables is the fallback when nft is absent.
+const (
+	FirewallNFT      = "nft"
+	FirewallIptables = "iptables"
+)
 
 // ErrUnsupported means the degree is not available on this platform.
 var ErrUnsupported = errors.New("not supported on this platform")
 
-// NFTPlan is the redirect of one user's TCP 443 traffic to the local listener.
+// ErrNoFirewall means neither nft nor iptables is installed.
+var ErrNoFirewall = errors.New("transparent mode needs nft or iptables; neither was found")
+
+// NFTPlan is the redirect of one user's TCP 443 traffic to the local listeners.
 // Traffic of ProxyUID is accepted before any redirect, so the proxy's own
-// upstream connections never loop back.
+// upstream connections never loop back. The same plan renders the nft ruleset
+// and the iptables/ip6tables chain.
 type NFTPlan struct {
 	TargetUID       int
 	ProxyUID        int
 	RedirectPort    int // 0 renders a placeholder in previews
 	AllDestinations bool
 	IPv4            []netip.Addr
+	IPv6            []netip.Addr
+	// RedirectIPv6 adds the IPv6 rules. The caller must have bound [::1] on
+	// RedirectPort, or the redirected IPv6 connections would be refused.
+	RedirectIPv6 bool
 }
 
 // Validate checks the plan before rules are rendered or applied.
@@ -52,19 +69,23 @@ func (p NFTPlan) Validate() error {
 	return nil
 }
 
-// sortedIPv4 returns the unique IPv4 addresses in p, sorted.
-func (p NFTPlan) sortedIPv4() []string {
+// sortedAddrs returns the unique addresses of one family in p, sorted, as text.
+// Loopback, unspecified and multicast destinations are never redirected: the
+// router refuses them, and a poisoned DNS answer must not turn the rule into a
+// way to cut the client off from local services.
+func sortedAddrs(addrs []netip.Addr, v6 bool) []string {
 	seen := map[netip.Addr]bool{}
 	var out []netip.Addr
-	for _, a := range p.IPv4 {
+	for _, a := range addrs {
 		a = a.Unmap()
-		// Loopback, unspecified and multicast destinations are never redirected:
-		// the router refuses them, and a poisoned DNS answer must not turn the
-		// rule into a way to cut the client off from local services.
-		if a.Is4() && !a.IsLoopback() && !a.IsUnspecified() && !a.IsMulticast() && !seen[a] {
-			seen[a] = true
-			out = append(out, a)
+		if (v6 && !a.Is6()) || (!v6 && !a.Is4()) {
+			continue
 		}
+		if a.IsLoopback() || a.IsUnspecified() || a.IsMulticast() || seen[a] {
+			continue
+		}
+		seen[a] = true
+		out = append(out, a)
 	}
 	slices.SortFunc(out, func(a, b netip.Addr) int { return a.Compare(b) })
 	s := make([]string, len(out))
@@ -82,54 +103,82 @@ func (p NFTPlan) redirectTarget() string {
 }
 
 // Ruleset renders the nft script that creates the table. It is applied with
-// `nft -f -`, which is atomic.
+// `nft -f -`, which is atomic. The first line is `create table`, which fails
+// when the table already exists: a table that appeared after the check is
+// refused, never merged into. The table is then flushed (a no-op on a new
+// table) and filled.
 func (p NFTPlan) Ruleset() (string, error) {
 	if err := p.Validate(); err != nil {
 		return "", err
 	}
 	var b strings.Builder
+	fmt.Fprintf(&b, "create table inet %s\n", NFTTable)
+	fmt.Fprintf(&b, "flush table inet %s\n", NFTTable)
 	fmt.Fprintf(&b, "table inet %s {\n", NFTTable)
 	if !p.AllDestinations {
-		fmt.Fprintf(&b, "\tset %s {\n\t\ttype ipv4_addr\n", nftSet)
-		if ips := p.sortedIPv4(); len(ips) > 0 {
+		fmt.Fprintf(&b, "\tset %s {\n\t\ttype ipv4_addr\n", nftSet4)
+		if ips := sortedAddrs(p.IPv4, false); len(ips) > 0 {
 			fmt.Fprintf(&b, "\t\telements = { %s }\n", strings.Join(ips, ", "))
 		}
 		b.WriteString("\t}\n")
+		if p.RedirectIPv6 {
+			fmt.Fprintf(&b, "\tset %s {\n\t\ttype ipv6_addr\n", nftSet6)
+			if ips := sortedAddrs(p.IPv6, true); len(ips) > 0 {
+				fmt.Fprintf(&b, "\t\telements = { %s }\n", strings.Join(ips, ", "))
+			}
+			b.WriteString("\t}\n")
+		}
 	}
 	b.WriteString("\n\tchain output {\n")
 	b.WriteString("\t\ttype nat hook output priority -100; policy accept;\n")
 	fmt.Fprintf(&b, "\t\tmeta skuid %d accept comment %q\n", p.ProxyUID, OwnerTag)
-	// Local services on 127.0.0.0/8 are never redirected: the router would
-	// refuse them, which would break the client's own localhost HTTPS.
+	// Local services on 127.0.0.0/8 and ::1 are never redirected: the router
+	// would refuse them, which would break the client's own localhost HTTPS.
 	fmt.Fprintf(&b, "\t\tip daddr 127.0.0.0/8 accept comment %q\n", OwnerTag)
-	// The listener is IPv4 only, so IPv6 must never match the redirect. The set
-	// variant is IPv4 by its ip daddr match; the all-443 variant needs nfproto.
+	if p.RedirectIPv6 {
+		fmt.Fprintf(&b, "\t\tip6 daddr ::1 accept comment %q\n", OwnerTag)
+	}
+	port := p.redirectTarget()
 	if p.AllDestinations {
 		fmt.Fprintf(&b, "\t\tmeta skuid %d meta nfproto ipv4 meta l4proto tcp tcp dport 443 redirect to :%s comment %q\n",
-			p.TargetUID, p.redirectTarget(), OwnerTag)
+			p.TargetUID, port, OwnerTag)
+		if p.RedirectIPv6 {
+			fmt.Fprintf(&b, "\t\tmeta skuid %d meta nfproto ipv6 meta l4proto tcp tcp dport 443 redirect to :%s comment %q\n",
+				p.TargetUID, port, OwnerTag)
+		}
 	} else {
 		fmt.Fprintf(&b, "\t\tmeta skuid %d meta l4proto tcp tcp dport 443 ip daddr @%s redirect to :%s comment %q\n",
-			p.TargetUID, nftSet, p.redirectTarget(), OwnerTag)
+			p.TargetUID, nftSet4, port, OwnerTag)
+		if p.RedirectIPv6 {
+			fmt.Fprintf(&b, "\t\tmeta skuid %d meta l4proto tcp tcp dport 443 ip6 daddr @%s redirect to :%s comment %q\n",
+				p.TargetUID, nftSet6, port, OwnerTag)
+		}
 	}
 	b.WriteString("\t}\n}\n")
 	return b.String(), nil
 }
 
-// UpdateScript renders the nft script that replaces the destination set with
-// the given addresses. It returns "" when there is no set.
+// UpdateScript renders the nft script that replaces the destination sets with
+// the plan's addresses. It returns "" when there are no sets.
 func (p NFTPlan) UpdateScript() string {
 	if p.AllDestinations {
 		return ""
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "flush set inet %s %s\n", NFTTable, nftSet)
-	if ips := p.sortedIPv4(); len(ips) > 0 {
-		fmt.Fprintf(&b, "add element inet %s %s { %s }\n", NFTTable, nftSet, strings.Join(ips, ", "))
+	fmt.Fprintf(&b, "flush set inet %s %s\n", NFTTable, nftSet4)
+	if ips := sortedAddrs(p.IPv4, false); len(ips) > 0 {
+		fmt.Fprintf(&b, "add element inet %s %s { %s }\n", NFTTable, nftSet4, strings.Join(ips, ", "))
+	}
+	if p.RedirectIPv6 {
+		fmt.Fprintf(&b, "flush set inet %s %s\n", NFTTable, nftSet6)
+		if ips := sortedAddrs(p.IPv6, true); len(ips) > 0 {
+			fmt.Fprintf(&b, "add element inet %s %s { %s }\n", NFTTable, nftSet6, strings.Join(ips, ", "))
+		}
 	}
 	return b.String()
 }
 
-// CanApplyTransparent reports whether the process may change nftables rules:
+// CanApplyTransparent reports whether the process may change firewall rules:
 // it is root, or it holds CAP_NET_ADMIN (bit 12 of CapEff in /proc/self/status).
 func CanApplyTransparent(euid int, status string) bool {
 	if euid == 0 {
@@ -150,6 +199,11 @@ func (e Env) Privileged() bool { return CanApplyTransparent(e.euid(), e.procStat
 // Euid returns the effective uid, or -1 when the Env does not know it.
 func (e Env) Euid() int { return e.euid() }
 
+// hasCommand reports whether a command is installed. A nil LookPath reports none.
+func hasCommand(e Env, name string) bool {
+	return e.LookPath != nil && e.LookPath(name)
+}
+
 func (e Env) procStatus() string {
 	if e.ProcStatus != nil {
 		return e.ProcStatus()
@@ -161,40 +215,90 @@ func (e Env) procStatus() string {
 	return string(data)
 }
 
-// ResolveIPv4 resolves hosts to unique IPv4 addresses. A host that fails is
-// reported in the error, and the addresses of the others are still returned.
-func ResolveIPv4(ctx context.Context, e Env, hosts []string) ([]netip.Addr, error) {
+// ChooseFirewall returns the redirect tool for this machine: nft when it is
+// installed, otherwise iptables.
+func ChooseFirewall(e Env) (string, error) {
+	switch {
+	case hasCommand(e, "nft"):
+		return FirewallNFT, nil
+	case hasCommand(e, "iptables"):
+		return FirewallIptables, nil
+	}
+	return "", ErrNoFirewall
+}
+
+// ResolveDestinations resolves hosts to unique IPv4 and IPv6 addresses. A host
+// that fails is reported in the error, and the addresses of the others are
+// still returned.
+func ResolveDestinations(ctx context.Context, e Env, hosts []string) (v4, v6 []netip.Addr, err error) {
 	seen := map[netip.Addr]bool{}
-	var out []netip.Addr
 	var errs []error
 	for _, h := range hosts {
-		addrs, err := e.resolve(ctx, h)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("resolve %s: %w", h, err))
+		addrs, rerr := e.resolve(ctx, h)
+		if rerr != nil {
+			errs = append(errs, fmt.Errorf("resolve %s: %w", h, rerr))
 			continue
 		}
 		for _, a := range addrs {
 			a = a.Unmap()
-			if a.Is4() && !seen[a] {
-				seen[a] = true
-				out = append(out, a)
+			if seen[a] || !(a.Is4() || a.Is6()) {
+				continue
+			}
+			seen[a] = true
+			if a.Is4() {
+				v4 = append(v4, a)
+			} else {
+				v6 = append(v6, a)
 			}
 		}
 	}
-	slices.SortFunc(out, func(a, b netip.Addr) int { return a.Compare(b) })
-	return out, errors.Join(errs...)
+	slices.SortFunc(v4, func(a, b netip.Addr) int { return a.Compare(b) })
+	slices.SortFunc(v6, func(a, b netip.Addr) int { return a.Compare(b) })
+	return v4, v6, errors.Join(errs...)
 }
 
+// ResolveIPv4 is ResolveDestinations for the IPv4 addresses only.
+func ResolveIPv4(ctx context.Context, e Env, hosts []string) ([]netip.Addr, error) {
+	v4, _, err := ResolveDestinations(ctx, e, hosts)
+	return v4, err
+}
+
+// resolve asks the injected resolver, or DNS. Both families come back; the
+// callers keep the one they need.
 func (e Env) resolve(ctx context.Context, host string) ([]netip.Addr, error) {
 	if e.Resolve != nil {
 		return e.Resolve(ctx, host)
 	}
-	return net.DefaultResolver.LookupNetIP(ctx, "ip4", host)
+	return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
 }
 
-// StartTransparent installs the redirect. It refuses when the table already
-// exists, so a second run cannot overwrite the first one's rules.
-func StartTransparent(ctx context.Context, e Env, dir string, p NFTPlan) (*Active, error) {
+// TransparentPreview renders what StartTransparent would install with fw, for
+// a dry run. Nothing is changed.
+func TransparentPreview(fw string, p NFTPlan) (string, error) {
+	if err := p.Validate(); err != nil {
+		return "", err
+	}
+	if fw != FirewallIptables {
+		return p.Ruleset()
+	}
+	var b strings.Builder
+	for _, v6 := range []bool{false, true} {
+		if v6 && !p.RedirectIPv6 {
+			continue
+		}
+		for _, c := range p.iptScript(v6) {
+			b.WriteString(c.String())
+			b.WriteByte('\n')
+		}
+	}
+	return b.String(), nil
+}
+
+// StartTransparent installs the redirect with fw (FirewallNFT or
+// FirewallIptables). It refuses when the table or chain already exists, so a
+// second run cannot take over the first one's rules, and it starts the
+// watchdog before the first change.
+func StartTransparent(ctx context.Context, e Env, dir string, p NFTPlan, fw string) (*Active, error) {
 	if e.goos() != "linux" {
 		return nil, fmt.Errorf("transparent mode: %w (Linux only)", ErrUnsupported)
 	}
@@ -205,57 +309,53 @@ func StartTransparent(ctx context.Context, e Env, dir string, p NFTPlan) (*Activ
 	if err != nil {
 		return nil, err
 	}
-	ruleset, err := p.Ruleset()
-	if err != nil {
+	if err := p.Validate(); err != nil {
 		return nil, err
 	}
 	if p.RedirectPort == 0 {
 		return nil, errors.New("sysproxy: redirect port must be set before applying")
 	}
-	if _, err := r.Run(ctx, nftList()); err == nil {
-		return nil, fmt.Errorf("sysproxy: table inet %s already exists; run acd-ctx attach --restore first", NFTTable)
-	} else {
-		var ee *ExitError
-		if !errors.As(err, &ee) {
-			return nil, err
-		}
+	switch fw {
+	case FirewallNFT:
+		return startNFT(ctx, e, r, dir, p)
+	case FirewallIptables:
+		return startIptables(ctx, e, r, dir, p)
 	}
-	pid := os.Getpid()
-	st := &State{
-		Mode: ModeTransparent, NFTTable: NFTTable, PID: pid,
-		StartTime: startTime(e.procRoot(), pid), Created: e.now(),
-	}
-	path, err := createState(dir, st)
-	if err != nil {
-		return nil, err
-	}
-	a := &Active{env: e, mode: ModeTransparent, state: st, path: path, plan: p}
-	if _, err := r.Run(ctx, Command{Name: "nft", Args: []string{"-f", "-"}, Stdin: ruleset}); err != nil {
-		return nil, a.rollback(fmt.Errorf("apply nft ruleset: %w", err))
-	}
-	if _, err := r.Run(ctx, nftList()); err != nil {
-		return nil, a.rollback(fmt.Errorf("verify nft table: %w", err))
-	}
-	return a, nil
+	return nil, fmt.Errorf("sysproxy: unknown redirect tool %q", fw)
 }
 
-// SetIPv4 replaces the destination set. It is a no-op for the all-443 plan.
-func (a *Active) SetIPv4(ctx context.Context, addrs []netip.Addr) error {
+// SetDestinations replaces the destination sets. An empty family keeps
+// the addresses it had: a failed lookup must not empty the set. It is a no-op
+// for the all-443 plan.
+func (a *Active) SetDestinations(ctx context.Context, v4, v6 []netip.Addr) error {
 	if a.mode != ModeTransparent {
-		return errors.New("sysproxy: SetIPv4 needs a transparent session")
+		return errors.New("sysproxy: SetDestinations needs a transparent session")
+	}
+	if a.plan.AllDestinations {
+		return nil
+	}
+	if len(v4) > 0 {
+		a.plan.IPv4 = v4
+	}
+	if len(v6) > 0 {
+		a.plan.IPv6 = v6
 	}
 	r, err := a.env.runner()
 	if err != nil {
 		return err
 	}
-	p := a.plan
-	p.IPv4 = addrs
-	script := p.UpdateScript()
-	if script == "" {
-		return nil
+	switch a.fw {
+	case FirewallNFT:
+		script := a.plan.UpdateScript()
+		if script == "" {
+			return nil
+		}
+		_, err = r.Run(ctx, Command{Name: "nft", Args: []string{"-f", "-"}, Stdin: script})
+		return err
+	case FirewallIptables:
+		return a.refillIptables(ctx, r)
 	}
-	_, err = r.Run(ctx, Command{Name: "nft", Args: []string{"-f", "-"}, Stdin: script})
-	return err
+	return fmt.Errorf("sysproxy: unknown redirect tool %q", a.fw)
 }
 
 func nftList() Command {
@@ -286,4 +386,50 @@ func restoreNFT(ctx context.Context, r Runner, table string) ([]string, error) {
 		return nil, fmt.Errorf("table inet %s still present after delete", table)
 	}
 	return []string{"removed nft table inet " + table}, nil
+}
+
+// nftTableExists reports whether the acd-ctx table is present, read-only.
+func nftTableExists(ctx context.Context, r Runner) (bool, error) {
+	_, err := r.Run(ctx, nftList())
+	if err == nil {
+		return true, nil
+	}
+	var ee *ExitError
+	if errors.As(err, &ee) {
+		return false, nil
+	}
+	return false, err
+}
+
+// startNFT applies the ruleset. nft applies a script atomically, so a failed
+// apply changed nothing and the state file is simply dropped.
+func startNFT(ctx context.Context, e Env, r Runner, dir string, p NFTPlan) (*Active, error) {
+	ruleset, err := p.Ruleset()
+	if err != nil {
+		return nil, err
+	}
+	exists, err := nftTableExists(ctx, r)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		return nil, fmt.Errorf("sysproxy: table inet %s already exists; run acd-ctx attach --restore first", NFTTable)
+	}
+	st := newTransparentState(e, FirewallNFT)
+	st.NFTTable = NFTTable
+	a, err := beginTransparent(e, dir, st, p, FirewallNFT)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := r.Run(ctx, Command{Name: "nft", Args: []string{"-f", "-"}, Stdin: ruleset}); err != nil {
+		return nil, a.unapplied(fmt.Errorf("apply nft ruleset: %w", err))
+	}
+	out, err := r.Run(ctx, nftList())
+	if err != nil {
+		return nil, a.rollback(fmt.Errorf("verify nft table: %w", err))
+	}
+	if !strings.Contains(out, fmt.Sprintf("comment %q", OwnerTag)) {
+		return nil, a.rollback(fmt.Errorf("table inet %s is not ours: it has no %q tag", NFTTable, OwnerTag))
+	}
+	return a, nil
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/netip"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -17,7 +18,9 @@ func ips(t *testing.T, in ...string) []netip.Addr {
 	return out
 }
 
-const wantRulesetSet = `table inet acd_ctx {
+const wantRulesetSet = `create table inet acd_ctx
+flush table inet acd_ctx
+table inet acd_ctx {
 	set mitm_ipv4 {
 		type ipv4_addr
 		elements = { 1.1.1.1, 93.184.216.34 }
@@ -32,7 +35,9 @@ const wantRulesetSet = `table inet acd_ctx {
 }
 `
 
-const wantRulesetAll443 = `table inet acd_ctx {
+const wantRulesetAll443 = `create table inet acd_ctx
+flush table inet acd_ctx
+table inet acd_ctx {
 
 	chain output {
 		type nat hook output priority -100; policy accept;
@@ -114,9 +119,24 @@ type fakeNFT struct {
 	text    string
 	cmds    []string
 	stdins  []string
+	// appearOnApply makes an untagged table appear just before the first
+	// ruleset is applied: the race between the check and the create.
+	appearOnApply bool
+	// mu orders the commands of an in-process helper with the test that
+	// drives it: closing a pipe carries no happens-before edge.
+	mu sync.Mutex
+}
+
+// reset clears the recorded commands under the lock.
+func (f *fakeNFT) reset() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cmds = nil
 }
 
 func (f *fakeNFT) Run(_ context.Context, c Command) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.cmds = append(f.cmds, strings.Join(append([]string{c.Name}, c.Args...), " "))
 	if c.Name != "nft" {
 		return "", errors.New("unexpected command " + c.Name)
@@ -124,7 +144,16 @@ func (f *fakeNFT) Run(_ context.Context, c Command) (string, error) {
 	switch {
 	case len(c.Args) == 2 && c.Args[0] == "-f":
 		f.stdins = append(f.stdins, c.Stdin)
-		if strings.HasPrefix(c.Stdin, "table inet") {
+		if f.appearOnApply {
+			f.appearOnApply = false
+			f.present = true
+			f.text = "table inet acd_ctx {\n\tchain other {\n\t}\n}\n"
+		}
+		if strings.HasPrefix(c.Stdin, "create table inet acd_ctx\n") {
+			// create fails on an existing table, and the whole script is refused.
+			if f.present {
+				return "", &ExitError{Command: c, Code: 1, Output: "Error: table already exists"}
+			}
 			f.present = true
 			f.text = c.Stdin // the rules carry the owner tag, as the real table does
 		}
@@ -143,15 +172,19 @@ func (f *fakeNFT) Run(_ context.Context, c Command) (string, error) {
 }
 
 func linuxEnv(r Runner, euid int) Env {
-	return Env{GOOS: "linux", Runner: r, Geteuid: func() int { return euid },
-		ProcStatus: func() string { return "" }, Alive: func(int, uint64) bool { return true }}
+	e := Env{GOOS: "linux", Runner: r, Geteuid: func() int { return euid },
+		ProcStatus: func() string { return "" },
+		Alive:      func(int, uint64) bool { return true },
+		LookPath:   func(string) bool { return true }}
+	e.Spawn = helperSpawner(e)
+	return e
 }
 
 func TestTransparentStartStopArgv(t *testing.T) {
 	dir := t.TempDir()
 	f := &fakeNFT{}
 	plan := NFTPlan{TargetUID: 1000, ProxyUID: 0, RedirectPort: 8443, IPv4: ips(t, "1.1.1.1")}
-	a, err := StartTransparent(context.Background(), linuxEnv(f, 0), dir, plan)
+	a, err := StartTransparent(context.Background(), linuxEnv(f, 0), dir, plan, FirewallNFT)
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -166,7 +199,7 @@ func TestTransparentStartStopArgv(t *testing.T) {
 	if f.stdins[0] != mustRuleset(t, plan) {
 		t.Fatal("applied ruleset differs from the rendered one")
 	}
-	if err := a.SetIPv4(context.Background(), ips(t, "2.2.2.2")); err != nil {
+	if err := a.SetDestinations(context.Background(), ips(t, "2.2.2.2"), nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := f.stdins[len(f.stdins)-1]; got != "flush set inet acd_ctx mitm_ipv4\nadd element inet acd_ctx mitm_ipv4 { 2.2.2.2 }\n" {
@@ -208,7 +241,7 @@ func TestTransparentRefusesExistingTable(t *testing.T) {
 	dir := t.TempDir()
 	f := &fakeNFT{present: true, text: "table inet acd_ctx {\n}\n"}
 	plan := NFTPlan{TargetUID: 1000, RedirectPort: 8443, IPv4: ips(t, "1.1.1.1")}
-	if _, err := StartTransparent(context.Background(), linuxEnv(f, 0), dir, plan); err == nil {
+	if _, err := StartTransparent(context.Background(), linuxEnv(f, 0), dir, plan, FirewallNFT); err == nil {
 		t.Fatal("second transparent session must refuse an existing table")
 	}
 	for _, c := range f.cmds {
@@ -224,10 +257,11 @@ func TestForeignTableIsNotDeleted(t *testing.T) {
 	dir := t.TempDir()
 	f := &fakeNFT{}
 	plan := NFTPlan{TargetUID: 1000, RedirectPort: 8443, IPv4: ips(t, "1.1.1.1")}
-	a, err := StartTransparent(context.Background(), linuxEnv(f, 0), dir, plan)
+	a, err := StartTransparent(context.Background(), linuxEnv(f, 0), dir, plan, FirewallNFT)
 	if err != nil {
 		t.Fatal(err)
 	}
+	keepHelperDown(t, a)
 	// Someone replaced the table's content: the tag is gone.
 	f.text = "table inet acd_ctx {\n\tchain other {\n\t}\n}\n"
 	f.cmds = nil
@@ -250,7 +284,7 @@ func TestForeignTableIsNotDeleted(t *testing.T) {
 func TestTransparentNeedsPrivilegeAndLinux(t *testing.T) {
 	plan := NFTPlan{TargetUID: 1000, RedirectPort: 8443, IPv4: ips(t, "1.1.1.1")}
 	f := &fakeNFT{}
-	_, err := StartTransparent(context.Background(), linuxEnv(f, 1000), t.TempDir(), plan)
+	_, err := StartTransparent(context.Background(), linuxEnv(f, 1000), t.TempDir(), plan, FirewallNFT)
 	var need *ErrNeedPrivilege
 	if !errors.As(err, &need) {
 		t.Fatalf("unprivileged start: %v", err)
@@ -260,7 +294,7 @@ func TestTransparentNeedsPrivilegeAndLinux(t *testing.T) {
 	}
 	e := linuxEnv(f, 0)
 	e.GOOS = "darwin"
-	if _, err := StartTransparent(context.Background(), e, t.TempDir(), plan); !errors.Is(err, ErrUnsupported) {
+	if _, err := StartTransparent(context.Background(), e, t.TempDir(), plan, FirewallNFT); !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("darwin: %v", err)
 	}
 }

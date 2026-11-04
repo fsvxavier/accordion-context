@@ -15,8 +15,16 @@ import (
 // allowedRulesetLine lists every line shape Ruleset may produce. Anything else
 // (a stray newline, ';', '}', quote or domain text) fails the injection test.
 var allowedRulesetLine = []*regexp.Regexp{
+	regexp.MustCompile(`^create table inet acd_ctx$`),
+	regexp.MustCompile(`^flush table inet acd_ctx$`),
 	regexp.MustCompile(`^table inet acd_ctx \{$`),
 	regexp.MustCompile(`^\tset mitm_ipv4 \{$`),
+	regexp.MustCompile(`^\tset mitm_ipv6 \{$`),
+	regexp.MustCompile(`^\t\ttype ipv6_addr$`),
+	regexp.MustCompile(`^\t\telements = \{ ([0-9a-f:]+)(, [0-9a-f:]+)* \}$`),
+	regexp.MustCompile(`^\t\tip6 daddr ::1 accept comment "acd-ctx"$`),
+	regexp.MustCompile(`^\t\tmeta skuid \d+ meta nfproto ipv6 meta l4proto tcp tcp dport 443 redirect to :(\d+|<port>) comment "acd-ctx"$`),
+	regexp.MustCompile(`^\t\tmeta skuid \d+ meta l4proto tcp tcp dport 443 ip6 daddr @mitm_ipv6 redirect to :(\d+|<port>) comment "acd-ctx"$`),
 	regexp.MustCompile(`^\t\ttype ipv4_addr$`),
 	regexp.MustCompile(`^\t\telements = \{ (\d{1,3}(\.\d{1,3}){3})(, \d{1,3}(\.\d{1,3}){3})* \}$`),
 	regexp.MustCompile(`^\t\}$`),
@@ -39,6 +47,12 @@ func lineAllowed(l string) bool {
 	return false
 }
 
+// addrs6 returns the IPv6 answers of the hostile resolver, for the IPv6 sets.
+func addrs6(e Env) []netip.Addr {
+	_, v6, _ := ResolveDestinations(context.Background(), e, []string{"x"})
+	return v6
+}
+
 // TestRulesetInjection: hostile host names go through the resolver only, and
 // the rendered ruleset and update script contain nothing but allowed lines.
 func TestRulesetInjection(t *testing.T) {
@@ -53,6 +67,7 @@ func TestRulesetInjection(t *testing.T) {
 	}}
 	addrs, _ := ResolveIPv4(context.Background(), e, hostile)
 	p := NFTPlan{TargetUID: 1000, ProxyUID: 0, RedirectPort: 8443, IPv4: addrs}
+	p.IPv6 = addrs6(e)
 	for _, all := range []bool{false, true} {
 		p.AllDestinations = all
 		text, err := p.Ruleset()
@@ -64,23 +79,23 @@ func TestRulesetInjection(t *testing.T) {
 				t.Fatalf("unexpected ruleset line %q in\n%s", l, text)
 			}
 		}
-		if strings.Contains(text, "evil") || strings.Contains(text, "flush") || strings.Contains(text, "delete") {
+		if strings.Contains(text, "evil") || strings.Contains(text, "flush ruleset") || strings.Contains(text, "delete") {
 			t.Fatalf("host text leaked into ruleset:\n%s", text)
 		}
 	}
 	p.AllDestinations = false
-	for _, l := range strings.Split(strings.TrimSpace(p.sortedIPv4Join()+"\n"+p.UpdateScript()), "\n") {
+	for _, l := range strings.Split(strings.TrimSpace(sortedIPv4Join(p)+"\n"+p.UpdateScript()), "\n") {
 		if l != "" && !strings.HasPrefix(l, "flush set inet acd_ctx mitm_ipv4") &&
 			!strings.HasPrefix(l, "add element inet acd_ctx mitm_ipv4 { 9.9.9.9 }") && l != "9.9.9.9" {
 			t.Fatalf("unexpected update line %q", l)
 		}
 	}
-	if got := p.sortedIPv4(); len(got) != 1 || got[0] != "9.9.9.9" {
+	if got := sortedAddrs(p.IPv4, false); len(got) != 1 || got[0] != "9.9.9.9" {
 		t.Fatalf("loopback/unspecified/multicast/IPv6 must be dropped, got %v", got)
 	}
 }
 
-func (p NFTPlan) sortedIPv4Join() string { return strings.Join(p.sortedIPv4(), "\n") }
+func sortedIPv4Join(p NFTPlan) string { return strings.Join(sortedAddrs(p.IPv4, false), "\n") }
 
 // TestRulesetNeverRedirectsProxyOrLoopback evaluates the rendered output chain
 // in order for packets and checks that no packet of the proxy's uid, none to

@@ -177,6 +177,12 @@ type Env struct {
 	Alive      func(pid int, start uint64) bool                             // nil uses the host check
 	Resolve    func(ctx context.Context, host string) ([]netip.Addr, error) // nil uses DNS
 	Now        func() time.Time                                             // nil means time.Now
+	// Spawn starts the watchdog helper of a transparent run. Nil refuses the
+	// transparent start: nothing would restore the redirect after a crash.
+	// The CLI sets ExecSpawner; tests inject an in-process helper.
+	Spawn Spawner
+	// WatchdogPoll is the helper's liveness poll interval. Zero means one second.
+	WatchdogPoll time.Duration
 }
 
 func (e Env) goos() string {

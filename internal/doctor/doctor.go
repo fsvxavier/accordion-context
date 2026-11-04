@@ -88,6 +88,11 @@ type Options struct {
 	HTTPClient *http.Client
 	// Now is the clock for expiry checks. Nil means time.Now.
 	Now func() time.Time
+	// SysRunner runs the read-only firewall probes (nft, iptables, ip6tables).
+	// Nil uses SystemRunner, and nil there skips the probes.
+	SysRunner sysproxy.Runner
+	// ProcRoot is the /proc that watchdog helpers are looked up in. Empty means /proc.
+	ProcRoot string
 }
 
 // Run performs every check and returns the report. The error is reserved for
@@ -133,7 +138,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	add(checkForeignBaseURLs(ctx, client, vars, o.ProxyAddr, profiles))
 	add(checkNoProxy(vars, profiles))
 	add(checkIntegration(o.Client, profiles))
-	add(checkSystemLeftovers(o.DBPath))
+	add(checkSystemLeftovers(o.DBPath, o.procRoot(), o.sysRunner()))
 
 	r.Summary = Pass
 	for _, c := range r.Checks {
@@ -558,12 +563,37 @@ func uniqueStrings(in []string) []string {
 	return out
 }
 
-// checkSystemLeftovers reports state files of the system-proxy and transparent
-// degrees (spec §19.9, degrees 6 and 7). A live owner means a change is in
-// effect now; a dead owner means a crashed run left settings behind. Either way
-// the check is a WARN. doctor never changes settings itself: it names the
-// command that restores them.
-func checkSystemLeftovers(dbPath string) Check {
+// SystemRunner gives the read-only firewall probes a command runner when
+// Options.SysRunner is nil. The CLI sets it; without one the probes are skipped
+// and the check says so.
+var SystemRunner func() sysproxy.Runner
+
+// sysRunner returns the runner of the firewall probes, or nil.
+func (o Options) sysRunner() sysproxy.Runner {
+	if o.SysRunner != nil {
+		return o.SysRunner
+	}
+	if SystemRunner != nil {
+		return SystemRunner()
+	}
+	return nil
+}
+
+// procRoot is the /proc used to find watchdog helpers. Empty means /proc.
+func (o Options) procRoot() string {
+	if o.ProcRoot != "" {
+		return o.ProcRoot
+	}
+	return "/proc"
+}
+
+// checkSystemLeftovers reports the leftovers of the system-proxy and transparent
+// degrees (spec §19.9, degrees 6 and 7): state files, the watchdog helpers that
+// serve them, and nft tables or iptables chains that are present. Any of them is
+// a WARN. A live owner means a change is in effect now; a dead owner means a
+// crashed run left settings behind. doctor never changes anything itself: it names
+// the command that restores it.
+func checkSystemLeftovers(dbPath, procRoot string, r sysproxy.Runner) Check {
 	const name = "system proxy"
 	if dbPath == "" {
 		return Check{name, Pass, "not checked: no database path"}
@@ -572,22 +602,43 @@ func checkSystemLeftovers(dbPath string) Check {
 	if err != nil {
 		return Check{name, Warn, "state files unreadable: " + err.Error() + "; inspect the sysproxy directory by hand"}
 	}
-	if len(left) == 0 {
-		return Check{name, Pass, "no system proxy or transparent redirect is left in place"}
-	}
-	var parts []string
+	var problems []string
 	hasProxy := false
 	for _, l := range left {
 		state := "stale (owner pid " + strconv.Itoa(l.PID) + " is gone)"
 		if l.Alive {
 			state = "active (owner pid " + strconv.Itoa(l.PID) + " is running)"
+		} else if l.Mode == sysproxy.ModeTransparent {
+			if pids := sysproxy.WatchdogPIDs(procRoot, l.Path); len(pids) > 0 {
+				state += ", watchdog pid " + strconv.Itoa(pids[0]) + " is still running and restores it"
+			} else {
+				state += ", no watchdog running"
+			}
 		}
 		if l.Mode == sysproxy.ModeSystemProxy {
 			hasProxy = true
 		}
-		parts = append(parts, l.Mode+" "+state+" "+l.Path)
+		problems = append(problems, l.Mode+" "+state+" "+l.Path)
 	}
-	detail := strings.Join(parts, "; ") + "; restore with: acd-ctx attach --restore"
+	note := ""
+	if r == nil {
+		note = "firewall tables not checked: no command runner"
+	} else {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		problems = append(problems, sysproxy.FirewallLeftovers(ctx, r)...)
+		cancel()
+	}
+	if len(problems) == 0 {
+		detail := "no system proxy or transparent redirect is left in place"
+		if note != "" {
+			detail += "; " + note
+		}
+		return Check{name, Pass, detail}
+	}
+	detail := strings.Join(problems, "; ")
+	if len(left) > 0 {
+		detail += "; restore with: acd-ctx attach --restore"
+	}
 	if hasProxy {
 		detail += "; while the system proxy is set, apps that do not trust the acd-ctx CA fail on the MITM domains"
 	}

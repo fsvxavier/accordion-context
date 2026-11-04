@@ -230,10 +230,11 @@ func Splice(a, b net.Conn) {
 	wg.Wait()
 }
 
-// Dial connects to dst with a timeout.
+// Dial connects to dst with a timeout. Both families are allowed: an IPv6
+// original destination is tunnelled as it was asked for.
 func Dial(ctx context.Context, dst string) (net.Conn, error) {
 	d := net.Dialer{Timeout: 10 * time.Second}
-	return d.DialContext(ctx, "tcp4", dst)
+	return d.DialContext(ctx, "tcp", dst)
 }
 
 // netAddrPort converts an address to netip form, when it is IPv4.

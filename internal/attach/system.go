@@ -241,8 +241,9 @@ func runSystemProxy(ctx context.Context, o Options, env sysproxy.Env, sc *scope,
 	return res, err
 }
 
-// runTransparent redirects TCP 443 of one uid to the listener. Without --apply
-// it only prints the ruleset that would be installed.
+// runTransparent redirects TCP 443 of one uid to the listeners. Without --apply
+// it only prints the rules that would be installed: nft when it is installed,
+// iptables otherwise. IPv4 and IPv6 are both covered.
 func runTransparent(ctx context.Context, o Options, env sysproxy.Env, sc *scope, st *store.Store, logger *slog.Logger, dir string) (res Result, err error) {
 	res.Degree = DegreeTransparent
 	sys := o.System
@@ -266,12 +267,19 @@ func runTransparent(ctx context.Context, o Options, env sysproxy.Env, sc *scope,
 	var resolveErr error
 	if !sys.AllDestinations {
 		rctx, rcancel := context.WithTimeout(ctx, 15*time.Second)
-		plan.IPv4, resolveErr = sysproxy.ResolveIPv4(rctx, env, sc.runHosts)
+		plan.IPv4, plan.IPv6, resolveErr = sysproxy.ResolveDestinations(rctx, env, sc.runHosts)
 		rcancel()
 	}
 
 	if !sys.Apply {
-		text, err := plan.Ruleset()
+		fw, ferr := sysproxy.ChooseFirewall(env)
+		if ferr != nil {
+			fw = sysproxy.FirewallNFT
+			res.Notes = append(res.Notes, "neither nft nor iptables is installed here; the nft form is shown")
+		}
+		// The preview shows the IPv6 rules too; the port is only known when applied.
+		plan.RedirectIPv6 = true
+		text, err := sysproxy.TransparentPreview(fw, plan)
 		if err != nil {
 			return res, err
 		}
@@ -281,7 +289,7 @@ func runTransparent(ctx context.Context, o Options, env sysproxy.Env, sc *scope,
 		}
 		fmt.Fprint(out, text)
 		res.Notes = append(res.Notes, "dry run: nothing changed; the redirect port is chosen when the rules are applied",
-			"IPv6 connections are not redirected and bypass acd-ctx; disable IPv6 for the client if that matters")
+			"IPv6 TCP 443 of the uid is redirected through [::1] when that port is free there; if it is not, the client's IPv6 bypasses acd-ctx")
 		if resolveErr != nil {
 			res.Notes = append(res.Notes, "some MITM domains did not resolve: "+resolveErr.Error())
 		}
@@ -290,6 +298,12 @@ func runTransparent(ctx context.Context, o Options, env sysproxy.Env, sc *scope,
 	if !env.Privileged() {
 		return res, &sysproxy.ErrNeedPrivilege{Commands: transparentCommands(o, uid)}
 	}
+	fw, err := sysproxy.ChooseFirewall(env)
+	if err != nil {
+		return res, fmt.Errorf("attach: transparent redirect: %w", err)
+	}
+	// iptables needs ip6tables for the IPv6 half; without it IPv6 is not redirected.
+	wantIPv6 := fw == sysproxy.FirewallNFT || (env.LookPath != nil && env.LookPath("ip6tables"))
 
 	rt, _, err := systemListener(o, env, sc, st, logger)
 	if err != nil {
@@ -297,19 +311,26 @@ func runTransparent(ctx context.Context, o Options, env sysproxy.Env, sc *scope,
 	}
 	defer rt.close()
 
-	tln, err := net.Listen("tcp4", "127.0.0.1:0")
+	ln4, ln6, err := listenRedirect(wantIPv6)
 	if err != nil {
-		return res, fmt.Errorf("attach: redirect listener: %w", err)
+		return res, err
 	}
-	defer tln.Close()
-	plan.RedirectPort = tln.Addr().(*net.TCPAddr).Port
+	defer ln4.Close()
+	if ln6 != nil {
+		defer ln6.Close()
+	}
+	plan.RedirectPort = ln4.Addr().(*net.TCPAddr).Port
+	plan.RedirectIPv6 = ln6 != nil
+	if !plan.RedirectIPv6 {
+		res.Notes = append(res.Notes, "IPv6 TCP 443 is not redirected: [::1] was not available on the redirect port, so the client's IPv6 bypasses acd-ctx")
+	}
 	if resolveErr != nil {
 		res.Notes = append(res.Notes, "some MITM domains did not resolve: "+resolveErr.Error())
 	}
 
 	hctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
-	act, err := sysproxy.StartTransparent(hctx, env, dir, plan)
+	act, err := sysproxy.StartTransparent(hctx, env, dir, plan, fw)
 	if err != nil {
 		return res, fmt.Errorf("attach: transparent redirect: %w", err)
 	}
@@ -319,7 +340,7 @@ func runTransparent(ctx context.Context, o Options, env sysproxy.Env, sc *scope,
 		notes, serr := act.Stop(rctx)
 		res.Notes = append(res.Notes, notes...)
 		if serr != nil {
-			err = errors.Join(err, fmt.Errorf("attach: restore nft table: %w (state kept; run acd-ctx attach --restore)", serr))
+			err = errors.Join(err, fmt.Errorf("attach: restore %s redirect: %w (state kept; run acd-ctx attach --restore)", fw, serr))
 		}
 	}()
 
@@ -354,18 +375,60 @@ func runTransparent(ctx context.Context, o Options, env sysproxy.Env, sc *scope,
 	}
 	router.OnPanic = onPanic
 	go refreshDestinations(rctx, env, hosts, act, onPanic)
-	go func() { <-rctx.Done(); _ = tln.Close() }()
 
-	fmt.Fprintf(o.stderr(), "acd-ctx: TCP 443 of uid %d is redirected for the MITM domains (Ctrl-C restores it)\n", uid)
-	if err := router.Serve(rctx, tln); err != nil {
-		return res, err
+	lns := []net.Listener{ln4}
+	if ln6 != nil {
+		lns = append(lns, ln6)
+	}
+	for _, ln := range lns {
+		go func() { <-rctx.Done(); _ = ln.Close() }()
+	}
+
+	fmt.Fprintf(o.stderr(), "acd-ctx: TCP 443 of uid %d is redirected for the MITM domains (%s, IPv4 and IPv6; Ctrl-C restores it)\n", uid, fw)
+	errc := make(chan error, len(lns))
+	for _, ln := range lns {
+		go func(ln net.Listener) { errc <- router.Serve(rctx, ln) }(ln)
+	}
+	var serveErr error
+	for range lns {
+		if serr := <-errc; serr != nil && serveErr == nil {
+			serveErr = serr
+			endRun()
+		}
 	}
 	res.Hits = rt.gate.hits.Load()
-	return res, nil
+	return res, serveErr
+}
+
+// listenRedirect opens the IPv4 redirect listener on a loopback port and, when
+// wantIPv6, the IPv6 listener on [::1] with the same port. The redirect target is
+// the same port for both families. When [::1] is not free on that port, the
+// attempt is retried on another port; after the last try the IPv6 listener is
+// nil and the caller leaves IPv6 alone (an IPv6 redirect with nothing listening
+// would cut the client off).
+func listenRedirect(wantIPv6 bool) (net.Listener, net.Listener, error) {
+	const attempts = 3
+	for i := 0; i < attempts && wantIPv6; i++ {
+		ln4, err := net.Listen("tcp4", "127.0.0.1:0")
+		if err != nil {
+			return nil, nil, fmt.Errorf("attach: redirect listener: %w", err)
+		}
+		port := ln4.Addr().(*net.TCPAddr).Port
+		ln6, err := net.Listen("tcp6", net.JoinHostPort("::1", strconv.Itoa(port)))
+		if err == nil {
+			return ln4, ln6, nil
+		}
+		_ = ln4.Close()
+	}
+	ln4, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		return nil, nil, fmt.Errorf("attach: redirect listener: %w", err)
+	}
+	return ln4, nil, nil
 }
 
 // refreshDestinations re-resolves the MITM domains every few minutes so the
-// destination set follows DNS. A failed lookup keeps the previous set. A
+// destination sets follow DNS. A failed lookup keeps the previous addresses. A
 // connection to a stale address is still checked by SNI, so it is never
 // intercepted by mistake.
 func refreshDestinations(ctx context.Context, env sysproxy.Env, hosts []string, act *sysproxy.Active, onPanic func(any)) {
@@ -382,10 +445,8 @@ func refreshDestinations(ctx context.Context, env sysproxy.Env, hosts []string, 
 			return
 		case <-t.C:
 			rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			addrs, _ := sysproxy.ResolveIPv4(rctx, env, hosts)
-			if len(addrs) > 0 {
-				_ = act.SetIPv4(rctx, addrs)
-			}
+			v4, v6, _ := sysproxy.ResolveDestinations(rctx, env, hosts)
+			_ = act.SetDestinations(rctx, v4, v6)
 			cancel()
 		}
 	}

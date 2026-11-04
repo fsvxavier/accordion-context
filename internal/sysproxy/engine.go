@@ -26,7 +26,49 @@ type Active struct {
 	path  string
 	back  Backend
 	plan  NFTPlan
+	fw    string
+	dog   *watchdog
 	done  bool
+}
+
+// newTransparentState describes this run's transparent change, before the first
+// change is made.
+func newTransparentState(e Env, fw string) *State {
+	pid := os.Getpid()
+	return &State{
+		Mode: ModeTransparent, Firewall: fw, PID: pid,
+		StartTime: startTime(e.procRoot(), pid), Created: e.now(),
+	}
+}
+
+// beginTransparent saves the state file, then starts the watchdog that owns it.
+// Both come before the first firewall change.
+func beginTransparent(e Env, dir string, st *State, p NFTPlan, fw string) (*Active, error) {
+	path, err := createState(dir, st)
+	if err != nil {
+		return nil, err
+	}
+	a := &Active{env: e, mode: ModeTransparent, state: st, path: path, plan: p, fw: fw}
+	dog, err := startWatchdog(e, path, st.PID)
+	if err != nil {
+		return nil, a.unapplied(err)
+	}
+	a.dog = dog
+	return a, nil
+}
+
+// unapplied ends a transparent start whose change was not made (or was refused
+// atomically): the helper stands down and the state file goes.
+func (a *Active) unapplied(cause error) error {
+	errs := []error{cause}
+	if err := a.dog.standDown(); err != nil {
+		errs = append(errs, err)
+	}
+	if err := removeFile(a.path); err != nil {
+		errs = append(errs, err)
+	}
+	a.done = true
+	return errors.Join(errs...)
 }
 
 // StartSystemProxy points the system HTTPS proxy at ep. It saves the previous
@@ -115,6 +157,17 @@ func (a *Active) rollback(cause error) error {
 	return cause
 }
 
+// restoreFirewall dispatches the restore of a transparent state by its tool.
+func restoreFirewall(ctx context.Context, r Runner, st *State) ([]string, error) {
+	switch st.Firewall {
+	case "", FirewallNFT:
+		return restoreNFT(ctx, r, st.NFTTable)
+	case FirewallIptables:
+		return restoreIptables(ctx, r, st)
+	}
+	return nil, fmt.Errorf("sysproxy: unknown redirect tool %q", st.Firewall)
+}
+
 // Stop restores what this run changed, verifies it, and removes the state file.
 // It is idempotent. Pass RestoreContext, because the run's own context may
 // already be canceled.
@@ -131,7 +184,7 @@ func (a *Active) Stop(ctx context.Context) ([]string, error) {
 	case ModeSystemProxy:
 		notes, err = restoreSystem(ctx, r, a.back, a.state)
 	case ModeTransparent:
-		notes, err = restoreNFT(ctx, r, a.state.NFTTable)
+		notes, err = restoreFirewall(ctx, r, a.state)
 	}
 	if err != nil {
 		return notes, err
@@ -140,6 +193,11 @@ func (a *Active) Stop(ctx context.Context) ([]string, error) {
 		if rerr := removeFile(a.path); rerr != nil {
 			return notes, rerr
 		}
+	}
+	// Only a verified restore with its state file removed lets the helper
+	// stand down. Before that it stays, and it restores if this run dies.
+	if err := a.dog.standDown(); err != nil {
+		notes = append(notes, "watchdog: "+err.Error())
 	}
 	a.done = true
 	return notes, nil

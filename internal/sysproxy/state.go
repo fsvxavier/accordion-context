@@ -20,11 +20,19 @@ const stateVersion = 1
 // State is what one run changed and what it found before. It is written before
 // the first change and removed only after the restore is verified.
 type State struct {
-	Version   int       `json:"version"`
-	Owner     string    `json:"owner"`
-	Mode      string    `json:"mode"`
-	Backend   string    `json:"backend,omitempty"`
-	NFTTable  string    `json:"nft_table,omitempty"`
+	Version  int    `json:"version"`
+	Owner    string `json:"owner"`
+	Mode     string `json:"mode"`
+	Backend  string `json:"backend,omitempty"`
+	NFTTable string `json:"nft_table,omitempty"`
+	// Firewall is the transparent redirect tool: "nft" (or empty, for files
+	// written before iptables support) or "iptables". Chain, UID and IPv6 hold
+	// the iptables state: the chain name, the uid of its OUTPUT jump, and
+	// whether the ip6tables chain was installed too.
+	Firewall  string    `json:"firewall,omitempty"`
+	Chain     string    `json:"chain,omitempty"`
+	UID       int       `json:"uid,omitempty"`
+	IPv6      bool      `json:"ipv6,omitempty"`
 	PID       int       `json:"pid"`
 	StartTime uint64    `json:"start_time,omitempty"`
 	Created   time.Time `json:"created"`
@@ -203,7 +211,7 @@ func restoreState(ctx context.Context, r Runner, e Env, st *State) ([]string, er
 		}
 		return restoreSystem(ctx, r, b, st)
 	case ModeTransparent:
-		return restoreNFT(ctx, r, st.NFTTable)
+		return restoreFirewall(ctx, r, st)
 	}
 	return nil, fmt.Errorf("unknown mode %q", st.Mode)
 }

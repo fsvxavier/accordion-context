@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/fsvxavier/accordion-context/internal/attach"
+	"github.com/fsvxavier/accordion-context/internal/doctor"
 	"github.com/fsvxavier/accordion-context/internal/launcher"
 	"github.com/fsvxavier/accordion-context/internal/sysproxy"
 )
@@ -29,13 +30,25 @@ func (r *repeated) Set(v string) error {
 // nft, ...). Tests replace it, so they never change the machine.
 var sysRunner sysproxy.Runner = sysproxy.ExecRunner{}
 
-// sysEnv describes this process to the system degrees.
+// init handles two things before main runs. The hidden watchdog argument starts
+// the redirect's helper process (sysproxy.WatchdogMain), which never reaches the
+// CLI. doctor's firewall probes get the same runner as the system degrees.
+func init() {
+	if len(os.Args) > 1 && os.Args[1] == sysproxy.WatchdogArg {
+		os.Exit(sysproxy.WatchdogMain(os.Args[2:], os.Stderr))
+	}
+	doctor.SystemRunner = func() sysproxy.Runner { return sysRunner }
+}
+
+// sysEnv describes this process to the system degrees. Spawn starts the
+// watchdog helper of a transparent run from this same binary.
 func sysEnv(s IO) *sysproxy.Env {
 	return &sysproxy.Env{
 		Getenv:   func(k string) string { v, _ := s.LookupEnv(k); return v },
 		LookPath: func(name string) bool { _, err := exec.LookPath(name); return err == nil },
 		Geteuid:  os.Geteuid,
 		Runner:   sysRunner,
+		Spawn:    sysproxy.ExecSpawner,
 	}
 }
 

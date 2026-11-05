@@ -13,7 +13,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/klauspost/compress/zstd"
@@ -91,6 +93,19 @@ type execer interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
+// walUnavailable reports whether err is SQLite refusing to open the -wal or -shm
+// file (SQLITE_CANTOPEN, 14), or failing to create the wal-index shared memory
+// (SQLITE_IOERR_SHMOPEN 4618, SQLITE_IOERR_SHMSIZE 4874). Both are what the WAL
+// pragma returns on a file system without shared memory support, such as WSL
+// DrvFs. Other I/O errors (for example 522) are not WAL-specific and are not matched.
+func walUnavailable(err error) bool {
+	m := err.Error()
+	return strings.Contains(m, "unable to open database file") ||
+		strings.Contains(m, "(14)") ||
+		strings.Contains(m, "(4618)") ||
+		strings.Contains(m, "(4874)")
+}
+
 // Open opens (or creates) the database at path, applies pragmas and migrates.
 // Use "file::memory:?mode=memory&cache=shared" style DSNs for tests.
 func Open(path string) (*Store, error) {
@@ -108,6 +123,16 @@ func Open(path string) (*Store, error) {
 	}
 	for _, p := range pragmas {
 		if _, err := db.Exec(p); err != nil {
+			// WAL needs a shared-memory file and locks that some file systems (the
+			// WSL DrvFs under /mnt/<drive>, network mounts) do not give. Fall back to
+			// the rollback journal instead of refusing to open the database.
+			if p == pragmas[0] && walUnavailable(err) {
+				slog.Warn("store: WAL is not available on this file system, using the rollback journal",
+					"path", path, "err", err)
+				if _, derr := db.Exec("PRAGMA journal_mode = DELETE"); derr == nil {
+					continue
+				}
+			}
 			db.Close()
 			return nil, fmt.Errorf("%s: %w", p, err)
 		}

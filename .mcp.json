@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "acd-ctx": {
+      "command": "/home/fsvxavier/go/bin/acd-ctx",
+      "args": ["mcp"]
+    }
+  }
+}

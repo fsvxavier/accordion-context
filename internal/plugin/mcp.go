@@ -2,13 +2,16 @@ package plugin
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
+	"time"
 
 	"github.com/fsvxavier/accordion-context/internal/project"
 	"github.com/fsvxavier/accordion-context/internal/session"
@@ -87,6 +90,10 @@ func NewMCP(cfg MCPConfig) (*MCP, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := ensureMCPSession(context.Background(), cfg.Store, rd, res); err != nil {
+		// Not fatal: the server still answers, and ctx_status reports the lack of a session.
+		cfg.Logger.Warn("mcp: could not create a session for the project", "err", err)
+	}
 	m := &MCP{cfg: cfg, reader: rd, projectID: res.ID}
 	exports, err := exportsDir(res)
 	if err != nil {
@@ -104,6 +111,33 @@ func NewMCP(cfg MCPConfig) (*MCP, error) {
 		return t.call(ctx, session.New(cfg.Store, sid), sid, name, args)
 	}
 	return m, nil
+}
+
+// mcpContextLimit is the window recorded for a session the MCP server creates,
+// the default of the proxy and the library.
+const mcpContextLimit = 200000
+
+// ensureMCPSession creates a session for the project when it has none. A chat
+// does not reach the proxy unless it was launched with `acd-ctx claude`, but it
+// always starts this MCP server, so any MCP-capable client gets ctx_status. An
+// existing session is left as it is.
+func ensureMCPSession(ctx context.Context, st *store.Store, rd *reader, res project.Resolved) error {
+	if _, err := rd.latestSession(ctx, res.ID); err == nil {
+		return nil
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if err := st.EnsureProject(ctx, res.ID, res.Root, res.Storage, time.Now().Unix()); err != nil {
+		return err
+	}
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return err
+	}
+	return st.CreateSession(ctx, store.Session{
+		ID: "mcp-" + hex.EncodeToString(b[:]), ProjectID: res.ID, Model: "",
+		ContextLimit: mcpContextLimit, Mode: "plugin", Integration: "mcp",
+	})
 }
 
 // Close releases the read-only database handle. The store is not closed.

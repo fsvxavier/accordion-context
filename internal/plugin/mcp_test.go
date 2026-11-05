@@ -147,7 +147,7 @@ func toolText(t *testing.T, line string) map[string]any {
 	return v
 }
 
-func TestMCPNoSessionIsAToolErrorNotAProtocolError(t *testing.T) {
+func TestMCPWithoutSessionCreatesOneForTheChat(t *testing.T) {
 	m, _ := mcpEnv(t, false)
 	out := exchange(t, m, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"ctx_status"}}`)
 	res := parseOne(t, out[0])
@@ -155,8 +155,8 @@ func TestMCPNoSessionIsAToolErrorNotAProtocolError(t *testing.T) {
 		t.Fatalf("no session produced a protocol error: %v", res)
 	}
 	r := res["result"].(map[string]any)
-	if r["isError"] != true || !strings.Contains(r["content"].([]any)[0].(map[string]any)["text"].(string), "no session") {
-		t.Fatalf("no-session result = %v", r)
+	if r["isError"] != false || !strings.Contains(r["content"].([]any)[0].(map[string]any)["text"].(string), `"sessionId":"mcp-`) {
+		t.Fatalf("ctx_status should report the MCP-created session, got %v", r)
 	}
 }
 

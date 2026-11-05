@@ -92,6 +92,15 @@ go build -o acd-ctx ./cmd/acd-ctx
 
 Instale desde la ruta del módulo con `go install github.com/fsvxavier/accordion-context/cmd/acd-ctx@<commit>`. Todavía no existe ninguna etiqueta de versión, así que `@latest` no se resuelve, y `@vX.Y.Z` solo funciona una vez que se haya subido la primera etiqueta. Los archivos de publicación los genera GoReleaser solo cuando se sube una etiqueta `v*`; véase [docs/release.md](docs/release.md). El valor de `version` es `dev`, salvo que el binario se compile con `-ldflags "-X main.version=<etiqueta>"`.
 
+Instale la rama `main` actual en `$(go env GOPATH)/bin`. Esta es la forma de instalar hasta que exista una etiqueta de versión:
+
+```sh
+go install github.com/fsvxavier/accordion-context/cmd/acd-ctx@main
+acd-ctx help
+```
+
+`@main` instala la punta de `main`, no una versión publicada. Para fijar un commit concreto, use `@<commit>` en su lugar.
+
 ## Docker
 
 La imagen es un build estático y sin privilegios de root (distroless, uid 65532), con los datos en el volumen `acd-ctx-data`. Compose publica el puerto solo en `127.0.0.1`:

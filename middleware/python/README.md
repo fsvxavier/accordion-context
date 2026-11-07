@@ -42,3 +42,7 @@ The conformance replay runs against a fake server by default. Set
 
 Not included: a wrapper around `httpx` or `requests` transports. Add one only as
 an optional module that imports them lazily.
+
+## License
+
+Apache-2.0. See [LICENSE](../../LICENSE).

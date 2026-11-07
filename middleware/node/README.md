@@ -40,3 +40,7 @@ node --test
 The conformance replay runs against a fake server by default. Set
 `ACD_CTX_CONFORMANCE_URL` (origin of a running `acd-ctx serve`) and
 `ACD_CTX_CONFORMANCE_TOKEN` (its token) to replay against that server instead.
+
+## License
+
+Apache-2.0. See [LICENSE](../../LICENSE).

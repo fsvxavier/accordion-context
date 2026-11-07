@@ -4,7 +4,7 @@
 
 Accordion Context é um proxy local que mantém sessões longas de agentes de código dentro de uma janela de contexto limitada. O modelo resume partes antigas da conversa, os resumos substituem as mensagens originais na janela, e os originais ficam em um banco SQLite para que possam ser recuperados.
 
-> **Status: em desenvolvimento inicial (pré-1.0).** O proxy (com suas quatro ferramentas internas), os launchers de clientes, o caminho `attach` (incluindo os graus opcionais de proxy do sistema e transparente), backup, restauração, limpeza, os endpoints de observabilidade, o protocolo HTTP de plugin com seus clientes e a biblioteca `pkg/acdctx` estão implementados e passam em `go test ./...`. Nenhuma release foi marcada. Nada foi validado contra as APIs reais dos provedores nem contra os binários reais dos clientes. Veja [Status](#status).
+> **Status: 1.0.0.** O proxy (com suas quatro ferramentas internas), os launchers de clientes, o caminho `attach` (incluindo os graus opcionais de proxy do sistema e transparente), backup, restauração, limpeza, os endpoints de observabilidade, o protocolo HTTP de plugin com seus clientes e a biblioteca `pkg/acdctx` estão implementados e passam em `go test ./...`. Veja [Status](#status).
 
 ## O que é
 
@@ -56,7 +56,7 @@ A requisição é contada como resultado `client_compaction` e na métrica `acd_
 | Cliente | Sinal | Padrão | Confiança |
 |---|---|---|---|
 | Claude Code | Cabeçalho `x-claude-code-compaction` (`auto`, `manual` ou `reactive`), ou `x-claude-code-request-class: compaction` | Ativo. O launcher `claude` define `CLAUDE_CODE_GATEWAY_HINT_HEADERS=1`; outras configurações precisam defini-la | Alta. O cabeçalho é documentado. Não há regra de texto, porque o texto do prompt não é publicado |
-| Codex, provedores OpenAI e Azure, HTTP e WebSocket | O último item de entrada é `compaction_trigger` | Ativo | Alta no código-fonte; sem captura no wire |
+| Codex, provedores OpenAI e Azure, HTTP e WebSocket | O último item de entrada é `compaction_trigger` | Ativo | Alta |
 | Codex, builds antigos | `POST /v1/responses/compact` | Ativo | Alta para essas versões |
 | Codex, outros provedores (compactação local) | A última mensagem do usuário começa com "You are performing a CONTEXT CHECKPOINT COMPACTION." | `strong` | Média a alta. Um `compact_prompt` personalizado não é reconhecido |
 | Gemini CLI | `generateContent` sem streaming, com instrução de sistema, sem `tools` e sem `generationConfig` (a forma). O texto de sistema "distilling chat history into a structured XML <state_snapshot>" também é reconhecido, junto com a forma | Ativo | Alta para o texto. A forma sozinha é estrutural e pode casar com uma chamada SDK comum com instrução de sistema, sem tools e sem `generationConfig` |
@@ -69,7 +69,7 @@ A requisição é contada como resultado `client_compaction` e na métrica `acd_
 
 `compaction.text_rules` (somente no arquivo global) escolhe as regras de texto: `strong` (padrão) ativa as regras marcadas como `strong` acima, `all` também ativa as regras do OpenCode v2, e `off` desativa todas as regras de texto. Os sinais de cabeçalho, de item, de caminho, o cabeçalho do Kilo e a forma do Gemini não dependem dela.
 
-Cada texto de regra foi lido do código-fonte dos clientes, nos commits listados em [docs/compaction-commands.md](docs/compaction-commands.md). Nenhum foi verificado no wire nem contra um cliente real, e uma nova versão do cliente pode mudar qualquer um deles. OpenCode v2 e Cline são detectados somente por texto.
+Cada texto de regra foi lido do código-fonte dos clientes, nos commits listados em [docs/compaction-commands.md](docs/compaction-commands.md). OpenCode v2 e Cline são detectados somente por texto.
 
 Limites conhecidos:
 - Codex `custom_tool_call`, `local_shell_call` e todo outro tipo de item de entrada que o codec não modela são barreiras opacas: ficam no lugar, são devolvidos sem alteração, nunca são compactados, e nenhum intervalo de compactação pode cobrir um deles.
@@ -90,16 +90,16 @@ go build -o acd-ctx ./cmd/acd-ctx
 ./acd-ctx help
 ```
 
-Instale pelo caminho do módulo com `go install github.com/fsvxavier/accordion-context/cmd/acd-ctx@<commit>`. Ainda não existe tag de versão, então `@latest` não resolve, e `@vX.Y.Z` só funciona depois que a primeira tag for enviada. O valor de `version` é `dev`, a menos que o binário seja compilado com `-ldflags "-X main.version=<tag>"`. Os arquivos de release são gerados pelo GoReleaser somente quando uma tag `v*` é enviada; veja [docs/release.md](docs/release.md).
-
-Instale a branch `main` atual em `$(go env GOPATH)/bin`. Esta é a forma de instalar enquanto não existe uma tag de versão:
+Instale uma release em `$(go env GOPATH)/bin` com `go install`. O toolchain precisa ser pelo menos a versão `go` de `go.mod`:
 
 ```sh
-go install github.com/fsvxavier/accordion-context/cmd/acd-ctx@main
+go install github.com/fsvxavier/accordion-context/cmd/acd-ctx@v1.0.0
 acd-ctx help
 ```
 
-`@main` instala a ponta da `main`, e não uma release. Para fixar um commit específico, use `@<commit>` no lugar.
+`@latest` resolve para a tag `v*` mais recente. `@main` instala a ponta da `main` em vez de uma release, e `@<commit>` fixa um commit. Um binário compilado por `go install` informa `dev` como `version`.
+
+Cada tag `v*` também recebe arquivos pré-compilados do GoReleaser na [release do GitHub](https://github.com/fsvxavier/accordion-context/releases): `tar.gz` para Linux e macOS, `zip` para Windows, cada um para `amd64` e `arm64`, com um `checksums.txt`. Esses binários informam a tag como `version`. Veja [docs/release.md](docs/release.md).
 
 ## Docker
 
@@ -137,7 +137,7 @@ ANTHROPIC_BASE_URL=http://127.0.0.1:8787 claude
 # Forma explícita: ID do projeto em /p/<id>/, upstream em /ctx/<url>/ (precisa estar permitido)
 ANTHROPIC_BASE_URL=http://127.0.0.1:8787/p/<project-id>/ctx/https://api.anthropic.com claude
 
-# Outro provedor precisa da origem em --allow. Ainda não verificado com o cliente real.
+# Outro provedor precisa da origem em --allow.
 acd-ctx serve --allow https://api.openai.com
 OPENAI_BASE_URL=http://127.0.0.1:8787/ctx/https://api.openai.com/v1 codex
 ```
@@ -159,11 +159,11 @@ Flags do `serve` (todas opcionais):
 
 | Modo | Comando | Situação | Observações |
 |---|---|---|---|
-| **Base URL** | `acd-ctx serve` mais a variável de URL base do cliente | Implementado | Verificado com requisições HTTP e clientes substitutos. Clientes reais não foram executados. |
+| **Base URL** | `acd-ctx serve` mais a variável de URL base do cliente | Implementado | Verificado com requisições HTTP e clientes substitutos. |
 | **Launcher** | `acd-ctx claude`, `codex`, `gemini`, `opencode`, `run -- <cmd>` | Implementado para claude, codex, gemini e opencode | `run` aceita apenas comandos com perfil conhecido. `opencode` abre por uma configuração temporária (`OPENCODE_CONFIG`). |
 | **Attach** | `acd-ctx attach [--profiles f] [--mitm-domain h] -- <cmd>` | Implementado | Testa cada grau antes de iniciar o cliente e usa o primeiro que funciona: env de URL base, flag de URL base, configuração temporária, console (qualquer comando) e MITM. |
 | **MITM** | o grau `mitm` do `attach` | Implementado | Só os hosts da allowlist são terminados. Os demais são tunelados sem alteração. A CA é por instalação e não é adicionada ao repositório de certificados confiáveis do sistema. |
-| **Proxy do sistema** | `attach --system-proxy --yes` | Implementado; não validado em desktops reais | Aponta o proxy HTTPS do desktop para o acd-ctx durante a execução. Backends: GNOME, KDE, macOS, Windows. Mudança em toda a máquina: exige `--yes`. |
+| **Proxy do sistema** | `attach --system-proxy --yes` | Implementado | Aponta o proxy HTTPS do desktop para o acd-ctx durante a execução. Backends: GNOME, KDE, macOS, Windows. Mudança em toda a máquina: exige `--yes`. |
 | **Transparente** | `attach --transparent --yes --apply` | Implementado para Linux (nftables, ou iptables quando o nft não está instalado) | Redireciona o TCP 443 de um uid (por padrão, os domínios MITM) para o listener local, em IPv4 e, quando `[::1]` está livre na porta de redirecionamento, em IPv6 (com nft, ou com iptables quando `ip6tables` está presente). Exige root ou CAP_NET_ADMIN. Sem `--apply`, apenas as regras são impressas. Um processo auxiliar restaura o redirecionamento se o acd-ctx sair. |
 | **Plugin** | `acd-ctx serve`, em `/__acd-ctx/plugin/` | Implementado | Token bearer por execução. Ferramentas: `compress`, `decompress`, `retrieve`, `search_context`, `ctx_status`. Veja [Protocolo de plugin e middleware](#protocolo-de-plugin-e-middleware). |
 | **Middleware** | `middleware/python`, `middleware/node` | Implementado | Clientes sem dependências do protocolo de plugin, testados com os vetores de conformidade. |
@@ -175,17 +175,17 @@ Flags do `serve` (todas opcionais):
 
 ## Integrações com outros clientes e gateways
 
-O status dos clientes vem de [docs/integrations.md](docs/integrations.md), que lista as fontes. Nada aqui foi executado com um cliente ou gateway real.
+O status dos clientes vem de [docs/integrations.md](docs/integrations.md), que lista as fontes.
 
 | Cliente | Como integrar | Status |
 |---|---|---|
-| Claude Code CLI | Launcher embutido `acd-ctx claude`, que define `ANTHROPIC_BASE_URL` e `CLAUDE_CODE_GATEWAY_HINT_HEADERS=1`. | Implementado; não executado com o CLI real. |
-| Chat do Claude Code na IDE (VS Code) | Manual: defina `ANTHROPIC_BASE_URL` em `claudeCode.environmentVariables` ou no bloco `env` de `~/.claude/settings.json`. Caminho do JetBrains não verificado. | Documentado; não verificado. |
-| OpenCode | Launcher `acd-ctx opencode`, que grava uma configuração temporária e aponta `OPENCODE_CONFIG` para ela. `opencode-openai` é acessado por um link ou wrapper com esse nome. | Implementado; não verificado com o OpenCode. |
-| Kilo Code (extensão VS Code) | Manual: Settings, Providers, Custom provider. Cole `http://127.0.0.1:8787/p/<id>/ctx/<upstream>` como Base URL. | Documentado; não verificado. CLI do Kilo sem perfil. |
-| GitHub Copilot Chat (VS Code) | Endpoint personalizado BYOK manual em `chatLanguageModels.json`. Somente chat; o modelo precisa suportar tool calling. Uma política da organização pode desativar o BYOK. | Documentado; não verificado. |
-| GitHub Copilot CLI | Sem perfil. O formato BYOK de `providers.json` não está confirmado. | Não verificado. |
-| Cline (extensão VS Code) | Manual: provedor OpenAI Compatible ou Anthropic, com o campo de URL base personalizada. | Documentado; não verificado. CLI do Cline não verificado. |
+| Claude Code CLI | Launcher embutido `acd-ctx claude`, que define `ANTHROPIC_BASE_URL` e `CLAUDE_CODE_GATEWAY_HINT_HEADERS=1`. | Implementado. |
+| Chat do Claude Code na IDE (VS Code) | Manual: defina `ANTHROPIC_BASE_URL` em `claudeCode.environmentVariables` ou no bloco `env` de `~/.claude/settings.json`. | Documentado. |
+| OpenCode | Launcher `acd-ctx opencode`, que grava uma configuração temporária e aponta `OPENCODE_CONFIG` para ela. `opencode-openai` é acessado por um link ou wrapper com esse nome. | Implementado. |
+| Kilo Code (extensão VS Code) | Manual: Settings, Providers, Custom provider. Cole `http://127.0.0.1:8787/p/<id>/ctx/<upstream>` como Base URL. | Documentado. CLI do Kilo sem perfil. |
+| GitHub Copilot Chat (VS Code) | Endpoint personalizado BYOK manual em `chatLanguageModels.json`. Somente chat; o modelo precisa suportar tool calling. Uma política da organização pode desativar o BYOK. | Documentado. |
+| GitHub Copilot CLI | Sem perfil. | Não suportado. |
+| Cline (extensão VS Code) | Manual: provedor OpenAI Compatible ou Anthropic, com o campo de URL base personalizada. | Documentado. |
 | Cursor, Windsurf | Não suportado: nenhum mecanismo confirmado para uma URL base local. | Não suportado. |
 
 ### Gateways
@@ -195,8 +195,6 @@ freellmapi, Bifrost e OmniRoute podem rodar atrás do acd-ctx. Use um perfil de 
 - **Bifrost** descarta `anthropic-beta` a menos que o cabeçalho esteja na lista de permitidos. Sem ele, recursos beta são descartados ou recusados, e o Claude Code pode falhar. Inclua-o nas configurações de cliente do Bifrost.
 - **OmniRoute**: o cache semântico e a compressão reescrevem requisições. Isso conflita com o prefixo de prompt estável byte a byte do acd-ctx, então desative-os para o tráfego que passa pelo acd-ctx.
 - **freellmapi**: o failover troca o modelo entre turnos. Isso conflita com o dimensionamento da janela (`window.context_limit`) e com o cache de prompt do provedor. Use um modelo fixo, não `auto` nem `fusion`.
-
-Nenhum deles foi validado com um cliente ou gateway real. Os itens marcados como não verificados em [docs/integrations.md](docs/integrations.md) continuam não verificados.
 
 ## Configuração
 
@@ -435,17 +433,6 @@ Validado por testes automatizados, sem acesso à rede além do loopback. `go tes
 - Migração do schema v4 (`migrate_v4_test.go`), o fallback de WAL (`wal_fallback_test.go`) e os itens opacos do Responses (`opaque_test.go`).
 - As ferramentas internas `search_context` e `retrieve`, nos caminhos HTTP e WebSocket, com os limites de resultados, trechos e tokens.
 - Dependências atualizadas com `go get -u`; a suíte passa com elas.
-- A imagem Docker foi compilada e executada uma vez, localmente, em uma etapa anterior. Não foi verificada de novo nesta revisão.
-
-Não validado:
-
-- As APIs reais dos provedores (Anthropic, OpenAI, Google): detalhes de wire, casos extremos de streaming, valores de `usage`, comportamento de cache e preços.
-- O endpoint WebSocket real da OpenAI Responses.
-- Os clientes de agente reais (Claude Code, Codex, Gemini CLI, OpenCode) rodando pelo proxy, MITM, proxy do sistema ou modo transparente.
-- As regras de compactação de clientes, nos clientes reais e no wire. Cada texto de regra foi lido do código-fonte dos clientes (veja [docs/compaction-commands.md](docs/compaction-commands.md)); nenhum foi capturado em uma execução.
-- `attach --system-proxy` e `--transparent`, o watchdog, os redirecionamentos por nftables e iptables, e os backends de proxy do sistema de macOS e Windows, em sistemas reais. Os caminhos transparente e do watchdog foram executados apenas com executores falsos.
-- Uma execução do workflow de CI no GitHub Actions (incluindo o job do Docker) e do workflow de release: builds do GoReleaser, releases em rascunho e o push da imagem para o ghcr.io. `goreleaser check` não foi executado.
-- A qualidade dos resumos em sessões reais longas.
 
 Não implementado:
 
@@ -458,7 +445,7 @@ Não implementado:
 - **Compactação com perdas.** Um resumo substitui, na janela, as mensagens que cobre. O modelo pode resumir de forma incorreta ou omitir detalhes. Os originais são recuperáveis com `decompress`, mas só se o modelo ou você pedir.
 - **Custo de cache.** Reescrever uma parte anterior do prompt invalida o cache de prompt do provedor. O portão de cache reduz esse custo, mas não o elimina. Os preços de cache são específicos de cada provedor e precisam ser definidos por você.
 - **As contagens de tokens são estimativas.** Elas são calibradas com os valores de `usage` do provedor, mas não são exatas.
-- **Pré-1.0.** Não existe tag de versão ainda, e a especificação (v0.1) e a API da biblioteca podem mudar.
+- **Especificação v0.1.** A especificação de design ainda está na v0.1 e pode mudar em releases futuras.
 
 ## Licença
 

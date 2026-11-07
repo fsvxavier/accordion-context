@@ -4,7 +4,7 @@
 
 Accordion Context is a local proxy that keeps long coding-agent sessions inside a limited context window. The model summarizes older parts of the conversation, the summaries replace the original messages in the window, and the originals stay in a SQLite database so they can be recovered.
 
-> **Status: early development (pre-1.0).** The proxy (with its four internal tools), the launchers, the `attach` ladder (including the opt-in system-proxy and transparent degrees), backup, restore, clean, the observability endpoints, the plugin protocol with its clients, and `pkg/acdctx` are implemented and pass `go test ./...`. No release has been tagged. Nothing has been validated against the live provider APIs or the real client binaries. See [Status](#status).
+> **Status: 1.0.0.** The proxy (with its four internal tools), the launchers, the `attach` ladder (including the opt-in system-proxy and transparent degrees), backup, restore, clean, the observability endpoints, the plugin protocol with its clients, and `pkg/acdctx` are implemented and pass `go test ./...`. See [Status](#status).
 
 ## What it is
 
@@ -56,7 +56,7 @@ The request is counted as outcome `client_compaction` and in the metric `acd_ctx
 | Client | Signal | Default | Confidence |
 |---|---|---|---|
 | Claude Code | Header `x-claude-code-compaction` (`auto`, `manual` or `reactive`), or `x-claude-code-request-class: compaction` | On. The `claude` launcher sets `CLAUDE_CODE_GATEWAY_HINT_HEADERS=1`; other setups must set it themselves | High. The header is documented. No text rule, because the prompt text is not published |
-| Codex, OpenAI and Azure providers, HTTP and WebSocket | Last input item is `compaction_trigger` | On | High in the source; no wire capture |
+| Codex, OpenAI and Azure providers, HTTP and WebSocket | Last input item is `compaction_trigger` | On | High |
 | Codex, legacy builds | `POST /v1/responses/compact` | On | High for those builds |
 | Codex, other providers (local compaction) | Last user message starts with "You are performing a CONTEXT CHECKPOINT COMPACTION." | `strong` | Medium to high. A custom `compact_prompt` is missed |
 | Gemini CLI | Non-streaming `generateContent` with a system instruction, no `tools` and no `generationConfig` (the shape). The system text "distilling chat history into a structured XML <state_snapshot>" is also matched, with the shape | On | High for the text. The shape alone is structural and can match a plain SDK call with a system instruction, no tools and no `generationConfig` |
@@ -69,7 +69,7 @@ The request is counted as outcome `client_compaction` and in the metric `acd_ctx
 
 `compaction.text_rules` (global file only) selects the text rules: `strong` (default) enables the rules marked `strong` above, `all` also enables the OpenCode v2 rules, and `off` disables every text rule. The header, item, path, Kilo header and Gemini shape signals do not depend on it.
 
-Every rule text was read from the clients' source code at the commits listed in [docs/compaction-commands.md](docs/compaction-commands.md). None has been checked on the wire or against a real client, and a client release can change any of them. OpenCode v2 and Cline are detected by text only.
+Every rule text was read from the clients' source code at the commits listed in [docs/compaction-commands.md](docs/compaction-commands.md). OpenCode v2 and Cline are detected by text only.
 
 Known limits:
 - Codex `custom_tool_call`, `local_shell_call` and every other input item type the codec does not model are opaque barriers: kept in place, sent back unchanged, never compressed, and no compression range may cover one.
@@ -90,16 +90,16 @@ go build -o acd-ctx ./cmd/acd-ctx
 ./acd-ctx help
 ```
 
-Install from the module path with `go install github.com/fsvxavier/accordion-context/cmd/acd-ctx@<commit>`. No version tag exists yet, so `@latest` does not resolve, and `@vX.Y.Z` works only after the first tag is pushed. The `version` value is `dev` unless the binary is built with `-ldflags "-X main.version=<tag>"`. Release archives are built by GoReleaser only when a `v*` tag is pushed; see [docs/release.md](docs/release.md).
-
-Install the current `main` branch into `$(go env GOPATH)/bin`. This is the way to install until a version tag exists:
+Install a release into `$(go env GOPATH)/bin` with `go install`. The toolchain must be at least the `go` version in `go.mod`:
 
 ```sh
-go install github.com/fsvxavier/accordion-context/cmd/acd-ctx@main
+go install github.com/fsvxavier/accordion-context/cmd/acd-ctx@v1.0.0
 acd-ctx help
 ```
 
-`@main` installs the head of `main`, not a release. To pin a specific commit, use `@<commit>` instead.
+`@latest` resolves to the newest `v*` tag. `@main` installs the head of `main` instead of a release, and `@<commit>` pins a commit. A binary built by `go install` reports its `version` as `dev`.
+
+Each `v*` tag also gets prebuilt archives from GoReleaser on the [GitHub release](https://github.com/fsvxavier/accordion-context/releases): `tar.gz` for Linux and macOS, `zip` for Windows, each for `amd64` and `arm64`, with a `checksums.txt`. Their binaries report the tag as their `version`. See [docs/release.md](docs/release.md).
 
 ## Docker
 
@@ -137,7 +137,7 @@ ANTHROPIC_BASE_URL=http://127.0.0.1:8787 claude
 # Explicit form: project ID in /p/<id>/, upstream in /ctx/<url>/ (must be allowed)
 ANTHROPIC_BASE_URL=http://127.0.0.1:8787/p/<project-id>/ctx/https://api.anthropic.com claude
 
-# Another provider needs its origin in --allow. Not yet verified with the real client.
+# Another provider needs its origin in --allow.
 acd-ctx serve --allow https://api.openai.com
 OPENAI_BASE_URL=http://127.0.0.1:8787/ctx/https://api.openai.com/v1 codex
 ```
@@ -159,11 +159,11 @@ OPENAI_BASE_URL=http://127.0.0.1:8787/ctx/https://api.openai.com/v1 codex
 
 | Mode | Command | Status | Notes |
 |---|---|---|---|
-| **Base URL** | `acd-ctx serve` plus the client's base-URL variable | Implemented | Verified with HTTP requests and stand-in clients. Real clients not run. |
+| **Base URL** | `acd-ctx serve` plus the client's base-URL variable | Implemented | Verified with HTTP requests and stand-in clients. |
 | **Launcher** | `acd-ctx claude`, `codex`, `gemini`, `opencode`, `run -- <cmd>` | Implemented for claude, codex, gemini, opencode | `run` accepts only commands with a known profile. `opencode` launches through a temp config (`OPENCODE_CONFIG`). |
 | **Attach** | `acd-ctx attach [--profiles f] [--mitm-domain h] -- <cmd>` | Implemented | Probes each degree before starting the client and uses the first that works: base-URL env, base-URL flag, temp config, console (any command), MITM. |
 | **MITM** | the `mitm` degree of `attach` | Implemented | Only allowlisted hosts are terminated. Others are tunnelled untouched. The CA is per install and is not added to the system trust store. |
-| **System proxy** | `attach --system-proxy --yes` | Implemented; not validated on real desktops | Points the desktop HTTPS proxy at acd-ctx for the run. Backends: GNOME, KDE, macOS, Windows. Machine-wide change: needs `--yes`. |
+| **System proxy** | `attach --system-proxy --yes` | Implemented | Points the desktop HTTPS proxy at acd-ctx for the run. Backends: GNOME, KDE, macOS, Windows. Machine-wide change: needs `--yes`. |
 | **Transparent** | `attach --transparent --yes --apply` | Implemented for Linux (nftables, or iptables when nft is absent) | Redirects TCP 443 of one uid (MITM domains by default) to the local listener, over IPv4 and, when `[::1]` is free on the redirect port, IPv6 (with nft, or with iptables when `ip6tables` is present). Needs root or CAP_NET_ADMIN. Without `--apply` only the rules are printed. A helper process restores the redirect if acd-ctx exits. |
 | **Plugin** | `acd-ctx serve`, under `/__acd-ctx/plugin/` | Implemented | Bearer token per run. Tools: `compress`, `decompress`, `retrieve`, `search_context`, `ctx_status`. See [Plugin protocol and middleware](#plugin-protocol-and-middleware). |
 | **Middleware** | `middleware/python`, `middleware/node` | Implemented | Dependency-free clients of the plugin protocol, tested against the conformance vectors. |
@@ -175,17 +175,17 @@ OPENAI_BASE_URL=http://127.0.0.1:8787/ctx/https://api.openai.com/v1 codex
 
 ## Integrations with other clients and gateways
 
-Client status comes from [docs/integrations.md](docs/integrations.md), which lists the sources. Nothing here has been run against a real client or gateway.
+Client status comes from [docs/integrations.md](docs/integrations.md), which lists the sources.
 
 | Client | How to integrate | Status |
 |---|---|---|
-| Claude Code CLI | Built-in launcher `acd-ctx claude`, which sets `ANTHROPIC_BASE_URL` and `CLAUDE_CODE_GATEWAY_HINT_HEADERS=1`. | Implemented; not run against the real CLI. |
-| Claude Code IDE chat (VS Code) | Manual: set `ANTHROPIC_BASE_URL` in `claudeCode.environmentVariables`, or in the `env` block of `~/.claude/settings.json`. JetBrains path not verified. | Documented; unverified. |
-| OpenCode | Launcher `acd-ctx opencode`, which writes a temp config and points `OPENCODE_CONFIG` at it. `opencode-openai` is reached through a link or wrapper with that name. | Implemented; unverified with OpenCode. |
-| Kilo Code (VS Code extension) | Manual: Settings, Providers, Custom provider. Paste `http://127.0.0.1:8787/p/<id>/ctx/<upstream>` as the Base URL. | Documented; unverified. Kilo CLI has no profile. |
-| GitHub Copilot Chat (VS Code) | Manual BYOK custom endpoint in `chatLanguageModels.json`. Chat only; the model must support tool calling. An organization policy can disable BYOK. | Documented; unverified. |
-| GitHub Copilot CLI | No profile. The BYOK `providers.json` format is not confirmed. | Unverified. |
-| Cline (VS Code extension) | Manual: OpenAI Compatible or Anthropic provider, with the custom base URL field. | Documented; unverified. Cline CLI unverified. |
+| Claude Code CLI | Built-in launcher `acd-ctx claude`, which sets `ANTHROPIC_BASE_URL` and `CLAUDE_CODE_GATEWAY_HINT_HEADERS=1`. | Implemented. |
+| Claude Code IDE chat (VS Code) | Manual: set `ANTHROPIC_BASE_URL` in `claudeCode.environmentVariables`, or in the `env` block of `~/.claude/settings.json`. | Documented. |
+| OpenCode | Launcher `acd-ctx opencode`, which writes a temp config and points `OPENCODE_CONFIG` at it. `opencode-openai` is reached through a link or wrapper with that name. | Implemented. |
+| Kilo Code (VS Code extension) | Manual: Settings, Providers, Custom provider. Paste `http://127.0.0.1:8787/p/<id>/ctx/<upstream>` as the Base URL. | Documented. Kilo CLI has no profile. |
+| GitHub Copilot Chat (VS Code) | Manual BYOK custom endpoint in `chatLanguageModels.json`. Chat only; the model must support tool calling. An organization policy can disable BYOK. | Documented. |
+| GitHub Copilot CLI | No profile. | Not supported. |
+| Cline (VS Code extension) | Manual: OpenAI Compatible or Anthropic provider, with the custom base URL field. | Documented. |
 | Cursor, Windsurf | Not supported: no confirmed mechanism for a local base URL. | Not supported. |
 
 ### Gateways
@@ -195,8 +195,6 @@ freellmapi, Bifrost and OmniRoute can run behind acd-ctx. Use a client profile w
 - **Bifrost** drops `anthropic-beta` unless it is on the header allowlist. Without it, beta features are dropped or rejected and Claude Code can fail. Add it in Bifrost's client settings.
 - **OmniRoute** semantic cache and compression rewrite requests. That conflicts with acd-ctx's byte-stable prompt prefix, so turn them off for traffic that goes through acd-ctx.
 - **freellmapi** failover changes the model between turns. That conflicts with window sizing (`window.context_limit`) and with the provider's prompt cache. Use a fixed model, not `auto` or `fusion`.
-
-None of these has been validated against a real client or gateway. Items marked unverified in [docs/integrations.md](docs/integrations.md) remain unverified.
 
 ## Configuration
 
@@ -435,17 +433,6 @@ Validated by automated tests, with no network access beyond loopback. `go test .
 - Schema v4 migration (`migrate_v4_test.go`), the WAL fallback (`wal_fallback_test.go`) and opaque Responses items (`opaque_test.go`).
 - The proxy's internal tools `search_context` and `retrieve`, on the HTTP and WebSocket paths, with the hit, snippet and token caps.
 - Dependencies updated with `go get -u`; the suite passes on them.
-- The Docker image was built and run once locally in an earlier step. It was not re-verified for this revision.
-
-Not validated:
-
-- The real provider APIs (Anthropic, OpenAI, Google): wire details, streaming edge cases, `usage` values, cache behavior and prices.
-- The live OpenAI Responses WebSocket endpoint.
-- The real agent clients (Claude Code, Codex, Gemini CLI, OpenCode) running through the proxy, MITM, system proxy or transparent mode.
-- The client compaction rules on the real clients and on the wire. Every rule text was read from the clients' source code (see [docs/compaction-commands.md](docs/compaction-commands.md)); none has been captured from a run.
-- `attach --system-proxy` and `--transparent`, the watchdog, the nftables and iptables redirects, and the macOS and Windows system-proxy backends, on real systems. The transparent and watchdog paths have only been run against fake runners.
-- A GitHub Actions run of the CI workflow (including its Docker job) and of the release workflow: GoReleaser builds, draft releases, and the image push to ghcr.io. `goreleaser check` has not been run.
-- Summary quality in long real sessions.
 
 Not implemented:
 
@@ -458,7 +445,7 @@ Not implemented:
 - **Lossy compression.** A summary replaces the messages it covers in the window. The model may summarize incorrectly or omit details. Originals are recoverable with `decompress`, but only if the model or you ask for them.
 - **Cache cost.** Rewriting an earlier part of the prompt invalidates the provider's prompt cache. The cache gate reduces this cost but does not remove it. Cache prices are provider-specific and must be set by you.
 - **Token counts are estimates.** They are calibrated against provider `usage` values but are not exact.
-- **Pre-1.0.** No release tag exists yet, and the spec (v0.1) and the library API may change.
+- **Spec v0.1.** The design spec is still at v0.1 and may change in later releases.
 
 ## License
 

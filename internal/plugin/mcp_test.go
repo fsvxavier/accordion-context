@@ -318,6 +318,35 @@ func TestMCPStopsOnCancelWhileIdle(t *testing.T) {
 	}
 }
 
+// TestMCPStatusIntentsAreBounded: harness text opens no intent, and a long
+// request is cut as in the <intents> block, so ctx_status stays small.
+func TestMCPStatusIntentsAreBounded(t *testing.T) {
+	e := newEnv(t)
+	msgs := transcript(30)
+	msgs[0]["text"] = "<system-reminder>" + strings.Repeat("env ", 5000) + "</system-reminder>"
+	msgs[2]["text"] = strings.Repeat("y", 5000)
+	if rec := e.do(t, "POST", pathTurn, map[string]any{"conversationId": "conv-intents", "messages": msgs}, nil); rec.Code != 200 {
+		t.Fatalf("turn status = %d: %s", rec.Code, rec.Body.String())
+	}
+	m, err := NewMCP(MCPConfig{Store: e.st, DBPath: e.dbPath, Cwd: e.dir, Version: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	out := exchange(t, m, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"ctx_status"}}`)
+	if len(out[0]) > 20000 {
+		t.Fatalf("ctx_status response is %d bytes, want it bounded", len(out[0]))
+	}
+	intents := toolText(t, out[0])["openIntents"].([]any)
+	if len(intents) != 14 {
+		t.Fatalf("open intents = %d, want 14 (15 user turns, one harness-only)", len(intents))
+	}
+	first := intents[0].(map[string]any)
+	if first["id"].(float64) != 1 || !strings.HasPrefix(first["text"].(string), "yyy") || len([]rune(first["text"].(string))) > 501 {
+		t.Fatalf("first intent = %v", first)
+	}
+}
+
 func TestNewMCPRejectsMissingInputs(t *testing.T) {
 	e := newEnv(t)
 	if _, err := NewMCP(MCPConfig{DBPath: e.dbPath, Cwd: e.dir}); err == nil {

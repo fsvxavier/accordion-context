@@ -130,18 +130,26 @@ func anchorOpaque(opaque []int64, seq int64) int64 {
 	return opaque[i-1]
 }
 
+// renderIntents shows each intent by its IntentText. An intent whose excerpt is
+// empty (opened by harness text before IntentText existed) is left out.
 func renderIntents(in []Intent) string {
-	if len(in) == 0 {
-		return ""
-	}
 	var b strings.Builder
-	b.WriteString("<intents>\n")
 	for _, i := range in {
-		if i.Status == "open" {
-			fmt.Fprintf(&b, "[open #%d] %s\n", i.ID, clip(i.Text, maxOpenIntentRunes))
-		} else {
-			fmt.Fprintf(&b, "[%s #%d] %s\n", i.Status, i.ID, clip(firstLine(i.Text), maxDoneIntentRunes))
+		text := IntentText(i.Text)
+		if text == "" {
+			continue
 		}
+		if b.Len() == 0 {
+			b.WriteString("<intents>\n")
+		}
+		if i.Status == "open" {
+			fmt.Fprintf(&b, "[open #%d] %s\n", i.ID, clip(text, maxOpenIntentRunes))
+		} else {
+			fmt.Fprintf(&b, "[%s #%d] %s\n", i.Status, i.ID, clip(firstLine(text), maxDoneIntentRunes))
+		}
+	}
+	if b.Len() == 0 {
+		return ""
 	}
 	b.WriteString("</intents>")
 	return b.String()

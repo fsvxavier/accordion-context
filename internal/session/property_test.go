@@ -297,3 +297,39 @@ func TestPlanCountsRefusals(t *testing.T) {
 		}
 	}
 }
+
+// TestRejectedCompressIsNotARefusal: a compress call that writes nothing still
+// answers the nudge, so it clears the refusal count and the pending nudge, and
+// the next nudge is not counted as refused.
+func TestRejectedCompressIsNotARefusal(t *testing.T) {
+	ctx := context.Background()
+	s, st := newSession(t) // ContextLimit 4000
+	msgs := transcript()
+	for i := range msgs {
+		msgs[i].Tokens = 400
+	}
+	if _, err := s.Ingest(ctx, msgs); err != nil {
+		t.Fatal(err)
+	}
+	for range 4 {
+		if _, err := s.Plan(ctx, 3600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if trig, _ := st.GetTrigger(ctx, "s1"); trig.Refusals != 3 {
+		t.Fatalf("refusals = %d, want 3", trig.Refusals)
+	}
+	if _, err := s.HandleCompress(ctx, CompressArgs{Ranges: []CompressRange{{"m00999", "m01000", okSummary, ""}}}); err == nil {
+		t.Fatal("unknown refs accepted")
+	}
+	trig, _ := st.GetTrigger(ctx, "s1")
+	if trig.Refusals != 0 || trig.NudgePending {
+		t.Fatalf("after rejected compress: %+v, want no refusals and no pending nudge", trig)
+	}
+	if _, err := s.Plan(ctx, 3600); err != nil {
+		t.Fatal(err)
+	}
+	if trig, _ := st.GetTrigger(ctx, "s1"); trig.Refusals != 0 || !trig.NudgePending {
+		t.Fatalf("next nudge: %+v, want a pending nudge with no refusal", trig)
+	}
+}

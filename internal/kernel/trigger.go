@@ -28,6 +28,9 @@ type Config struct {
 	UHigh          apd.Decimal // 0.75
 	UEmerg         apd.Decimal // 0.95
 	TiersEnabled   bool        // gates rows 7 and 8
+	// MaxRefusals is the number of consecutive refusals after which nudges are
+	// suspended until U >= UHigh: 3 (spec §8.3). 0 never suspends them.
+	MaxRefusals int
 }
 
 // DefaultConfig returns the spec §8.1 defaults.
@@ -42,6 +45,7 @@ func DefaultConfig() Config {
 		UHigh:          dec("0.75"),
 		UEmerg:         dec("0.95"),
 		TiersEnabled:   true,
+		MaxRefusals:    3,
 	}
 }
 
@@ -89,7 +93,7 @@ func DecideNudge(in TriggerInput, cfg Config) Decision {
 		return none("row4", "below usage floor")
 	}
 
-	if in.Trigger.Refusals >= 3 {
+	if cfg.MaxRefusals > 0 && in.Trigger.Refusals >= cfg.MaxRefusals {
 		return none("refusal", "nudges suspended until high band")
 	}
 	need := F

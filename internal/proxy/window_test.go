@@ -187,3 +187,42 @@ func TestApplyContextLimitFollowsStoredModel(t *testing.T) {
 		t.Fatal("unknown session must report an error")
 	}
 }
+
+// TestWindowChangeResetsRefusals: refusals counted against the old window do
+// not keep nudges suspended after the window changes; an unchanged window keeps
+// them.
+func TestWindowChangeResetsRefusals(t *testing.T) {
+	s := windowServer(t)
+	ctx := context.Background()
+	if err := s.cfg.Store.EnsureProject(ctx, "p1", "urn:acd-ctx:project:p1", "global", 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.cfg.Store.CreateSession(ctx, store.Session{
+		ID: "s1", ProjectID: "p1", Model: "claude-sonnet-5-5", ContextLimit: 200_000, Mode: "proxy", Integration: "url",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	trig, err := s.cfg.Store.GetTrigger(ctx, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	trig.Refusals, trig.NudgePending = 44, true
+	if err := s.cfg.Store.SetTrigger(ctx, "s1", trig); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults()
+	cfg.WindowModels = map[string]int{"claude-": 200_000}
+	if err := s.applyContextLimit(ctx, "s1", cfg); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.cfg.Store.GetTrigger(ctx, "s1"); got.Refusals != 44 {
+		t.Fatalf("unchanged window: refusals = %d, want 44", got.Refusals)
+	}
+	if err := s.applyContextLimit(ctx, "s1", config.Defaults()); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.cfg.Store.GetTrigger(ctx, "s1")
+	if got.Refusals != 0 || got.NudgePending {
+		t.Fatalf("after window change to 1M: %+v, want refusals cleared", got)
+	}
+}

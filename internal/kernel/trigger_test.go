@@ -264,3 +264,23 @@ func TestDecideNudgeUFloorZeroDisablesFloor(t *testing.T) {
 		t.Fatalf("floor still active: %+v", got)
 	}
 }
+
+// TestMaxRefusalsIsConfigurable: trigger.max_refusals sets the suspension
+// threshold, and 0 never suspends nudges.
+func TestMaxRefusalsIsConfigurable(t *testing.T) {
+	in := TriggerInput{
+		ContextLimit: 1_000_000, TokenCount: 400_000,
+		Trigger: TriggerState{LowWater: 100_000, Refusals: 5},
+		Pending: map[int]int{1: 300_000},
+	}
+	for _, c := range []struct {
+		max  int
+		want string
+	}{{3, "refusal"}, {6, "row6"}, {0, "row6"}} {
+		cfg := DefaultConfig()
+		cfg.MaxRefusals = c.max
+		if d := DecideNudge(in, cfg); d.Row != c.want {
+			t.Errorf("MaxRefusals=%d: row %s (%s), want %s", c.max, d.Row, d.Reason, c.want)
+		}
+	}
+}

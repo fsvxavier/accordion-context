@@ -372,7 +372,38 @@ type CompressResult struct {
 // and then writes all of them in one store transaction. Invalid input writes
 // nothing. Folds are checked by kernel.ApplyTierPlan, so the same invariants
 // (I1, I2, I5, I6) guard the in-memory plan and the stored one.
+//
+// A call that is refused still answers the nudge: the model tried. It clears
+// the pending nudge and the refusal count, so a run of rejected ranges (for
+// example while a barrier made every range invalid) does not suspend nudges
+// as if the model had ignored them (spec §8.3 refusal row).
 func (s *Session) HandleCompress(ctx context.Context, args CompressArgs) (CompressResult, error) {
+	res, err := s.handleCompress(ctx, args)
+	if err != nil {
+		if aerr := s.noteCompressAttempt(ctx); aerr != nil {
+			return res, errors.Join(err, aerr)
+		}
+	}
+	return res, err
+}
+
+// noteCompressAttempt clears the pending nudge and the refusal count after a
+// compress call that wrote nothing.
+func (s *Session) noteCompressAttempt(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	trig, err := s.st.GetTrigger(ctx, s.sid)
+	if err != nil {
+		return err
+	}
+	if !trig.NudgePending && trig.Refusals == 0 {
+		return nil
+	}
+	trig.NudgePending, trig.Refusals = false, 0
+	return s.st.SetTrigger(ctx, s.sid, trig)
+}
+
+func (s *Session) handleCompress(ctx context.Context, args CompressArgs) (CompressResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

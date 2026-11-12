@@ -205,7 +205,7 @@ func sessionOptions(cfg config.Config) session.Options {
 // seedCalibLocked replays the stored cache samples of sid into its calibration, so
 // the estimate keeps its scale after a restart (spec §15). s.mu must be held.
 func (s *Server) seedCalibLocked(ctx context.Context, sid string) {
-	rows, err := s.cfg.Store.ListCacheLedger(ctx, sid, calibSeedRows)
+	rows, err := s.storeOfLocked(sid).ListCacheLedger(ctx, sid, calibSeedRows)
 	if err != nil {
 		s.cfg.Logger.Warn("calibration not restored", "session", sid, "err", err)
 		return
@@ -293,7 +293,7 @@ func (s *Server) gateNudge(ctx context.Context, sid string, g gateIn) bool {
 			"row": d.Row, "U": u, "G": g0, "cost": fc.Cost.String(), "benefit": fc.Benefit.String(),
 			"idle_s": idle, "ttl_s": ttl,
 		}
-		if err := s.cfg.Store.AppendEvent(ctx, sid, "nudge_deferred", payload); err != nil {
+		if err := s.storeOf(sid).AppendEvent(ctx, sid, "nudge_deferred", payload); err != nil {
 			s.cfg.Logger.Warn("nudge_deferred event not written", "session", sid, "err", err)
 		}
 		s.cfg.Logger.Info("cache gate: nudge deferred", attrs...)

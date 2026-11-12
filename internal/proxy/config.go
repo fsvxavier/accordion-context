@@ -85,7 +85,7 @@ func longestPrefix(model string, table map[string]int) (n int, ok bool) {
 // request, so a conversation that switches models keeps one window. A row is
 // written only when the value differs, and only context_limit changes.
 func (s *Server) applyContextLimit(ctx context.Context, sid string, cfg config.Config) error {
-	model, stored, err := s.cfg.Store.SessionWindow(ctx, sid)
+	model, stored, err := s.storeOf(sid).SessionWindow(ctx, sid)
 	if err != nil {
 		return err
 	}
@@ -93,7 +93,7 @@ func (s *Server) applyContextLimit(ctx context.Context, sid string, cfg config.C
 	if want == stored {
 		return nil
 	}
-	return s.cfg.Store.SetContextLimit(ctx, sid, want)
+	return s.storeOf(sid).SetContextLimit(ctx, sid, want)
 }
 
 // configFor returns the effective configuration of a project root (spec §18.5).

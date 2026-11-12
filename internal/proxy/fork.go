@@ -41,7 +41,7 @@ func (s *Server) resolveLedger(ctx context.Context, p projectRef, base string, m
 		if err != nil {
 			return "", nil, nil, false, err
 		}
-		snap, err := s.cfg.Store.Snapshot(ctx, sid)
+		snap, err := s.storeOf(sid).Snapshot(ctx, sid)
 		if err != nil {
 			return "", nil, nil, false, err
 		}
@@ -93,7 +93,7 @@ func forkSessionID(parent string, msgs []kernel.Message) string {
 // stays free. Call it after the fork has ingested the transcript. Blocks of
 // other tiers are not copied, because tier 1 is the only tier produced so far.
 func (s *Server) inheritBlocks(ctx context.Context, child string, f *fork) error {
-	parent, err := s.cfg.Store.Snapshot(ctx, f.parent)
+	parent, err := s.storeOf(f.parent).Snapshot(ctx, f.parent)
 	if err != nil {
 		return err
 	}
@@ -115,7 +115,7 @@ func (s *Server) inheritBlocks(ctx context.Context, child string, f *fork) error
 			StartSeq: b.StartSeq, EndSeq: b.EndSeq, SrcTokens: b.SrcTokens, SumTokens: b.SumTokens,
 		})
 	}
-	snap, err := s.cfg.Store.Snapshot(ctx, child)
+	snap, err := s.storeOf(child).Snapshot(ctx, child)
 	if err != nil {
 		return err
 	}
@@ -131,5 +131,5 @@ func (s *Server) inheritBlocks(ctx context.Context, child string, f *fork) error
 	for _, m := range kernel.Render(hyp) {
 		plan.TokensAfter += m.Tokens
 	}
-	return s.cfg.Store.ApplyCompress(ctx, child, plan)
+	return s.storeOf(child).ApplyCompress(ctx, child, plan)
 }

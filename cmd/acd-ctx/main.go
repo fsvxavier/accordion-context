@@ -138,11 +138,12 @@ func serve(args []string, stderr io.Writer) int {
 	listenHost, _, _ := net.SplitHostPort(*listen)
 	h, err := proxy.New(proxy.Config{Upstream: up, Store: st, Version: version, Logger: logger,
 		UpstreamAllow: allowed, ListenHost: listenHost, GlobalPath: *configPath, Markers: rootMarkers,
-		AllowedHosts: hostList})
+		AllowedHosts: hostList, OpenStore: store.Open})
 	if err != nil {
 		logger.Error("configure proxy", "err", err)
 		return 1
 	}
+	defer h.Close()
 
 	// The plugin protocol (spec §19.4) shares the store and is mounted by prefix,
 	// without stripping it. It is optional: when its setup fails, the proxy keeps

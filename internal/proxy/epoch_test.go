@@ -72,8 +72,8 @@ func TestPurgeFromSecondHandleRecreatesSessionCleanly(t *testing.T) {
 	if len(srv.tunes[oldSID].held) != 0 {
 		t.Fatal("held spans survived the purge")
 	}
-	if ep, _ := st.Epoch(ctx); srv.epoch != ep {
-		t.Fatalf("proxy epoch %d, store epoch %d", srv.epoch, ep)
+	if ep, _ := st.Epoch(ctx); srv.epochs[srv.cfg.Store] != ep {
+		t.Fatalf("proxy epoch %d, store epoch %d", srv.epochs[srv.cfg.Store], ep)
 	}
 }
 

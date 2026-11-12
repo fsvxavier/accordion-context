@@ -260,7 +260,7 @@ The proxy reloads configuration for each project root at most every 30 seconds, 
 - **Detection.** Walking up from the working directory, the nearest directory that holds `.acd-ctx/`, `.git` or a root marker is the root; within one directory the order is `.acd-ctx/`, then `.git`, then a marker. If none is found, the working directory is the root.
 - **Project ID.** A project with `.acd-ctx/project-id` uses that value. Otherwise the ID is the first 16 hex characters of the SHA-256 of the root path.
 - **Requests.** The proxy takes the project from the `X-Acd-Ctx-Project-Dir` header (an absolute path of an existing directory), then from the `/p/<id>/` prefix. The conversation comes from `X-Acd-Ctx-Conversation`. Requests with no project signal use the `default` project and log a warning.
-- **Storage.** `global` keeps every project in one database. `local` keeps one project in `.acd-ctx/acd-ctx.db`.
+- **Storage.** `global` keeps every project in one database. `local` keeps one project in `.acd-ctx/acd-ctx.db`. A single `acd-ctx serve` honours `local` for requests whose `X-Acd-Ctx-Project-Dir` names the project; a `/p/<id>/` prefix carries no root, so those requests use the global database. With Claude Code, send the header with `ANTHROPIC_CUSTOM_HEADERS="X-Acd-Ctx-Project-Dir: /abs/path/to/project"` in the project's `.claude/settings.local.json`.
 
 Project commands:
 

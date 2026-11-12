@@ -260,7 +260,7 @@ O proxy recarrega a configuração de cada raiz de projeto no máximo a cada 30 
 - **Detecção.** Subindo a partir do diretório de trabalho, a raiz é o diretório mais próximo que contém `.acd-ctx/`, `.git` ou um marcador de raiz; dentro de um mesmo diretório a ordem é `.acd-ctx/`, depois `.git`, depois um marcador. Se nada for encontrado, o diretório de trabalho é a raiz.
 - **ID do projeto.** Um projeto com `.acd-ctx/project-id` usa esse valor. Caso contrário, o ID são os primeiros 16 caracteres hexadecimais do SHA-256 do caminho da raiz.
 - **Requisições.** O proxy obtém o projeto do cabeçalho `X-Acd-Ctx-Project-Dir` (caminho absoluto de um diretório existente) e, depois, do prefixo `/p/<id>/`. A conversa vem de `X-Acd-Ctx-Conversation`. Requisições sem sinal de projeto usam o projeto `default` e registram um aviso.
-- **Armazenamento.** `global` guarda todos os projetos em um único banco. `local` guarda um projeto em `.acd-ctx/acd-ctx.db`.
+- **Armazenamento.** `global` guarda todos os projetos em um único banco. `local` guarda um projeto em `.acd-ctx/acd-ctx.db`. Um único `acd-ctx serve` respeita `local` nas requisições cujo `X-Acd-Ctx-Project-Dir` aponta para o projeto; o prefixo `/p/<id>/` não traz a raiz, então essas requisições usam o banco global. No Claude Code, envie o cabeçalho com `ANTHROPIC_CUSTOM_HEADERS="X-Acd-Ctx-Project-Dir: /caminho/absoluto/do/projeto"` no `.claude/settings.local.json` do projeto.
 
 Comandos de projeto:
 

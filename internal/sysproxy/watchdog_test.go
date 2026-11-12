@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -348,11 +349,24 @@ func TestWatchdogMainRefusesRelativeExtraAndNonPipe(t *testing.T) {
 	if code := WatchdogMain([]string{"--state", "/x.json", "--parent-pid", "5", "extra"}, &buf); code != 2 {
 		t.Fatalf("extra arg: exit = %d", code)
 	}
-	// In the test binary descriptor 3 is not the owner's pipe.
-	if code := WatchdogMain([]string{"--state", "/nonexistent/x.json", "--parent-pid", "5"}, &buf); code != 2 {
-		t.Fatalf("non-pipe fd 3: exit = %d, stderr %q", code, buf.String())
+	// Descriptor 3 is checked in a child process where it is closed: in this
+	// process another test may own a pipe on fd 3, and os.NewFile(3) would close
+	// it when collected.
+	if os.Getenv(fd3ChildEnv) == "1" {
+		os.Exit(WatchdogMain([]string{"--state", "/nonexistent/x.json", "--parent-pid", "5"}, os.Stderr))
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestWatchdogMainRefusesRelativeExtraAndNonPipe$")
+	cmd.Env = append(os.Environ(), fd3ChildEnv+"=1")
+	out, err := cmd.CombinedOutput()
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) || ee.ExitCode() != 2 || !strings.Contains(string(out), "descriptor 3 is not the owner's pipe") {
+		t.Fatalf("closed fd 3: err = %v, output %q", err, out)
 	}
 }
+
+// fd3ChildEnv makes TestWatchdogMainRefusesRelativeExtraAndNonPipe run
+// WatchdogMain as the child process.
+const fd3ChildEnv = "ACD_CTX_TEST_WATCHDOG_FD3_CHILD"
 
 // The helper must not delete a table once its owner has finished its own restore
 // and removed the state file: a newer run may own a table of the same name.

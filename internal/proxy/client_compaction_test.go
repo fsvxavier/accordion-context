@@ -344,3 +344,32 @@ func TestClientCompactionParentLinkOnFirstRequestAfter(t *testing.T) {
 		t.Fatalf("parent link events after second marker = %d, want 1", n)
 	}
 }
+
+// TestClaudeSideRequestsOpenNoSession: Claude Code requests of class auxiliary
+// (the auto-mode classifier) or side_reply are forwarded unchanged and open no
+// session; classes main and subagent are compacted as conversations.
+func TestClaudeSideRequestsOpenNoSession(t *testing.T) {
+	ps, s, dbPath, up := clientCompactionProxy(t)
+	body := transcript(t, "Respond with <severity>N</severity> ONLY.")
+	for _, class := range []string{"auxiliary", "side_reply", "Auxiliary"} {
+		postMessages(t, ps.URL, body, map[string]string{"X-Claude-Code-Request-Class": class})
+		if sent, _ := up.last(); !bytes.Equal(sent, []byte(body)) {
+			t.Fatalf("class %s: body was not forwarded unchanged", class)
+		}
+	}
+	if got := countRows(t, dbPath, "SELECT COUNT(*) FROM sessions"); got != 0 {
+		t.Fatalf("sessions = %d, want 0 after side requests", got)
+	}
+	if got := requestCount(t, s, "anthropic", obs.OutcomeSideRequest); got != 3 {
+		t.Fatalf("side_request counter = %v, want 3", got)
+	}
+	for _, class := range []string{"main", "subagent"} {
+		postMessages(t, ps.URL, transcript(t, "question for "+class), map[string]string{"X-Claude-Code-Request-Class": class})
+		if sent, _ := up.last(); !strings.Contains(string(sent), `"compress"`) {
+			t.Fatalf("class %s: not compacted (no compress tool)", class)
+		}
+	}
+	if got := countRows(t, dbPath, "SELECT COUNT(*) FROM sessions"); got != 2 {
+		t.Fatalf("sessions = %d, want 2 (main and subagent)", got)
+	}
+}

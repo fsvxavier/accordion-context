@@ -297,6 +297,14 @@ func (s *Server) compactTurn(w http.ResponseWriter, r *http.Request, rt routed, 
 		s.clientCompaction(w, r, rt, p, body, sig)
 		return
 	}
+	// A client's side request (not the conversation) is forwarded unchanged and
+	// opens no session.
+	if class := claudeSideRequest(rt, r.Header); class != "" {
+		s.countRequest(p.Name(), obs.OutcomeSideRequest)
+		s.cfg.Logger.Debug("side request forwarded unchanged", "protocol", p.Name(), "class", class, "path", rt.path)
+		s.passthrough(w, r, rt, body)
+		return
+	}
 	model, stream, err := p.Meta(rt.path, r.URL.RawQuery, body)
 	if err != nil {
 		s.passthrough(w, r, rt, body)

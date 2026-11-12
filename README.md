@@ -53,6 +53,8 @@ Coding clients also compact their own history: `/compact` in Claude Code, Codex,
 
 The request is counted as outcome `client_compaction` and in the metric `acd_ctx_client_compactions_total{protocol,signal}`, where `signal` names the rule that matched. It is logged at INFO, not as a fail-open warning. If the session already exists, a `client_compaction` event is recorded on it. Within one hour of the compaction, the next new session of the same project, or the next request that carries `x-claude-code-context-compacted`, gets a `client_compaction_parent` event that links it to the compacted session. No message is copied into the new session; the old messages stay in SQLite and can be found with `search_context` at project scope.
 
+Claude Code side requests are forwarded unchanged too: a request whose `x-claude-code-request-class` is `auxiliary` (for example the auto-mode permission classifier) or `side_reply` opens no session and is counted as outcome `side_request`. Classes `main`, `subagent` and `workflow` are conversations and are compacted.
+
 | Client | Signal | Default | Confidence |
 |---|---|---|---|
 | Claude Code | Header `x-claude-code-compaction` (`auto`, `manual` or `reactive`), or `x-claude-code-request-class: compaction` | On. The `claude` launcher sets `CLAUDE_CODE_GATEWAY_HINT_HEADERS=1`; other setups must set it themselves | High. The header is documented. No text rule, because the prompt text is not published |

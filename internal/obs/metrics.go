@@ -23,6 +23,9 @@ const (
 	// OutcomeClientCompaction counts the client's own compaction call, which is
 	// forwarded unchanged. It is not a fail-open.
 	OutcomeClientCompaction = "client_compaction"
+	// OutcomeSideRequest counts a client's side request (for example Claude
+	// Code's auto-mode classifier), forwarded unchanged with no session.
+	OutcomeSideRequest = "side_request"
 
 	TierNone = "none"
 )

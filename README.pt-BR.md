@@ -53,6 +53,8 @@ Os clientes de código também compactam o próprio histórico: `/compact` no Cl
 
 A requisição é contada como resultado `client_compaction` e na métrica `acd_ctx_client_compactions_total{protocol,signal}`, em que `signal` nomeia a regra que casou. Ela é registrada em INFO, não como aviso de fail-open. Se a sessão já existe, um evento `client_compaction` é gravado nela. Até uma hora depois da compactação, a próxima sessão nova do mesmo projeto, ou a próxima requisição que traga `x-claude-code-context-compacted`, recebe um evento `client_compaction_parent` que a liga à sessão compactada. Nenhuma mensagem é copiada para a sessão nova; as mensagens antigas continuam no SQLite e podem ser encontradas com `search_context` no escopo do projeto.
 
+As requisições laterais do Claude Code também passam sem alteração: uma requisição cujo `x-claude-code-request-class` é `auxiliary` (por exemplo o classificador de permissões do modo automático) ou `side_reply` não abre sessão e é contada como resultado `side_request`. As classes `main`, `subagent` e `workflow` são conversas e são compactadas.
+
 | Cliente | Sinal | Padrão | Confiança |
 |---|---|---|---|
 | Claude Code | Cabeçalho `x-claude-code-compaction` (`auto`, `manual` ou `reactive`), ou `x-claude-code-request-class: compaction` | Ativo. O launcher `claude` define `CLAUDE_CODE_GATEWAY_HINT_HEADERS=1`; outras configurações precisam defini-la | Alta. O cabeçalho é documentado. Não há regra de texto, porque o texto do prompt não é publicado |

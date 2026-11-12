@@ -77,6 +77,27 @@ func (anthropicProtocol) ClientCompaction(rt routed, h http.Header, _ []byte) st
 	return ""
 }
 
+// claudeSideClasses are the request classes Claude Code gives a call that is
+// not the conversation: auxiliary prompts (the auto-mode permission classifier,
+// titles, summaries of tool use) and side replies. Each one is a one-off prompt
+// with its own messages; ingesting it would open a session per call, and that
+// session, being the newest, would hide the conversation from ctx_status. The
+// classes main, subagent and workflow are conversations and are compacted.
+var claudeSideClasses = map[string]bool{"auxiliary": true, "side_reply": true}
+
+// claudeSideRequest returns the request class of a Claude Code side request on
+// the Messages endpoint, or "" for any other request.
+func claudeSideRequest(rt routed, h http.Header) string {
+	if !routedTo(rt, anthropicProtocol{}.Detect) {
+		return ""
+	}
+	class := strings.ToLower(strings.TrimSpace(h.Get(headerClaudeRequestClass)))
+	if claudeSideClasses[class] {
+		return class
+	}
+	return ""
+}
+
 func (anthropicProtocol) AppendNudge(body []byte, text string) ([]byte, error) {
 	return appendToLastUser(body, text)
 }

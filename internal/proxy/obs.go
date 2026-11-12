@@ -95,7 +95,7 @@ func (s *Server) observeCompress(ctx context.Context, sid string, args session.C
 		m.CompressTotal.WithLabelValues(requestedTier(args), obs.OutcomeRejected).Inc()
 		return
 	}
-	snap, serr := s.cfg.Store.Snapshot(ctx, sid)
+	snap, serr := s.storeOf(sid).Snapshot(ctx, sid)
 	if serr != nil {
 		s.cfg.Logger.Warn("compress metrics skipped", "session", sid, "err", serr)
 		return
@@ -282,7 +282,7 @@ func (s *Server) sessionEndpoint(w http.ResponseWriter, r *http.Request, rest st
 			}
 			n = v
 		}
-		rep, err := obs.BuildStatus(ctx, s.cfg.Store, id, n)
+		rep, err := obs.BuildStatus(ctx, s.storeHolding(ctx, id), id, n)
 		if notFound(w, r, err) {
 			return
 		}
@@ -298,7 +298,7 @@ func (s *Server) sessionEndpoint(w http.ResponseWriter, r *http.Request, rest st
 			http.Error(w, "anonymize must be 0 or 1", http.StatusBadRequest)
 			return
 		}
-		tr, err := obs.ExportTrace(ctx, s.cfg.Store, id, anon)
+		tr, err := obs.ExportTrace(ctx, s.storeHolding(ctx, id), id, anon)
 		if notFound(w, r, err) {
 			return
 		}

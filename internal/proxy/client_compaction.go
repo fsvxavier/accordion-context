@@ -156,12 +156,17 @@ func (s *Server) recordClientCompaction(ctx context.Context, r *http.Request, rt
 		msgs = nil // the id then comes from the project and no user message
 	}
 	sid := sessionID(proj.ID, r.Header.Get(headerConv), msgs)
-	if _, err := s.cfg.Store.GetSession(ctx, sid); err != nil {
+	st, err := s.storeFor(proj)
+	if err != nil {
+		s.cfg.Logger.Warn("client compaction: project database not opened, counted only", "err", err)
+		return
+	}
+	if _, err := st.GetSession(ctx, sid); err != nil {
 		s.cfg.Logger.Info("client compaction: no session yet, counted only", "protocol", p.Name())
 		return
 	}
 	payload := map[string]any{"protocol": p.Name(), "path": rt.path, "messages": len(msgs)}
-	if err := s.cfg.Store.AppendEvent(ctx, sid, "client_compaction", payload); err != nil {
+	if err := st.AppendEvent(ctx, sid, "client_compaction", payload); err != nil {
 		s.cfg.Logger.Warn("client compaction: event not recorded", "session", sid, "err", err)
 		return
 	}
@@ -177,7 +182,7 @@ func (s *Server) linkCompactionParent(ctx context.Context, t *turn) {
 	if !ok || parent == t.sid {
 		return
 	}
-	if err := s.cfg.Store.AppendEvent(ctx, t.sid, "client_compaction_parent", map[string]string{"parent": parent}); err != nil {
+	if err := s.storeOf(t.sid).AppendEvent(ctx, t.sid, "client_compaction_parent", map[string]string{"parent": parent}); err != nil {
 		s.cfg.Logger.Warn("client compaction: parent link not recorded", "session", t.sid, "err", err)
 	}
 }

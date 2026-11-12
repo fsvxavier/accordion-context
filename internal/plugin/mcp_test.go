@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"strings"
 	"testing"
+	"time"
 )
 
 // mcpEnv builds an MCP server bound to a project that has a session, created
@@ -270,6 +273,48 @@ func TestMCPStopsOnCancel(t *testing.T) {
 	var out bytes.Buffer
 	if err := m.Serve(ctx, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping"}`+"\n"), &out); err == nil {
 		t.Fatal("cancelled serve returned nil")
+	}
+}
+
+// signalReader reports every Read call on calls before it reads.
+type signalReader struct {
+	r     io.Reader
+	calls chan struct{}
+}
+
+func (s signalReader) Read(p []byte) (int, error) {
+	s.calls <- struct{}{}
+	return s.r.Read(p)
+}
+
+// TestMCPStopsOnCancelWhileIdle covers a client that keeps stdin open and
+// sends nothing: cancelling ctx (SIGTERM) must still end Serve.
+func TestMCPStopsOnCancelWhileIdle(t *testing.T) {
+	m, _ := mcpEnv(t, false)
+	pr, pw := io.Pipe()
+	defer pw.Close()
+	in := signalReader{r: pr, calls: make(chan struct{}, 8)}
+	ctx, cancel := context.WithCancel(context.Background())
+	var out bytes.Buffer
+	errc := make(chan error, 1)
+	go func() { errc <- m.Serve(ctx, in, &out) }()
+	go func() { _, _ = pw.Write([]byte(`{"jsonrpc":"2.0","id":1,"method":"ping"}` + "\n")) }()
+	// The first Read gets the ping; the second one blocks on the idle pipe.
+	for i := 0; i < 2; i++ {
+		select {
+		case <-in.calls:
+		case <-time.After(5 * time.Second):
+			t.Fatal("Serve did not read stdin")
+		}
+	}
+	cancel()
+	select {
+	case err := <-errc:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Serve = %v, want context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Serve did not return after cancel while stdin was idle")
 	}
 }
 

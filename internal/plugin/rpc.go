@@ -153,32 +153,64 @@ func readLine(br *bufio.Reader, max int) (line []byte, tooLong bool, err error) 
 	}
 }
 
+// stdioFrame is one line read by the serveStdio reader goroutine.
+type stdioFrame struct {
+	line    []byte
+	tooLong bool
+	err     error
+}
+
 // serveStdio runs the newline-delimited JSON-RPC loop until in ends or ctx is done.
 // Only framed responses are written to out.
+//
+// The blocking read runs in its own goroutine, so a cancelled ctx (SIGTERM,
+// Ctrl-C) ends the loop even while the client sends nothing. That goroutine
+// stays blocked in Read until in returns; for os.Stdin the process exits first.
 func serveStdio(ctx context.Context, in io.Reader, out io.Writer, dispatch dispatcher) error {
-	br := bufio.NewReaderSize(in, 64<<10)
-	for {
-		if err := ctx.Err(); err != nil {
-			return err
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	frames := make(chan stdioFrame)
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		br := bufio.NewReaderSize(in, 64<<10)
+		for {
+			line, tooLong, err := readLine(br, maxFrameBytes)
+			select {
+			case frames <- stdioFrame{line, tooLong, err}:
+			case <-done:
+				return
+			}
+			if err != nil {
+				return
+			}
 		}
-		line, tooLong, err := readLine(br, maxFrameBytes)
-		if tooLong {
+	}()
+	for {
+		var f stdioFrame
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case f = <-frames:
+		}
+		if f.tooLong {
 			if werr := writeFrame(out, &rpcResponse{JSONRPC: "2.0", ID: nil,
 				Error: &rpcError{codeInvalidRequest, "message exceeds size limit"}}); werr != nil {
 				return werr
 			}
-		} else if len(bytes.TrimSpace(line)) > 0 {
-			if resp := handleFrame(ctx, line, dispatch); resp != nil {
+		} else if len(bytes.TrimSpace(f.line)) > 0 {
+			if resp := handleFrame(ctx, f.line, dispatch); resp != nil {
 				if werr := writeFrame(out, resp); werr != nil {
 					return werr
 				}
 			}
 		}
-		if err != nil {
-			if errors.Is(err, io.EOF) {
+		if f.err != nil {
+			if errors.Is(f.err, io.EOF) {
 				return nil
 			}
-			return err
+			return f.err
 		}
 	}
 }

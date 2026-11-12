@@ -92,7 +92,8 @@ func TestDecodeErrors(t *testing.T) {
 	cases := map[string]string{
 		"not object":     `[]`,
 		"no messages":    `{"model":"x"}`,
-		"bad role":       `{"messages":[{"role":"system","content":"x"}]}`,
+		"bad role":       `{"messages":[{"role":"bogus","content":"x"}]}`,
+		"bad system msg": `{"messages":[{"role":"system","content":42}]}`,
 		"bad content":    `{"messages":[{"role":"user","content":42}]}`,
 		"bad json":       `{"messages":`,
 		"messages bogus": `{"messages":{}}`,
@@ -450,5 +451,45 @@ func TestEchoedRefLabelsAreNotStacked(t *testing.T) {
 	_, um, _ := Decode([]byte(`{"messages":[{"role":"user","content":"[m00009] mine"}]}`))
 	if um[0].Text != "[m00009] mine" {
 		t.Fatalf("user text altered: %q", um[0].Text)
+	}
+}
+
+// Claude Code sends system messages inside the messages array. Each one is a
+// single opaque message, sent back byte for byte and never merged with the user
+// messages around it.
+func TestSystemMessageInMessagesIsOpaque(t *testing.T) {
+	body := `{"model":"m","messages":[` +
+		`{"role":"user","content":"first"},` +
+		`{"role":"system","content":[{"type":"text","text":"reminder","cache_control":{"type":"ephemeral"}}]},` +
+		`{"role":"user","content":"second"}]}`
+	req, msgs := mustDecode(t, body)
+	if len(msgs) != 3 {
+		t.Fatalf("got %d messages, want 3", len(msgs))
+	}
+	if m := msgs[1]; m.Kind != kernel.KindOpaque || m.Role != kernel.RoleUser || m.Text != "reminder" {
+		t.Fatalf("system message decoded as %+v", m)
+	}
+	out, err := Encode(req, msgs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"role":"system","content":[{"type":"text","text":"reminder","cache_control":{"type":"ephemeral"}}]}`
+	if !bytes.Contains(out, []byte(want)) {
+		t.Fatalf("system message not kept verbatim:\n%s", out)
+	}
+	var top struct {
+		Messages []struct {
+			Role string `json:"role"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(out, &top); err != nil {
+		t.Fatal(err)
+	}
+	var roles []string
+	for _, m := range top.Messages {
+		roles = append(roles, m.Role)
+	}
+	if got := strings.Join(roles, ","); got != "user,system,user" {
+		t.Fatalf("roles = %s, want user,system,user", got)
 	}
 }

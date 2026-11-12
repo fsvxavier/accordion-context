@@ -58,8 +58,13 @@ var projectIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 // Config wires the proxy. Upstream and Store are required.
 type Config struct {
-	Upstream     *url.URL
-	Store        *store.Store
+	Upstream *url.URL
+	Store    *store.Store
+	// OpenStore opens the database of a project with storage: local
+	// (<root>/.acd-ctx/acd-ctx.db, spec §18.3) named by X-Acd-Ctx-Project-Dir.
+	// Nil keeps every project in Store, as a launcher proxy does: its Store is
+	// already the project's database.
+	OpenStore    func(path string) (*store.Store, error)
 	Version      string
 	ContextLimit int          // window used when the model has no entry, default 200000
 	MaxLoop      int          // server-side tool rounds per client request, default 4
@@ -115,7 +120,9 @@ type Server struct {
 	roots    map[string]string       // project id -> root_path last seen
 	tunes    map[string]*tune        // per session: calibration, cache gate state (tune.go)
 	cfgs     map[string]cachedConfig // project root ("" = global only) -> configuration
-	epoch    int64                   // store epoch the caches above were built at (epoch.go)
+	epochs   map[*store.Store]int64  // store epoch the caches above were built at (epoch.go)
+	local    map[string]*store.Store // local project databases by path (stores.go)
+	sidStore map[string]*store.Store // session id -> the store holding it (stores.go)
 
 	telemetry *telemetry // metrics and recall-hint tracking (obs.go)
 
@@ -174,6 +181,9 @@ func New(cfg Config) (*Server, error) {
 		roots:     map[string]string{},
 		tunes:     map[string]*tune{},
 		cfgs:      map[string]cachedConfig{},
+		epochs:    map[*store.Store]int64{},
+		local:     map[string]*store.Store{},
+		sidStore:  map[string]*store.Store{},
 		windows:   mergedWindows(cfg.ContextWindows),
 		telemetry: newTelemetry(),
 	}
@@ -351,7 +361,7 @@ func (s *Server) prepareTurn(ctx context.Context, r *http.Request, rt routed, p 
 			s.cfg.Logger.Warn("fork did not inherit blocks; retry next turn", "session", sid, "err", err)
 		}
 	}
-	snap, err := s.cfg.Store.Snapshot(ctx, sid)
+	snap, err := s.storeOf(sid).Snapshot(ctx, sid)
 	if err != nil {
 		return nil, "snapshot", err
 	}
@@ -363,7 +373,7 @@ func (s *Server) prepareTurn(ctx context.Context, r *http.Request, rt routed, p 
 	s.telemetry.m.ContextTokens.WithLabelValues(p.Name()).Observe(float64(tokenCount))
 	// The turn event carries what replay needs to repeat this Plan (spec §17.2 item 4).
 	opts := sess.Settings()
-	if err := s.cfg.Store.AppendEvent(ctx, sid, "turn", obs.TurnEvent{
+	if err := s.storeOf(sid).AppendEvent(ctx, sid, "turn", obs.TurnEvent{
 		Tokens: tokenCount, Messages: len(snap.Messages), ContextLimit: snap.ContextLimit,
 		Settings: obs.SettingsOf(opts.Kernel, opts.RecentKeep, opts.MinCompressRange, opts.MinSummaryChars),
 	}); err != nil {
@@ -634,7 +644,7 @@ func (s *Server) decompress(t *turn, args toolArgs) (string, error) {
 	if args.block == "" {
 		return "", errors.New("decompress: blockId is required")
 	}
-	snap, err := s.cfg.Store.Snapshot(t.ctx, t.sid)
+	snap, err := s.storeOf(t.sid).Snapshot(t.ctx, t.sid)
 	if err != nil {
 		return "", err
 	}
@@ -703,7 +713,7 @@ func (s *Server) decompress(t *turn, args toolArgs) (string, error) {
 func (s *Server) recordCache(t *turn, u usage) {
 	folded := t.compress > t.foldsSeen
 	t.foldsSeen = t.compress
-	err := s.cfg.Store.RecordCache(t.ctx, t.sid, store.CacheCall{
+	err := s.storeOf(t.sid).RecordCache(t.ctx, t.sid, store.CacheCall{
 		InputTokens:   u.input,
 		CachedTokens:  u.cached,
 		EstTokens:     t.estTokens,
@@ -854,27 +864,32 @@ func (s *Server) session(ctx context.Context, p projectRef, sid, model string, l
 	if sess, ok := s.sessions[sid]; ok {
 		return sess, nil
 	}
+	st, err := s.storeForLocked(p)
+	if err != nil {
+		return nil, err
+	}
 	if !s.ensured[p.ID] {
-		if err := s.cfg.Store.EnsureProject(ctx, p.ID, p.Root, p.Storage, time.Now().Unix()); err != nil {
+		if err := st.EnsureProject(ctx, p.ID, p.Root, p.Storage, time.Now().Unix()); err != nil {
 			return nil, err
 		}
 		s.ensured[p.ID] = true
 	}
-	if _, err := s.cfg.Store.Snapshot(ctx, sid); err != nil {
+	if _, err := st.Snapshot(ctx, sid); err != nil {
 		// Only a missing session is created. Any other failure must not
 		// overwrite or shadow a session that may exist.
 		if !errors.Is(err, sql.ErrNoRows) {
 			return nil, err
 		}
-		if err := s.cfg.Store.CreateSession(ctx, store.Session{
+		if err := st.CreateSession(ctx, store.Session{
 			ID: sid, ProjectID: p.ID, Model: model, ContextLimit: limit,
 			Mode: "proxy", Integration: "url",
 		}); err != nil {
 			return nil, err
 		}
 	}
-	sess := session.New(s.cfg.Store, sid)
+	sess := session.New(st, sid)
 	s.sessions[sid] = sess
+	s.sidStore[sid] = st
 	s.seedCalibLocked(ctx, sid)
 	return sess, nil
 }

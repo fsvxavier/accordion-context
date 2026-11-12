@@ -17,6 +17,9 @@ import (
 const (
 	roleUser      = "user"
 	roleAssistant = "assistant"
+	// roleSystem is a system message inside the messages array, which Claude Code
+	// sends besides the top-level system field. It is kept as one opaque message.
+	roleSystem = "system"
 )
 
 // field is one top-level member of the request object, kept as raw bytes so
@@ -35,6 +38,8 @@ type keptBlock struct {
 	text   string
 	toolID string
 	raw    json.RawMessage
+	// whole marks a kept message object (a system message) rather than a block.
+	whole bool
 }
 
 // Request is a decoded Messages API request.
@@ -92,6 +97,20 @@ func Decode(body []byte) (*Request, []kernel.Message, error) {
 		}
 		if err := json.Unmarshal(rm, &m); err != nil {
 			return nil, nil, fmt.Errorf("anthropic: decode request: message %d: %w", i, err)
+		}
+		if m.Role == roleSystem {
+			text, err := systemText(m.Content)
+			if err != nil {
+				return nil, nil, fmt.Errorf("anthropic: decode request: message %d: %w", i, err)
+			}
+			seq++
+			out = append(out, kernel.Message{
+				Seq: seq, Ref: kernel.FormatRef(seq),
+				Role: kernel.RoleUser, Kind: kernel.KindOpaque, Text: text,
+			})
+			req.kept[seq] = keptBlock{role: roleSystem, kind: kernel.KindOpaque, text: text,
+				raw: append(json.RawMessage(nil), rm...), whole: true}
+			continue
 		}
 		if m.Role != roleUser && m.Role != roleAssistant {
 			return nil, nil, fmt.Errorf("anthropic: decode request: message %d: unknown role %q", i, m.Role)
@@ -299,6 +318,10 @@ func Encode(req *Request, window []kernel.Message) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
+		if r.whole {
+			msgs.Write(r.items[0].raw)
+			continue
+		}
 		msgs.WriteString(`{"role":`)
 		msgs.Write(role)
 		msgs.WriteString(`,"content":[`)
@@ -322,6 +345,8 @@ type item struct {
 	raw  json.RawMessage
 	// pinned marks the pinned first user message; it is never merged with neighbours.
 	pinned bool
+	// whole marks a kept message object, written as is and never merged.
+	whole bool
 }
 
 // run is a maximal sequence of items sharing one API role.
@@ -330,9 +355,18 @@ type run struct {
 	items []item
 	// pinned is set on the run holding only the pinned first user message.
 	pinned bool
+	// whole is set on the run holding only a kept message object.
+	whole bool
 }
 
 func (r *Request) blockFor(m kernel.Message) (item, bool) {
+	if m.Kind == kernel.KindOpaque {
+		// A kept system message goes back byte for byte; without its bytes it is dropped.
+		if k, ok := r.kept[m.Seq]; ok && k.whole && k.text == m.Text {
+			return item{role: k.role, kind: kernel.KindOpaque, raw: k.raw, whole: true}, true
+		}
+		return item{}, false
+	}
 	role := roleUser
 	if m.Role == kernel.RoleAssistant {
 		role = roleAssistant
@@ -432,10 +466,11 @@ func inputObject(s string) string {
 func assemble(items []item) []run {
 	var runs []run
 	for _, it := range items {
-		if n := len(runs); n > 0 && runs[n-1].role == it.role && !runs[n-1].pinned && !it.pinned {
+		if n := len(runs); n > 0 && runs[n-1].role == it.role && !runs[n-1].pinned && !it.pinned &&
+			!runs[n-1].whole && !it.whole {
 			runs[n-1].items = append(runs[n-1].items, it)
 		} else {
-			runs = append(runs, run{role: it.role, items: []item{it}, pinned: it.pinned})
+			runs = append(runs, run{role: it.role, items: []item{it}, pinned: it.pinned, whole: it.whole})
 		}
 	}
 
@@ -484,7 +519,8 @@ func assemble(items []item) []run {
 		if len(r.items) == 0 {
 			continue
 		}
-		if n := len(out); n > 0 && out[n-1].role == r.role && !out[n-1].pinned && !r.pinned {
+		if n := len(out); n > 0 && out[n-1].role == r.role && !out[n-1].pinned && !r.pinned &&
+			!out[n-1].whole && !r.whole {
 			out[n-1].items = append(out[n-1].items, r.items...)
 			continue
 		}

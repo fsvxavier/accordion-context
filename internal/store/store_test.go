@@ -182,6 +182,31 @@ func TestTriggerGetSet(t *testing.T) {
 	}
 }
 
+func TestAppendMessageWithIntentSkipsHarnessText(t *testing.T) {
+	s := newMemStore(t)
+	setupSession(t, s, "s1")
+	ctx := context.Background()
+	for _, text := range []string{
+		"<system-reminder>env</system-reminder>",
+		"Tool loaded.",
+		"<ide_opened_file>a.go</ide_opened_file>\nreview a.go",
+	} {
+		if _, err := s.AppendMessageWithIntent(ctx, "s1", NewMessage{Role: kernel.RoleUser, Kind: kernel.KindText, Text: text}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	snap, err := s.Snapshot(ctx, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Messages) != 3 {
+		t.Fatalf("messages = %d, want all 3 kept in the ledger", len(snap.Messages))
+	}
+	if len(snap.Intents) != 1 || snap.Intents[0].OriginSeq != 3 {
+		t.Fatalf("intents = %+v, want one, for the review request", snap.Intents)
+	}
+}
+
 func TestIntentLifecycle(t *testing.T) {
 	s := newMemStore(t)
 	setupSession(t, s, "s1")

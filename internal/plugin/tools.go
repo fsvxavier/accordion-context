@@ -340,8 +340,10 @@ func (t tools) status(ctx context.Context, sid string) (map[string]any, error) {
 	}
 	intents := []intent{}
 	for _, in := range snap.Intents {
-		if in.Status == "open" {
-			intents = append(intents, intent{ID: in.ID, Text: in.Text, Status: in.Status})
+		// The excerpt is bounded as in the <intents> block: the full text of a
+		// pasted log would otherwise overflow the client's tool-result limit.
+		if text := kernel.IntentPreview(in.Text); in.Status == "open" && text != "" {
+			intents = append(intents, intent{ID: in.ID, Text: text, Status: in.Status})
 		}
 	}
 	return map[string]any{

@@ -263,7 +263,8 @@ func (s *Store) AppendMessage(ctx context.Context, sid string, m NewMessage) (ke
 }
 
 // AppendMessageWithIntent is AppendMessage that also opens an intent (spec §11.3)
-// when m is a user text message. The message and its intent commit together, so
+// when m is a user text message with a non-empty kernel.IntentText (harness
+// text such as a <system-reminder> alone opens none). The message and its intent commit together, so
 // a crash cannot leave a user turn without its intent.
 func (s *Store) AppendMessageWithIntent(ctx context.Context, sid string, m NewMessage) (kernel.Message, error) {
 	return s.appendMessage(ctx, sid, m, true)
@@ -305,7 +306,7 @@ func (s *Store) appendMessage(ctx context.Context, sid string, m NewMessage, wit
 	if err := indexTx(ctx, tx, sid, indexKindMessage, ref, m.Text); err != nil {
 		return kernel.Message{}, err
 	}
-	if withIntent && m.Role == kernel.RoleUser && m.Kind == kernel.KindText {
+	if withIntent && m.Role == kernel.RoleUser && m.Kind == kernel.KindText && kernel.IntentText(m.Text) != "" {
 		if _, err := addIntentTx(ctx, tx, sid, seq, m.Text); err != nil {
 			return kernel.Message{}, err
 		}

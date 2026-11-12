@@ -73,6 +73,8 @@ Cada texto de regra foi lido do código-fonte dos clientes, nos commits listados
 
 Limites conhecidos:
 - Codex `custom_tool_call`, `local_shell_call` e todo outro tipo de item de entrada que o codec não modela são barreiras opacas: ficam no lugar, são devolvidos sem alteração, nunca são compactados, e nenhum intervalo de compactação pode cobrir um deles.
+- As mensagens `system` do Claude Code dentro de `messages` (lembretes do harness) são itens opacos carregados: devolvidos byte a byte, nunca resumidos, mas um intervalo de compactação pode cobri-los. Eles continuam na janela sem alteração, logo após o envelope do bloco.
+- Janelas de contexto embutidas: modelos Claude 5 (`claude-opus-5`, `claude-sonnet-5`, `claude-haiku-5`, `claude-fable-5`) 1M tokens; os outros modelos `claude-` 200k. Sobrescreva com `window.models`.
 - A regra de forma do Gemini pode casar com uma chamada SDK comum que tenha instrução de sistema, sem `tools` e sem `generationConfig`.
 - O vínculo com a sessão anterior vai para qualquer sessão nova do projeto dentro de uma hora. Ele fica só em memória, então um reinício o descarta.
 - Se a sessão ainda não existe, a requisição é contada e registrada, mas nenhum evento é gravado.

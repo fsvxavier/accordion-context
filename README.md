@@ -73,6 +73,8 @@ Every rule text was read from the clients' source code at the commits listed in 
 
 Known limits:
 - Codex `custom_tool_call`, `local_shell_call` and every other input item type the codec does not model are opaque barriers: kept in place, sent back unchanged, never compressed, and no compression range may cover one.
+- Claude Code `system` messages inside `messages` (harness reminders) are carried opaque items: sent back byte for byte, never summarized, but a compression range may cover them. They then stay in the window verbatim, right after the block's envelope.
+- Built-in context windows: Claude 5 models (`claude-opus-5`, `claude-sonnet-5`, `claude-haiku-5`, `claude-fable-5`) 1M tokens; other `claude-` models 200k. Override with `window.models`.
 - The Gemini shape rule can match a plain SDK call that has a system instruction, no `tools` and no `generationConfig`.
 - The parent link goes to any new session of the project within one hour. It is kept in memory only, so a restart drops it.
 - If the session does not exist yet, the request is counted and logged, but no event is recorded.

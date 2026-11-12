@@ -18,10 +18,27 @@ const (
 	KindReasoning  Kind = "reasoning"
 	// KindOpaque is an input item of a type the codec does not model (for example
 	// a Responses compaction item). It is kept in place and sent back unchanged. It
-	// is never summarized, dropped by truncation, or joined to a block: see
-	// CompressibleSpans, EmergencyTruncateWith and Render.
+	// is never summarized or dropped by truncation: see CompressibleSpans,
+	// EmergencyTruncateWith and Render. A carried opaque item (Carried) may lie
+	// inside a block; every other opaque item is a barrier no block crosses.
 	KindOpaque Kind = "opaque"
 )
+
+// Carried reports whether m is an opaque item that a block may cover: a system
+// message the client placed inside the conversation (an Anthropic "system"
+// role message, such as a harness reminder), which the codec stores as an
+// opaque user item. Its position carries no state the summary depends on, so
+// it is not a barrier. A block that covers it still renders it verbatim, right
+// after the block's envelope. Other opaque items (Responses compaction items,
+// with role assistant) hold state tied to their position and stay barriers.
+func Carried(m Message) bool {
+	return m.Kind == KindOpaque && m.Role == RoleUser
+}
+
+// Barrier reports whether m is an opaque item that no block may cover.
+func Barrier(m Message) bool {
+	return m.Kind == KindOpaque && !Carried(m)
+}
 
 // Message is the protocol-independent normalized view.
 type Message struct {

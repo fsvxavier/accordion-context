@@ -15,15 +15,22 @@ const cfgTTL = 30 * time.Second
 
 // builtinWindows maps model name prefixes to context windows in tokens (spec §4).
 // The longest matching prefix wins. Config.ContextWindows adds to or replaces entries.
+// The Claude 5 family has a 1M window: upstream accepted requests of up to
+// 894k input tokens (claude-sonnet-5-5), 663k (claude-haiku-5-5), 571k
+// (claude-opus-5-5) and 534k (claude-fable-5-1). Older Claude models keep 200k.
 var builtinWindows = map[string]int{
-	"claude-": 200_000,
-	"gpt-4o":  128_000,
-	"gpt-4.1": 1_047_576,
-	"gpt-5":   400_000,
-	"o1":      200_000,
-	"o3":      200_000,
-	"o4":      200_000,
-	"gemini-": 1_048_576,
+	"claude-":         200_000,
+	"claude-opus-5":   1_000_000,
+	"claude-sonnet-5": 1_000_000,
+	"claude-haiku-5":  1_000_000,
+	"claude-fable-5":  1_000_000,
+	"gpt-4o":          128_000,
+	"gpt-4.1":         1_047_576,
+	"gpt-5":           400_000,
+	"o1":              200_000,
+	"o3":              200_000,
+	"o4":              200_000,
+	"gemini-":         1_048_576,
 }
 
 // cachedConfig is one loaded configuration and when it was loaded.

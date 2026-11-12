@@ -493,3 +493,41 @@ func TestSystemMessageInMessagesIsOpaque(t *testing.T) {
 		t.Fatalf("roles = %s, want user,system,user", got)
 	}
 }
+
+// TestSystemMessageIsCarried: the codec marks a system message as carried, so a
+// block may cover it, and a window with an envelope before it (as Render builds
+// it) still sends the system message verbatim after the envelope.
+func TestSystemMessageIsCarried(t *testing.T) {
+	body := `{"model":"m","messages":[` +
+		`{"role":"user","content":"first"},` +
+		`{"role":"assistant","content":"answer"},` +
+		`{"role":"system","content":"reminder"},` +
+		`{"role":"user","content":"second"}]}`
+	req, msgs := mustDecode(t, body)
+	if !kernel.Carried(msgs[2]) {
+		t.Fatalf("system message %+v is not carried", msgs[2])
+	}
+	envelope := kernel.Message{Role: kernel.RoleUser, Kind: kernel.KindText, Text: "<history>summary</history>"}
+	out, err := Encode(req, []kernel.Message{msgs[0], envelope, msgs[2], msgs[3]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var top struct {
+		Messages []struct {
+			Role string `json:"role"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(out, &top); err != nil {
+		t.Fatal(err)
+	}
+	var roles []string
+	for _, m := range top.Messages {
+		roles = append(roles, m.Role)
+	}
+	if got := strings.Join(roles, ","); got != "user,user,system,user" {
+		t.Fatalf("roles = %s, want user,user,system,user (envelope, then the system message)\n%s", got, out)
+	}
+	if !bytes.Contains(out, []byte(`{"role":"system","content":"reminder"}`)) {
+		t.Fatalf("system message not kept verbatim:\n%s", out)
+	}
+}

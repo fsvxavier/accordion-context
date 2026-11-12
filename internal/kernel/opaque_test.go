@@ -98,3 +98,46 @@ func TestEmergencyTruncateNeverDropsOpaque(t *testing.T) {
 		}
 	}
 }
+
+// carriedLedger is opaqueLedger with the opaque item turned into a client
+// system message (a carried item) and a second one at seq 6.
+func carriedLedger() []Message {
+	msgs := opaqueLedger()
+	msgs[3].Role = RoleUser
+	msgs[5].Role, msgs[5].Kind = RoleUser, KindOpaque
+	return msgs
+}
+
+// TestCompressibleSpansCrossCarried: carried items do not split spans, never
+// bound one and are not counted in its tokens.
+func TestCompressibleSpansCrossCarried(t *testing.T) {
+	spans := CompressibleSpans(Snapshot{Messages: carriedLedger()}, 2)
+	if len(spans) != 1 {
+		t.Fatalf("spans = %+v, want one", spans)
+	}
+	sp := spans[0]
+	if sp.Start != "m00002" || sp.End != "m00005" || sp.Tokens != 300 {
+		t.Fatalf("span = %s..%s %d tokens, want m00002..m00005 300", sp.Start, sp.End, sp.Tokens)
+	}
+}
+
+// TestRenderKeepsCarriedAfterEnvelope: a block over carried items renders them
+// verbatim after its envelope, and they do not anchor later blocks.
+func TestRenderKeepsCarriedAfterEnvelope(t *testing.T) {
+	s := Snapshot{
+		Messages: carriedLedger(),
+		Blocks:   []Block{{ID: "b1", Tier: 1, StartSeq: 2, EndSeq: 6, Active: true, Summary: "s", SumTokens: 5}},
+	}
+	var got []string
+	for _, m := range Render(s) {
+		if strings.Contains(m.Text, `<history block="b1"`) {
+			got = append(got, "b1")
+			continue
+		}
+		got = append(got, m.Ref)
+	}
+	want := "m00001 b1 m00004 m00006 m00007 m00008"
+	if strings.Join(got, " ") != want {
+		t.Fatalf("window = %v, want %s", got, want)
+	}
+}

@@ -416,8 +416,11 @@ func (s *Session) HandleCompress(ctx context.Context, args CompressArgs) (Compre
 		if hasSystemMessage(snap.Messages, start.Seq, end.Seq) {
 			return CompressResult{}, fmt.Errorf("range %d: covers a system message", i)
 		}
-		if hasOpaqueMessage(snap.Messages, start.Seq, end.Seq) {
-			return CompressResult{}, fmt.Errorf("range %d: covers an opaque input item, which is never compressed", i)
+		if ref, ok := barrierInside(snap.Messages, start.Seq, end.Seq); ok {
+			return CompressResult{}, fmt.Errorf("range %d: covers the opaque input item %s, which is never compressed; split the range at it", i, ref)
+		}
+		if kernel.Carried(start) || kernel.Carried(end) {
+			return CompressResult{}, fmt.Errorf("range %d: starts or ends on a client system message; start and end on conversation messages", i)
 		}
 		if firstUser != 0 && start.Seq <= firstUser && firstUser <= end.Seq {
 			return CompressResult{}, fmt.Errorf("range %d: covers the pinned first user message", i)
@@ -660,15 +663,16 @@ func hasSystemMessage(msgs []kernel.Message, lo, hi int64) bool {
 	return false
 }
 
-// hasOpaqueMessage reports whether an opaque input item lies in [lo, hi]. Such an
-// item is kept in place, so no range may cover it.
-func hasOpaqueMessage(msgs []kernel.Message, lo, hi int64) bool {
+// barrierInside returns the ref of the first barrier opaque item in [lo, hi].
+// Such an item is kept in place, so no range may cover it. Carried items
+// (kernel.Carried) may lie inside a range: Render keeps them after the envelope.
+func barrierInside(msgs []kernel.Message, lo, hi int64) (string, bool) {
 	for _, m := range msgs {
-		if m.Seq >= lo && m.Seq <= hi && m.Kind == kernel.KindOpaque {
-			return true
+		if m.Seq >= lo && m.Seq <= hi && kernel.Barrier(m) {
+			return m.Ref, true
 		}
 	}
-	return false
+	return "", false
 }
 
 func sameMessage(a, b kernel.Message) bool {
@@ -737,7 +741,8 @@ func splitsToolPair(msgs []kernel.Message, pairs map[string][]int64, lo, hi int6
 func sourceTokens(msgs []kernel.Message, lo, hi int64) int {
 	total := 0
 	for _, m := range msgs {
-		if m.Seq >= lo && m.Seq <= hi {
+		// A carried item stays in the window, so a block does not replace it.
+		if m.Seq >= lo && m.Seq <= hi && !kernel.Carried(m) {
 			total += m.Tokens
 		}
 	}

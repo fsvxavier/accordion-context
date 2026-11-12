@@ -90,7 +90,10 @@ func Render(s Snapshot) []Message {
 		out = append(out, Message{Role: RoleUser, Kind: KindText, Text: t})
 	}
 	for _, m := range s.Messages {
-		if m.Role != RoleSystem && !covered(m.Seq) && (firstUser == nil || m.Seq != firstUser.Seq) {
+		// A carried opaque item stays in the window even when a block covers it:
+		// the envelope comes first (at the top or at its anchor), so the item
+		// follows it.
+		if m.Role != RoleSystem && (!covered(m.Seq) || Carried(m)) && (firstUser == nil || m.Seq != firstUser.Seq) {
 			out = append(out, m)
 		}
 		for _, b := range anchored[m.Seq] {
@@ -109,11 +112,12 @@ func blockMessage(b Block, ref func(int64) string) Message {
 		b.ID, b.Tier, ref(b.StartSeq), ref(b.EndSeq), b.ID, b.Summary)}
 }
 
-// opaqueSeqs lists the sequence numbers of the opaque messages, in ledger order.
+// opaqueSeqs lists the sequence numbers of the barrier opaque messages, in
+// ledger order. Carried items do not anchor blocks.
 func opaqueSeqs(msgs []Message) []int64 {
 	var out []int64
 	for _, m := range msgs {
-		if m.Kind == KindOpaque {
+		if Barrier(m) {
 			out = append(out, m.Seq)
 		}
 	}
@@ -202,7 +206,8 @@ type Span struct {
 
 // CompressibleSpans lists the ranges that may be compressed now (spec §10.2),
 // in ledger order. A message is a candidate when it is not a system message,
-// not an opaque item (a barrier: no span crosses it), not covered by an active
+// not a barrier opaque item (no span crosses it; a carried one may lie inside a
+// span but never bounds it, and its tokens are not counted), not covered by an active
 // block, not the pinned first user message and not in the last keep messages. A tool call and its result must both be candidates,
 // and every message between them too, so no compressed range splits a pair.
 // Each span starts on a non-result and ends on a non-call, as compress requires.
@@ -230,7 +235,7 @@ func CompressibleSpans(s Snapshot, keep int) []Span {
 
 	cand := make([]bool, len(msgs))
 	for i, m := range msgs {
-		cand[i] = m.Role != RoleSystem && m.Kind != KindOpaque && m.Seq != firstUser &&
+		cand[i] = m.Role != RoleSystem && !Barrier(m) && m.Seq != firstUser &&
 			m.Seq <= last-int64(keep) && !covered(m.Seq)
 	}
 	// Index span of every tool pair (call and result share ToolCallID).
@@ -285,14 +290,15 @@ func CompressibleSpans(s Snapshot, keep int) []Span {
 	return out
 }
 
-// makeSpan trims a candidate run so it neither starts on a tool_result nor ends
-// on a tool_call, and sums its tokens.
+// makeSpan trims a candidate run so it neither starts on a tool_result or a
+// carried item nor ends on a tool_call or a carried item, and sums the tokens a
+// block would replace (carried items stay in the window, so they do not count).
 func makeSpan(run []Message) Span {
 	lo, hi := 0, len(run)-1
-	for lo <= hi && run[lo].Kind == KindToolResult {
+	for lo <= hi && (run[lo].Kind == KindToolResult || Carried(run[lo])) {
 		lo++
 	}
-	for hi >= lo && run[hi].Kind == KindToolCall {
+	for hi >= lo && (run[hi].Kind == KindToolCall || Carried(run[hi])) {
 		hi--
 	}
 	if lo > hi {
@@ -300,7 +306,9 @@ func makeSpan(run []Message) Span {
 	}
 	sp := Span{Start: run[lo].Ref, End: run[hi].Ref, StartSeq: run[lo].Seq, EndSeq: run[hi].Seq}
 	for _, m := range run[lo : hi+1] {
-		sp.Tokens += m.Tokens
+		if !Carried(m) {
+			sp.Tokens += m.Tokens
+		}
 	}
 	return sp
 }

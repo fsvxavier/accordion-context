@@ -45,7 +45,7 @@ proxy serves only semantic-version tags (a tag without the `v`, such as `1.0.0`,
 is not a module version). `@latest` resolves to the newest `v*` tag:
 
 ```sh
-go install github.com/fsvxavier/accordion-context/cmd/acd-ctx@v1.0.3
+go install github.com/fsvxavier/accordion-context/cmd/acd-ctx@v1.0.4
 ```
 
 The toolchain must be at least the `go` version in `go.mod`.

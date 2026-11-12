@@ -100,7 +100,13 @@ func (s *Server) applyContextLimit(ctx context.Context, sid string, cfg config.C
 	if want == stored {
 		return nil
 	}
-	return s.storeOf(sid).SetContextLimit(ctx, sid, want)
+	if err := s.storeOf(sid).SetContextLimit(ctx, sid, want); err != nil {
+		return err
+	}
+	// Refusals counted against the old window (for example a window too small
+	// for the model, with an emergency nudge every turn) would keep nudges
+	// suspended in the new one.
+	return s.storeOf(sid).ResetRefusals(ctx, sid)
 }
 
 // configFor returns the effective configuration of a project root (spec §18.5).

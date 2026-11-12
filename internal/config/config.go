@@ -126,6 +126,7 @@ func (c Config) Kernel() kernel.Config {
 		UHigh:          c.UHigh,
 		UEmerg:         c.UEmerg,
 		TiersEnabled:   c.TiersEnabled,
+		MaxRefusals:    c.MaxRefusals,
 	}
 }
 

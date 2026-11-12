@@ -17,6 +17,17 @@ func (s *Store) SessionWindow(ctx context.Context, sid string) (model string, li
 
 // SetContextLimit replaces the stored context window of session sid. It writes
 // only that column, so the ledger, blocks and trigger state are left as they are.
+// ResetRefusals clears the refusal count and the pending nudge of a session.
+// The proxy calls it when the session's window changes: refusals counted
+// against another window say nothing about the new one.
+func (s *Store) ResetRefusals(ctx context.Context, sid string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE trigger_state SET refusals = 0, nudge_pending = 0 WHERE session_id = ?`, sid)
+	if err != nil {
+		return fmt.Errorf("session %s: reset refusals: %w", sid, err)
+	}
+	return nil
+}
+
 func (s *Store) SetContextLimit(ctx context.Context, sid string, limit int) error {
 	if limit <= 0 {
 		return fmt.Errorf("session %s: context limit must be positive, got %d", sid, limit)

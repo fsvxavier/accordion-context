@@ -4,7 +4,7 @@
 
 Accordion Context é um proxy local que mantém sessões longas de agentes de código dentro de uma janela de contexto limitada. O modelo resume partes antigas da conversa, os resumos substituem as mensagens originais na janela, e os originais ficam em um banco SQLite para que possam ser recuperados.
 
-> **Status: 1.0.5.** O proxy (com suas quatro ferramentas internas), os launchers de clientes, o caminho `attach` (incluindo os graus opcionais de proxy do sistema e transparente), backup, restauração, limpeza, os endpoints de observabilidade, o protocolo HTTP de plugin com seus clientes e a biblioteca `pkg/acdctx` estão implementados e passam em `go test ./...`. Veja [Status](#status).
+> **Status: 1.0.6.** O proxy (com suas quatro ferramentas internas), os launchers de clientes, o caminho `attach` (incluindo os graus opcionais de proxy do sistema e transparente), backup, restauração, limpeza, os endpoints de observabilidade, o protocolo HTTP de plugin com seus clientes e a biblioteca `pkg/acdctx` estão implementados e passam em `go test ./...`. Veja [Status](#status).
 
 ## O que é
 
@@ -99,7 +99,7 @@ go build -o acd-ctx ./cmd/acd-ctx
 Instale uma release em `$(go env GOPATH)/bin` com `go install`. O toolchain precisa ser pelo menos a versão `go` de `go.mod`:
 
 ```sh
-go install github.com/fsvxavier/accordion-context/cmd/acd-ctx@v1.0.5
+go install github.com/fsvxavier/accordion-context/cmd/acd-ctx@v1.0.6
 acd-ctx help
 ```
 

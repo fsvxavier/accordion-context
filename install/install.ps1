@@ -21,7 +21,7 @@
   .\install.ps1 install -Scope local -Project C:\src\app -LocalStorage -Integration both -Clients claude,gemini -Yes
   .\install.ps1 install -Method docker -Integration proxy -Port 8787 -Yes
   .\install.ps1 install -Integration proxy -Clients claude,codex -Gateway bifrost -GatewayUrl http://127.0.0.1:8080 -Yes
-  .\install.ps1 update -Version 1.0.5
+  .\install.ps1 update -Version 1.0.6
   .\install.ps1 configure -Port 8788 -Clients all
   .\install.ps1 service restart
 #>

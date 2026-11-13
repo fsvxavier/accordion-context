@@ -141,7 +141,7 @@ Install method:
                          release: download the GitHub release binary (checksum
                          verified); go: go install; docker: ghcr.io image;
                          custom: build --from-source DIR or copy --binary FILE
-  --version X            version to install, e.g. 1.0.5 (default: latest)
+  --version X            version to install, e.g. 1.0.6 (default: latest)
   --bin-dir DIR          where the binary goes (default ~/.local/bin; for go,
                          GOBIN or GOPATH/bin)
   --from-source DIR      custom: build from this checkout
@@ -180,7 +180,7 @@ Examples:
   ./install.sh install --scope local --project ~/src/app --local-storage \
       --integration both --clients claude,gemini --yes
   ./install.sh install --method docker --integration proxy --port 8787 --yes
-  ./install.sh update --version 1.0.5
+  ./install.sh update --version 1.0.6
   ./install.sh configure --port 8788 --clients all
 EOF
 }

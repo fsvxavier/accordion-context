@@ -1,0 +1,61 @@
+# acd-ctx project configuration (spec §18.3).
+# Only compression parameters are honoured here (§18.6). Every key below is
+# set to its built-in default (internal/config/config.go, Defaults()), except
+# storage, which this project sets to local.
+# Check the result with: acd-ctx config show --effective
+
+# Where this project's database lives: global (default) or local
+# (<root>/.acd-ctx/acd-ctx.db).
+storage: local
+
+# Compression trigger (§8.1, §8.4). Fractions of the context window.
+trigger:
+  u_floor: 0.30          # below this utilization, never nudge
+  u_high: 0.75           # above this, nudge more often
+  u_emerg: 0.95          # emergency threshold
+  step_base: 50000       # base token growth between nudges
+  step_min: 30000
+  step_max: 100000
+  step_read_gain: 1.0
+  min_growth_floor: 20000
+  max_refusals: 3        # 0 = never suspend after refusals
+  tiers_enabled: true    # hierarchical tiers T1 -> T2 -> T3
+
+# Compression (§10, §11).
+compress:
+  preserve_recent_messages: 3
+  preserve_recent_tokens: 5000
+  min_compress_range: 5000
+  min_summary_chars: 50
+  max_summary_chars: 20000
+  protected_tools: []
+  framing_check: false
+  user_turn_after_summaries: true
+  intent_ledger: true
+
+# CCR (§14).
+ccr:
+  threshold_tokens: 4000
+  crush: true
+
+# Recall (§13).
+recall:
+  assist: true
+  min_accept_rate: 0.05
+
+# Context window the trigger measures against (§8.1, §4).
+window:
+  context_limit: 500000       # 0 = derive the window from the model
+  models: {}             # model prefix (lower case) -> tokens, e.g. claude-opus: 1000000
+
+# --- Global-only keys (ignored here, with a warning) -------------------------
+# Set these in $XDG_CONFIG_HOME/acd-ctx/config.yaml instead.
+#
+# cache:
+#   ttl: 5m
+#   margin: 1.5
+#   price_uncached: 0
+#   price_cached: 0
+#
+# compaction:
+#   text_rules: strong   # strong | all | off

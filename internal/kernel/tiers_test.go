@@ -471,10 +471,24 @@ func scaledConfig() Config {
 // TestTierPlansKeepInvariantsProperty applies random plans and decompresses to
 // random states. After every step, I1 (message level and block level), I2, I5
 // and I6 must hold. The test also requires that folds and decompresses really
-// happened, so it cannot pass vacuously.
+// happened, so it cannot pass vacuously. A T3 fold needs two adjacent T2
+// blocks, so a single run of 100 cases misses it about once in 50 random
+// seeds; the check runs up to vacuityRounds times until every count is set.
 func TestTierPlansKeepInvariantsProperty(t *testing.T) {
 	cfg := scaledConfig()
 	var folds2, folds3, decomps int
+	const vacuityRounds = 5
+	for round := 0; round < vacuityRounds && (folds2 == 0 || folds3 == 0 || decomps == 0); round++ {
+		checkTierPlans(t, cfg, &folds2, &folds3, &decomps)
+	}
+	if folds2 == 0 || folds3 == 0 || decomps == 0 {
+		t.Fatalf("property is vacuous after %d rounds: folds2=%d folds3=%d decompresses=%d", vacuityRounds, folds2, folds3, decomps)
+	}
+}
+
+// checkTierPlans is one rapid run of TestTierPlansKeepInvariantsProperty. It
+// adds the folds and decompresses it applied to the counters.
+func checkTierPlans(t *testing.T, cfg Config, folds2, folds3, decomps *int) {
 	rapid.Check(t, func(t *rapid.T) {
 		blocks := genState(t)
 		var maxSeq int64
@@ -509,9 +523,9 @@ func TestTierPlansKeepInvariantsProperty(t *testing.T) {
 				nextID++
 				blocks = next
 				if tier == 2 {
-					folds2++
+					*folds2++
 				} else {
-					folds3++
+					*folds3++
 				}
 			case 2:
 				id := blocks[rapid.IntRange(0, len(blocks)-1).Draw(t, "pick")].ID
@@ -527,7 +541,7 @@ func TestTierPlansKeepInvariantsProperty(t *testing.T) {
 					t.Fatalf("ApplyDecompress(%+v): %v", plan, err)
 				}
 				blocks = next
-				decomps++
+				*decomps++
 			}
 
 			if err := CheckBlockInvariants(blocks); err != nil {
@@ -538,9 +552,6 @@ func TestTierPlansKeepInvariantsProperty(t *testing.T) {
 			}
 		}
 	})
-	if folds2 == 0 || folds3 == 0 || decomps == 0 {
-		t.Fatalf("property is vacuous: folds2=%d folds3=%d decompresses=%d", folds2, folds3, decomps)
-	}
 }
 
 // TestPlanFoldAgreesWithDecideNudge checks that the kernel never nudges a tier

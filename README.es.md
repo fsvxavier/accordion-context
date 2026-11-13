@@ -85,6 +85,8 @@ Límites conocidos:
 
 Requisitos: Go 1.27.1 o posterior (la directiva `go` de `go.mod`). No hace falta compilador de C: SQLite viene de `modernc.org/sqlite`, que es Go puro.
 
+Scripts de instalación: [install/install.sh](install/install.sh) (Linux, macOS) e [install/install.ps1](install/install.ps1) (Windows) instalan acd-ctx con `go install`, la descarga de la versión publicada, Docker o una compilación personalizada. Lo registran en Claude Code, Codex, Gemini CLI y OpenCode como servidor MCP, proxy o ambos, de forma global o para un proyecto. También pueden enviar el tráfico a través de un gateway OmniRoute, freellmapi o Bifrost y ejecutar el proxy como servicio de usuario, además de actualizar la configuración y la aplicación. Sin argumentos abren un menú. Consulte [install/README.md](install/README.md).
+
 Compilar desde el clon (verificado, también con `CGO_ENABLED=0`):
 
 ```sh

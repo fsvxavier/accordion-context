@@ -4,7 +4,7 @@
 
 Accordion Context is a local proxy that keeps long coding-agent sessions inside a limited context window. The model summarizes older parts of the conversation, the summaries replace the original messages in the window, and the originals stay in a SQLite database so they can be recovered.
 
-> **Status: 1.0.5.** The proxy (with its four internal tools), the launchers, the `attach` ladder (including the opt-in system-proxy and transparent degrees), backup, restore, clean, the observability endpoints, the plugin protocol with its clients, and `pkg/acdctx` are implemented and pass `go test ./...`. See [Status](#status).
+> **Status: 1.0.6.** The proxy (with its four internal tools), the launchers, the `attach` ladder (including the opt-in system-proxy and transparent degrees), backup, restore, clean, the observability endpoints, the plugin protocol with its clients, and `pkg/acdctx` are implemented and pass `go test ./...`. See [Status](#status).
 
 ## What it is
 
@@ -85,6 +85,8 @@ Known limits:
 
 Requirements: Go 1.27.1 or later (the `go` directive in `go.mod`). No C compiler is needed: SQLite comes from `modernc.org/sqlite`, which is pure Go.
 
+Installer scripts: [install/install.sh](install/install.sh) (Linux, macOS) and [install/install.ps1](install/install.ps1) (Windows) install acd-ctx with `go install`, a release download, Docker or a custom build. They register it with Claude Code, Codex, Gemini CLI and OpenCode as an MCP server, a proxy or both, either globally or for one project. They can route the traffic through an OmniRoute, freellmapi or Bifrost gateway and run the proxy as a user service, and they also update the configuration and the application. With no arguments they open a menu. See [install/README.md](install/README.md).
+
 Build from a clone (verified, also with `CGO_ENABLED=0`):
 
 ```sh
@@ -97,7 +99,7 @@ go build -o acd-ctx ./cmd/acd-ctx
 Install a release into `$(go env GOPATH)/bin` with `go install`. The toolchain must be at least the `go` version in `go.mod`:
 
 ```sh
-go install github.com/fsvxavier/accordion-context/cmd/acd-ctx@v1.0.5
+go install github.com/fsvxavier/accordion-context/cmd/acd-ctx@v1.0.6
 acd-ctx help
 ```
 

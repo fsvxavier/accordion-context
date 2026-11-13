@@ -4,7 +4,7 @@
 
 Accordion Context es un proxy local que mantiene las sesiones largas de agentes de programación dentro de una ventana de contexto limitada. El modelo resume las partes antiguas de la conversación, los resúmenes sustituyen a los mensajes originales en la ventana, y los originales se conservan en una base de datos SQLite para poder recuperarlos.
 
-> **Estado: 1.0.0.** El proxy (con sus cuatro herramientas internas), los lanzadores de clientes, el camino `attach` (incluidos los grados opcionales de proxy del sistema y transparente), la copia de seguridad, la restauración, la limpieza, los endpoints de observabilidad, el protocolo HTTP de plugins con sus clientes y la biblioteca `pkg/acdctx` están implementados y superan `go test ./...`. Consulte [Estado](#estado).
+> **Estado: 1.0.5.** El proxy (con sus cuatro herramientas internas), los lanzadores de clientes, el camino `attach` (incluidos los grados opcionales de proxy del sistema y transparente), la copia de seguridad, la restauración, la limpieza, los endpoints de observabilidad, el protocolo HTTP de plugins con sus clientes y la biblioteca `pkg/acdctx` están implementados y superan `go test ./...`. Consulte [Estado](#estado).
 
 ## Qué es
 
@@ -53,6 +53,8 @@ Los clientes de programación también compactan su propio historial: `/compact`
 
 La petición se cuenta como resultado `client_compaction` y en la métrica `acd_ctx_client_compactions_total{protocol,signal}`, donde `signal` nombra la regla que coincidió. Se registra en INFO, no como aviso de fail-open. Si la sesión ya existe, se graba en ella un evento `client_compaction`. Hasta una hora después de la compactación, la siguiente sesión nueva del mismo proyecto, o la siguiente petición que lleve `x-claude-code-context-compacted`, recibe un evento `client_compaction_parent` que la vincula con la sesión compactada. Ningún mensaje se copia a la sesión nueva; los mensajes antiguos siguen en SQLite y se pueden encontrar con `search_context` en el ámbito del proyecto.
 
+Las peticiones secundarias de Claude Code también se reenvían sin cambios: una petición cuyo `x-claude-code-request-class` es `auxiliary` (por ejemplo, el clasificador de permisos del modo automático) o `side_reply` no abre ninguna sesión y se cuenta como resultado `side_request`. Las clases `main`, `subagent` y `workflow` son conversaciones y se compactan.
+
 | Cliente | Señal | Por defecto | Confianza |
 |---|---|---|---|
 | Claude Code | Cabecera `x-claude-code-compaction` (`auto`, `manual` o `reactive`), o `x-claude-code-request-class: compaction` | Activa. El lanzador `claude` define `CLAUDE_CODE_GATEWAY_HINT_HEADERS=1`; otras configuraciones deben definirla | Alta. La cabecera está documentada. No hay regla de texto, porque el texto del prompt no se publica |
@@ -73,6 +75,8 @@ Cada texto de regla se leyó del código fuente de los clientes, en los commits 
 
 Límites conocidos:
 - Codex `custom_tool_call`, `local_shell_call` y cualquier otro tipo de elemento de entrada que el codec no modela son barreras opacas: se mantienen en su sitio, se devuelven sin cambios, nunca se compactan, y ningún intervalo de compactación puede cubrir uno de ellos.
+- Los mensajes `system` de Claude Code dentro de `messages` (recordatorios del entorno) son elementos opacos transportados: se devuelven byte a byte y nunca se resumen, pero un intervalo de compactación puede cubrirlos. En ese caso permanecen literalmente en la ventana, justo después del envoltorio del bloque.
+- Ventanas de contexto integradas: modelos Claude 5 (`claude-opus-5`, `claude-sonnet-5`, `claude-haiku-5`, `claude-fable-5`), 1M de tokens; otros modelos `claude-`, 200k. Se sustituyen con `window.models`.
 - La regla de forma de Gemini puede coincidir con una llamada SDK normal que tenga instrucción de sistema, sin `tools` y sin `generationConfig`.
 - El vínculo padre apunta a cualquier sesión nueva del proyecto dentro de una hora, y solo se guarda en memoria: un reinicio lo descarta.
 - Si la sesión todavía no existe, la petición se cuenta y se registra, pero no se graba ningún evento.
@@ -93,7 +97,7 @@ go build -o acd-ctx ./cmd/acd-ctx
 Instale una versión publicada en `$(go env GOPATH)/bin` con `go install`. El toolchain debe ser al menos la versión `go` de `go.mod`:
 
 ```sh
-go install github.com/fsvxavier/accordion-context/cmd/acd-ctx@v1.0.0
+go install github.com/fsvxavier/accordion-context/cmd/acd-ctx@v1.0.5
 acd-ctx help
 ```
 
@@ -260,7 +264,7 @@ El proxy vuelve a leer la configuración de cada raíz de proyecto como máximo 
 - **Detección.** Subiendo desde el directorio de trabajo, la raíz es el directorio más cercano que contiene `.acd-ctx/`, `.git` o un marcador de raíz; dentro de un mismo directorio el orden es `.acd-ctx/`, después `.git` y después un marcador. Si no se encuentra ninguno, el directorio de trabajo es la raíz.
 - **ID del proyecto.** Un proyecto con `.acd-ctx/project-id` usa ese valor. Si no, el ID son los primeros 16 caracteres hexadecimales del SHA-256 de la ruta de la raíz.
 - **Peticiones.** El proxy toma el proyecto de la cabecera `X-Acd-Ctx-Project-Dir` (ruta absoluta de un directorio existente) y, después, del prefijo `/p/<id>/`. La conversación viene de `X-Acd-Ctx-Conversation`. Las peticiones sin señal de proyecto usan el proyecto `default` y registran un aviso.
-- **Almacenamiento.** `global` guarda todos los proyectos en una base de datos. `local` guarda un proyecto en `.acd-ctx/acd-ctx.db`.
+- **Almacenamiento.** `global` guarda todos los proyectos en una base de datos. `local` guarda un proyecto en `.acd-ctx/acd-ctx.db`. Un único `acd-ctx serve` respeta `local` en las peticiones cuyo `X-Acd-Ctx-Project-Dir` nombra el proyecto; un prefijo `/p/<id>/` no lleva raíz, así que esas peticiones usan la base de datos global. Con Claude Code, envíe la cabecera con `ANTHROPIC_CUSTOM_HEADERS="X-Acd-Ctx-Project-Dir: /ruta/absoluta/del/proyecto"` en el `.claude/settings.local.json` del proyecto.
 
 Comandos de proyecto:
 
@@ -404,7 +408,6 @@ La CI (`.github/workflows/ci.yml`) ejecuta `gofmt`, `go vet`, `go test -race`, u
 | `internal/proxy` | Servidor HTTP, enrutamiento, adaptadores de protocolo, modo WebSocket, bucle de herramientas en el servidor, endpoints de observabilidad. |
 | `internal/wire/...` | Codecs de `anthropic`, `openai`, `responses` y `google`. |
 | `internal/config` | Configuración por capas e informe del origen efectivo de cada clave. |
-| `internal/project` | Detección de la raíz y del ID del proyecto. |
 | `internal/launcher` | Perfiles de cliente, ejecución con variables de entorno, configuraciones temporales. |
 | `internal/attach` | Escalera de integración de `attach`: sondeos, grados de consola, MITM y de sistema. |
 | `internal/sysproxy` | Backends de proxy del sistema y los backends transparentes de nftables e iptables, con ficheros de estado, el proceso auxiliar de vigilancia y restauración. |
@@ -413,6 +416,7 @@ La CI (`.github/workflows/ci.yml`) ejecuta `gofmt`, `go vet`, `go test -race`, u
 | `internal/obs` | Métricas Prometheus, informes de estado y exportación de trazas. |
 | `internal/plugin` | Servidor MCP por stdio, handler HTTP del plugin y la comprobación del epoch del store. |
 | `internal/cli`, `internal/doctor` | Implementación de los comandos de `cmd/acd-ctx`; comprobaciones de instalación e integración. |
+| `internal/project` | Detección de la raíz y del ID del proyecto. |
 | `pkg/acdctx` | Biblioteca pública de Go: API de cliente, transporte y handler HTTP. |
 | `middleware/python`, `middleware/node` | Clientes del protocolo de plugins (sin dependencias). |
 | `conformance` | Vectores del plugin neutros respecto al lenguaje y el ejecutor en Go. |

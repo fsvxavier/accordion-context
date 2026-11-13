@@ -408,7 +408,6 @@ A CI (`.github/workflows/ci.yml`) roda `gofmt`, `go vet`, `go test -race`, um ve
 | `internal/proxy` | Servidor HTTP, roteamento, adaptadores de protocolo, modo WebSocket, laço de ferramentas no servidor, endpoints de observabilidade. |
 | `internal/wire/...` | Codecs de `anthropic`, `openai`, `responses` e `google`. |
 | `internal/config` | Configuração em camadas e relatório da origem efetiva de cada chave. |
-| `internal/project` | Detecção da raiz e do ID do projeto. |
 | `internal/launcher` | Perfis de clientes, execução com variáveis de ambiente, configurações temporárias. |
 | `internal/attach` | Escada de integração do `attach`: sondagens, graus de console, MITM e de sistema. |
 | `internal/sysproxy` | Backends de proxy do sistema e os backends transparentes com nftables e iptables, com arquivos de estado, o processo auxiliar de watchdog e restauração. |
@@ -417,6 +416,7 @@ A CI (`.github/workflows/ci.yml`) roda `gofmt`, `go vet`, `go test -race`, um ve
 | `internal/obs` | Métricas Prometheus, relatórios de status e exportação de trace. |
 | `internal/plugin` | Servidor MCP stdio, handler HTTP do plugin e a checagem do epoch do store. |
 | `internal/cli`, `internal/doctor` | Implementação dos comandos de `cmd/acd-ctx`; verificações de instalação e integração. |
+| `internal/project` | Detecção da raiz e do ID do projeto. |
 | `pkg/acdctx` | Biblioteca Go pública: API de cliente, transporte e handler HTTP. |
 | `middleware/python`, `middleware/node` | Clientes do protocolo de plugin (sem dependências). |
 | `conformance` | Vetores do plugin neutros em relação à linguagem e o executor em Go. |
